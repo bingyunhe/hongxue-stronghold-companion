@@ -13,6 +13,20 @@ public sealed record RouteStageDefinition(string Name, int TerminalLevel, int Ma
     public bool Stacking { get; init; }
 
     /// <summary>
+    /// 自动规划 “先小后大”: the stage builds these 小盟约 instead of the route's goals (the 本家 waits for the
+    /// terminal level that offers its stackers) and does not pursue other core covenants. Null = the route's
+    /// goals; an empty list = whichever 小盟约 are strongest. Ignored by a <see cref="Stacking"/> stage.
+    /// </summary>
+    public IReadOnlyList<PlannerGoal>? SmallGoals { get; init; }
+
+    /// <summary>
+    /// Covenants the stage has to reach as far as its shop allows (自动规划: the 本家 in every 先大后小 stage and
+    /// in the 成型 stage of 先小后大). A missing member weighs more than any stacker or 小盟约.
+    /// Ignored by a <see cref="Stacking"/> stage, which already holds the route's goals at their planned counts.
+    /// </summary>
+    public IReadOnlyList<PlannerGoal> Required { get; init; } = [];
+
+    /// <summary>
     /// Default stages, modelled on the common “公式化运营” guides: 开局 → 前期 → 中期 (四本对对碰) → 后期 (六本叠层) → 大成.
     /// 大成 (the boss lineup) is the chosen final lineup itself and is not part of this list.
     /// </summary>

@@ -305,8 +305,13 @@ public sealed partial class RouteStageItem : ObservableObject
     /// <summary>Short name for the stepper: 开局 / 前期 / 四本 / 六本 / 大成.</summary>
     public string ShortTitle { get; init; } = "";
     public string Subtitle { get; init; } = "";
-    /// <summary>“终端 3”, or empty for 大成.</summary>
+    /// <summary>“终端 3” / “打 Boss”; an auto plan puts its rounds in front: “第 3–4 回合 · 终端 3”.</summary>
     public string LevelText { get; init; } = "";
+    /// <summary>自动规划: the rounds the stage is played in, “第 3–4 回合” (empty on a plain 道中路线).</summary>
+    public string RoundText { get; init; } = "";
+    /// <summary>自动规划: funds of those rounds, “每回合资金约 6 → 7（不含道具）”.</summary>
+    public string FundsText { get; init; } = "";
+    public bool HasFunds => FundsText.Length > 0;
     public bool IsFinal { get; init; }
     public bool IsStacking { get; init; }
     public IReadOnlyList<RouteOperatorItem> Operators { get; init; } = [];
@@ -320,6 +325,25 @@ public sealed partial class RouteStageItem : ObservableObject
     public bool HasWarning => WarningText.Length > 0;
     public PlannerStrategyPiece? StrategyPiece { get; init; }
     public bool HasStrategyPiece => StrategyPiece is not null;
+
+    // 自动规划 advice; empty on a plain 道中路线.
+    /// <summary>What the stage is for: “小盟约过渡：坚守 3；本家 炎 1/6”.</summary>
+    public string FocusText { get; init; } = "";
+    public bool HasAdvice => FocusText.Length > 0;
+    /// <summary>速升 / 稳升 / 停留搜牌 / 满本.</summary>
+    public string PaceText { get; init; } = "";
+    public bool IsRushPace { get; init; }
+    public bool IsStayPace { get; init; }
+    /// <summary>When to upgrade the terminal, as a condition.</summary>
+    public string UpgradeText { get; init; } = "";
+    public bool HasUpgrade => UpgradeText.Length > 0;
+    /// <summary>“升 5 本后才出现：冻河、Mon3tr”.</summary>
+    public string UnlockText { get; init; } = "";
+    public bool HasUnlock => UnlockText.Length > 0;
+    /// <summary>抓位: cards of later stages the shop already offers.</summary>
+    public IReadOnlyList<RouteOperatorItem> Reserve { get; init; } = [];
+    public bool HasReserve => Reserve.Count > 0;
+    public string ReserveTitle { get; init; } = "";
 }
 
 /// <summary>
@@ -396,6 +420,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         // Strategy-only pieces (“暴躁铁皮”) never appear in the shop pool, so neither planner uses them.
         _operators = operators.Where(o => o.RequiredStrategyId.Length == 0).ToList();
         _routePlanner = new LineupRoutePlanner(_operators, planner.Covenants);
+        _autoPlanner = new AutoPlanner(planner, _routePlanner, _operators);
         _operatorByName = _operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         _allOperatorIcons = operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First().IconPath, StringComparer.Ordinal);
         foreach (var c in planner.Covenants)
@@ -520,6 +545,7 @@ public partial class LineupPlannerViewModel : ObservableObject
             if (_isActive == value) return;
             _isActive = value;
             if (value && _dirty) RequestRecompute();
+            if (value) EnsureAutoPlans();
         }
     }
 
@@ -569,7 +595,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         GoalsChanged();
     }
 
-    [RelayCommand] private void ShowGoalPage() => ShowResults = false;
+    [RelayCommand] private void ShowGoalPage() { ShowResults = false; ShowAuto = false; }
     [RelayCommand] private void ShowResultPage() => ShowResults = true;
 
     [RelayCommand]
@@ -754,6 +780,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         _routeCts?.Cancel();
         _routeCts = null;
         ShowRoute = false;
+        RouteFromAuto = false;
         IsRouteBusy = false;
         RouteStages.Clear();
         RouteSteps.Clear();
@@ -797,7 +824,8 @@ public partial class LineupPlannerViewModel : ObservableObject
     [RelayCommand]
     private Task ShowRouteFor(PlannerLineupItem? item) => item is null ? Task.CompletedTask : PlanRouteAsync(item);
 
-    public async Task PlanRouteAsync(PlannerLineupItem item)
+    /// <summary>Cancels the route on screen and opens an empty, busy route page for <paramref name="item"/>.</summary>
+    private CancellationTokenSource BeginRoute(PlannerLineupItem item, string title, string subtitle, bool fromAuto)
     {
         _routeCts?.Cancel();
         var cts = new CancellationTokenSource();
@@ -808,11 +836,38 @@ public partial class LineupPlannerViewModel : ObservableObject
         _routeItem = item;
         TrackRouteCommand.NotifyCanExecuteChanged();
         SaveRouteCommand.NotifyCanExecuteChanged();
-        RouteTitle = $"{item.Title} · 道中路线";
-        RouteSubtitle = string.Join(" · ", item.Source.Goals.Select(g => $"{g.Name} {g.Count}")
-            .Append($"{item.Source.People} 人").Append($"{item.Source.Transforms} 转"));
+        RouteTitle = title;
+        RouteSubtitle = subtitle;
+        RouteFromAuto = fromAuto;
         ShowRoute = true;
         IsRouteBusy = true;
+        return cts;
+    }
+
+    /// <summary>Fills the route page; <paramref name="advice"/> (自动规划) has one entry per stage.</summary>
+    private void ShowPlannedRoute(PlannedRoute route, PlannedLineup final, IReadOnlyList<AutoPlanStageAdvice>? advice = null)
+    {
+        for (var i = 0; i < route.Stages.Count; i++)
+        {
+            var stageItem = BuildStageItem(route.Stages[i], route.ExpiresAt(i), final, advice is not null && i < advice.Count ? advice[i] : null);
+            RouteStages.Add(stageItem);
+            RouteSteps.Add(new RouteStepItem
+            {
+                Name = stageItem.ShortTitle, Number = i + 1, HasLine = i < route.Stages.Count - 1, Stage = stageItem
+            });
+        }
+        RefreshRouteProgress(expandCurrent: true);
+        _currentRoute = route;
+        TrackRouteCommand.NotifyCanExecuteChanged();
+        SaveRouteCommand.NotifyCanExecuteChanged();
+    }
+
+    public async Task PlanRouteAsync(PlannerLineupItem item)
+    {
+        var cts = BeginRoute(item, $"{item.Title} · 道中路线",
+            string.Join(" · ", item.Source.Goals.Select(g => $"{g.Name} {g.Count}")
+                .Append($"{item.Source.People} 人").Append($"{item.Source.Transforms} 转")),
+            fromAuto: false);
         var bannedCovenants = new HashSet<string>(_banVm.BannedCovenants, StringComparer.Ordinal);
         var request = new RouteRequest
         {
@@ -825,19 +880,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         {
             var route = await Task.Run(() => _routePlanner.Plan(request, cts.Token), cts.Token);
             if (!ReferenceEquals(_routeCts, cts)) return;
-            for (var i = 0; i < route.Stages.Count; i++)
-            {
-                var stageItem = BuildStageItem(route.Stages[i], route.ExpiresAt(i), item.Source);
-                RouteStages.Add(stageItem);
-                RouteSteps.Add(new RouteStepItem
-                {
-                    Name = stageItem.ShortTitle, Number = i + 1, HasLine = i < route.Stages.Count - 1, Stage = stageItem
-                });
-            }
-            RefreshRouteProgress(expandCurrent: true);
-            _currentRoute = route;
-            TrackRouteCommand.NotifyCanExecuteChanged();
-            SaveRouteCommand.NotifyCanExecuteChanged();
+            ShowPlannedRoute(route, item.Source);
         }
         catch (OperationCanceledException)
         {
@@ -851,7 +894,18 @@ public partial class LineupPlannerViewModel : ObservableObject
     private static readonly string[] Roman = ["", "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ"];
     private static string RomanOf(int tier) => tier >= 0 && tier < Roman.Length ? Roman[tier] : tier.ToString();
 
-    private RouteStageItem BuildStageItem(RouteStage stage, int expiresAt, PlannedLineup final)
+    /// <summary>“5 / 8 / 11 / 12 / 13”: what the upgrades to 二本 … 六本 cost when first offered.</summary>
+    private static readonly string UpgradePrices = string.Join(" / ",
+        Enumerable.Range(2, TerminalLevelTracker.MaxLevel - 1).Select(AutoPlanPacing.UpgradePrice));
+
+    /// <summary>“每回合资金约 6 → 7（不含道具）”: what the rounds of a stage hand out.</summary>
+    private static string FundsOf(int fromRound, int toRound)
+    {
+        var (first, last) = (AutoPlanPacing.Funds(fromRound), AutoPlanPacing.Funds(toRound));
+        return first == last ? $"每回合资金约 {first}（不含道具）" : $"每回合资金约 {first} → {last}（不含道具）";
+    }
+
+    private RouteStageItem BuildStageItem(RouteStage stage, int expiresAt, PlannedLineup final, AutoPlanStageAdvice? advice = null)
     {
         var def = stage.Definition;
         var subtitle = stage.IsFinal
@@ -898,6 +952,14 @@ public partial class LineupPlannerViewModel : ObservableObject
         conditions.Add(new RouteChip($"{def.People} 人", false, false));
         if (def.TripleSlots > 0) conditions.Add(new RouteChip($"三连 ≤ {def.TripleSlots}", false, false, $"至多 {def.TripleSlots} 张三连 {RomanOf(def.MaxTier + 1)} 阶"));
         if (def.Stacking) conditions.Add(new RouteChip("叠层", false, false, "保持大成盟约激活、尽量多上叠层手，打 Boss 前换成大成阵容"));
+        // 自动规划: the rounds this stage is played in (funds against upgrade cost), shown in the stage header
+        var rounds = advice is not { FromRound: > 0 } ? ""
+            : advice.FromRound == advice.ToRound ? $"第 {advice.FromRound} 回合" : $"第 {advice.FromRound}–{advice.ToRound} 回合";
+        if (rounds.Length > 0)
+            subtitle += stage.IsFinal
+                ? $"\n最终领袖在第 {AutoPlanPacing.BossRound} 回合；达成条件后还有第 {AutoPlanPacing.HiddenRound} 回合的隐藏回合"
+                : $"\n{rounds}按资金和升本费用推算：每回合资金 {AutoPlanPacing.FirstRoundFunds} 起 +1、到 {AutoPlanPacing.MaxFunds} 为止，"
+                  + $"升二至六本 {UpgradePrices} 费、每过一回合便宜 1（不含道具和策略，按资金不结转算）";
         var needHealer = def.TerminalLevel >= LineupRoutePlanner.HealerFromTerminal;
         var hasHealer = sum.Healers > 0 || sum.HealingCovenant;
         var roles = new List<RouteChip>
@@ -909,13 +971,31 @@ public partial class LineupPlannerViewModel : ObservableObject
                 sum.FinalLayers > 0 ? $"叠层手；为大成盟约每回合约叠 {sum.FinalLayers:0.#} 层" : "叠层手")
         };
         var shortTitle = stage.IsFinal ? "大成" : def.Name.Length > 2 ? def.Name[..2] : def.Name;
+        // 抓位: cards of later stages that this stage's shop already offers
+        var reserve = advice?.Reserve.Select(p => new RouteOperatorItem
+        {
+            Name = p.Name, IconPath = p.IconPath, TierText = RomanOf(p.Tier), IsFinal = p.IsFinal, Sub = p.NeededAt,
+            Operator = _operatorByName.GetValueOrDefault(p.Name),
+            ExtraInfo = def.Stacking ? $"{p.NeededAt}阵容要用：留在备战区，打 Boss 前换上"
+                : $"{p.NeededAt}上场：这一档商店已经会出，见到就买下留在备战区"
+        }).ToList() ?? [];
+        var kept = stage.Removed.Where(n => reserve.Any(r => r.Name == n)).ToList();
         return new RouteStageItem
         {
             Title = stage.IsFinal ? "大成" : def.Name, ShortTitle = shortTitle, Subtitle = subtitle,
-            LevelText = stage.IsFinal ? "打 Boss" : $"终端 {def.TerminalLevel}",
+            RoundText = rounds,
+            FundsText = advice is not { FromRound: > 0 } || stage.IsFinal ? "" : FundsOf(advice.FromRound, advice.ToRound),
+            LevelText = (rounds.Length > 0 ? $"{rounds} · " : "") + (stage.IsFinal ? "打 Boss" : $"终端 {def.TerminalLevel}"),
             IsFinal = stage.IsFinal, IsStacking = def.Stacking, ExpiresAt = expiresAt,
             Operators = ops, Covenants = pills, Conditions = conditions, Roles = roles,
-            ChangeText = stage.Removed.Count == 0 ? "" : $"换下 {string.Join("、", stage.Removed)}",
+            ChangeText = stage.Removed.Count == 0 ? "" : $"换下 {string.Join("、", stage.Removed)}"
+                + (kept.Count > 0 ? $"（{string.Join("、", kept)} 后面还要用，留在备战区）" : ""),
+            FocusText = advice?.Focus ?? "",
+            PaceText = advice is null || stage.IsFinal ? "" : AutoPlanStyles.PaceName(advice.Pace),
+            IsRushPace = advice?.Pace == AutoPlanPace.Rush, IsStayPace = advice?.Pace == AutoPlanPace.Stay,
+            UpgradeText = advice?.UpgradeText ?? "",
+            UnlockText = advice is { Unlocks.Count: > 0, NextLevel: > 0 } ? $"升 {advice.NextLevel} 本后才出现：{string.Join("、", advice.Unlocks)}" : "",
+            Reserve = reserve, ReserveTitle = def.Stacking ? "打 Boss 前换上" : "见到就留",
             WarningText = string.Join("；", sum.Warnings),
             // Pith is there all run; 暴躁铁皮's transformations are done by 后期 (叠层)
             StrategyPiece = final.Strategy == PlannerStrategy.Pith || final.Strategy == PlannerStrategy.Mech
@@ -943,6 +1023,8 @@ public partial class LineupPlannerViewModel : ObservableObject
     /// <summary>Cancels any running search and schedules a new one (debounced). Deferred while the tab is hidden.</summary>
     public void RequestRecompute()
     {
+        // Bans, strategy and locked operators also decide the 自动 candidates.
+        InvalidateAutoPlans();
         _cts?.Cancel();
         _cts = null;
         if (!IsActive) { _dirty = true; return; }
@@ -997,7 +1079,8 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     private void ApplyResult(PlannerResult? result, TimeSpan elapsed)
     {
-        CloseRoute();
+        // New candidates replace the route of an old one; an auto plan's route does not depend on them.
+        if (!RouteFromAuto) CloseRoute();
         var previous = SelectedVariant;
         VariantCells.Clear();
         foreach (var p in PeopleOptions)

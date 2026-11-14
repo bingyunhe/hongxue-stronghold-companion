@@ -56,6 +56,8 @@ public sealed class LineupRoutePlanner
     private const double StackingGoalMissing = 400;
     /// <summary>后期 (叠层): layers count 3× the normal stage weight.</summary>
     private const double StackingLayerWeight = 3;
+    /// <summary>Per member a <see cref="RouteStageDefinition.Required"/> covenant is short of its count.</summary>
+    private const double RequiredMissing = 300;
     private const int MaxImprovementRounds = 60;
 
     private readonly IReadOnlyList<Operator> _operators;
@@ -64,12 +66,15 @@ public sealed class LineupRoutePlanner
     private readonly LineupPlanner _planner;
     /// <summary>Distinct covenants of each operator and whether it is a 调和 holder (Score is called a lot).</summary>
     private readonly Dictionary<string, (string[] Covenants, bool Harmony)> _opCovenants;
+    /// <summary>Every non-core covenant: the only ones a <see cref="RouteStageDefinition.SmallGoals"/> stage scores.</summary>
+    private readonly HashSet<string> _additionalNames;
 
     public LineupRoutePlanner(IEnumerable<Operator> operators, IEnumerable<CovenantInfo> covenants)
     {
         _operators = [.. operators];
         _byName = _operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         _covenants = covenants.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        _additionalNames = _covenants.Values.Where(c => c.BondType != "SEASON").Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
         _planner = new LineupPlanner(_operators, _covenants.Values);
         _opCovenants = _byName.ToDictionary(kv => kv.Key, kv =>
         {
@@ -118,6 +123,8 @@ public sealed class LineupRoutePlanner
         var stageCount = request.Stages.Count;
         // Earlier layers accumulate for more rounds: 开局 1.3 … 四本 0.85 with the default four stages.
         double StageWeight(int s) => 0.7 + 0.15 * (stageCount - s);
+        // A 先小后大 stage builds its own 小盟约; every other stage (and 后期 叠层) builds the route's goals.
+        IReadOnlyList<PlannerGoal> StageGoals(RouteStageDefinition def) => def.Stacking || def.SmallGoals is null ? goals : def.SmallGoals;
         var pool = _operators.Where(o => o.IsAvailableForSelection)
             .Where(o => !request.BannedOperators.Contains(o.Name))
             .Where(o => !request.ExcludeMixedBannedOperators || !_planner.IsExcludedByBans(o, request.BannedCovenants))
@@ -129,7 +136,7 @@ public sealed class LineupRoutePlanner
         for (var s = request.Stages.Count - 1; s >= 0; s--)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var team = SolveStage(request.Stages[s], pool, goals, next, finalNames, previous: null, teams[s], finalActive, StageWeight(s),
+            var team = SolveStage(request.Stages[s], pool, StageGoals(request.Stages[s]), next, finalNames, previous: null, teams[s], finalActive, StageWeight(s),
                 request.Stages[s].Stacking ? finalTransforms : NoTransforms);
             teams[s] = team;
             // A stacking stage is a detour before the boss: earlier stages still head for the boss lineup.
@@ -144,7 +151,7 @@ public sealed class LineupRoutePlanner
             var after = s + 1 < request.Stages.Count && !request.Stages[s + 1].Stacking
                 ? teams[s + 1].ToHashSet(StringComparer.Ordinal) : finalNames;
             var before = s > 0 ? teams[s - 1] : null;
-            teams[s] = SolveStage(request.Stages[s], pool, goals, after, finalNames, before, teams[s], finalActive, StageWeight(s),
+            teams[s] = SolveStage(request.Stages[s], pool, StageGoals(request.Stages[s]), after, finalNames, before, teams[s], finalActive, StageWeight(s),
                 request.Stages[s].Stacking ? finalTransforms : NoTransforms);
         }
 
@@ -163,10 +170,14 @@ public sealed class LineupRoutePlanner
             var stageTransforms = def.Stacking ? finalTransforms : NoTransforms;
             if (def.Stacking)
                 ops = [.. ops.Select(o => o with { TransformedCovenant = finalTransforms.GetValueOrDefault(o.Name) })];
-            var summary = Summarize(team, stageTransforms, goals, def.TerminalLevel, finalActive);
+            var stageGoals = StageGoals(def);
+            var summary = Summarize(team, stageTransforms, stageGoals, def.TerminalLevel, finalActive);
             if (def.Stacking)
                 summary = summary with { Warnings = [.. summary.Warnings, .. StackingGoalWarnings(Count(team, stageTransforms), goals)] };
-            stages.Add(new RouteStage(def, ops, Status(team, stageTransforms, goals))
+            // The stage's own 小盟约 first, then the route's goals (the 本家 it is heading for).
+            IReadOnlyList<PlannerGoal> shownGoals = ReferenceEquals(stageGoals, goals) ? goals
+                : [.. stageGoals, .. goals.Where(g => stageGoals.All(s => s.Name != g.Name))];
+            stages.Add(new RouteStage(def, ops, Status(team, stageTransforms, shownGoals))
             {
                 Summary = summary,
                 Removed = previous.Where(n => !team.Contains(n)).Order(StringComparer.Ordinal).ToList()
@@ -244,17 +255,30 @@ public sealed class LineupRoutePlanner
                 combined.Add(o);
         }
         seeds.Add(combined);
+        // A required covenant needs all of its members at once, not just the activation count.
+        if (!def.Stacking)
+            foreach (var g in def.Required)
+                seeds.Add(Holders(g.Name).Take(g.Count).ToList());
 
         // Seeds are independent: solve them in parallel, then pick in seed order so the result stays deterministic.
         var solved = new (List<Operator> Team, double Score)[seeds.Count];
+        // The strategy pieces are thread-static: hand them to the worker threads, which would otherwise count
+        // the seeds they solve without Pith / 暴躁铁皮.
+        var (pith, mech) = (_pith, _mech);
         Parallel.For(0, seeds.Count, i =>
         {
-            var team = new List<Operator>();
-            foreach (var o in seeds[i])
-                if (team.Count < size && ctx.CanAdd(team, o)) team.Add(o);
-            Fill(team, pool, size, ctx);
-            Improve(team, pool, ctx);
-            solved[i] = (team, ctx.Score(team));
+            var (outerPith, outerMech) = (_pith, _mech);
+            (_pith, _mech) = (pith, mech);
+            try
+            {
+                var team = new List<Operator>();
+                foreach (var o in seeds[i])
+                    if (team.Count < size && ctx.CanAdd(team, o)) team.Add(o);
+                Fill(team, pool, size, ctx);
+                Improve(team, pool, ctx);
+                solved[i] = (team, ctx.Score(team));
+            }
+            finally { (_pith, _mech) = (outerPith, outerMech); }
         });
         List<Operator>? best = null;
         var bestScore = double.NegativeInfinity;
@@ -572,6 +596,8 @@ public sealed class LineupRoutePlanner
         IReadOnlyDictionary<string, string> transforms)
     {
         private readonly HashSet<string> _goalNames = goals.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
+        /// <summary>先小后大 stage: only 小盟约 score, so the stage does not wander into another core covenant.</summary>
+        private readonly IReadOnlySet<string>? _scored = def.SmallGoals is null || def.Stacking ? null : owner._additionalNames;
 
         private int TripleCount(IEnumerable<Operator> team) => team.Count(o => o.Tier > def.MaxTier);
 
@@ -604,10 +630,12 @@ public sealed class LineupRoutePlanner
         {
             var counts = owner.Count(team.Select(o => o.Name), def.Stacking ? transforms : NoTransforms);
             if (def.Stacking) return StackingScore(team, counts);
-            double score = PointWeight * (owner.Points(counts, goals) + (GoalPointFactor - 1) * owner.Points(counts, goals, _goalNames));
+            double score = PointWeight * (owner.Points(counts, goals, _scored) + (GoalPointFactor - 1) * owner.Points(counts, goals, _goalNames));
             foreach (var g in goals)
                 score += GoalMember * Math.Min(counts.GetValueOrDefault(g.Name), g.Count);
             score += owner.RoleScore(team, counts, finalActive, stageWeight, def.TerminalLevel);
+            foreach (var g in def.Required)
+                score -= RequiredMissing * Math.Max(0, g.Count - counts.GetValueOrDefault(g.Name));
             if (previousCounts is not null)
                 foreach (var g in goals)
                 {
