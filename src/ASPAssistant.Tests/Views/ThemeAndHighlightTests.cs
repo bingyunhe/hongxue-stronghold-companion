@@ -75,6 +75,9 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     public Task SklandImport_ReviewsAndSavesStages() => ui.RunAsync(SklandImportViewTests.Verify, nameof(SklandImport_ReviewsAndSavesStages));
 
     [Fact]
+    public Task AutoPlan_ListsCandidatesAndShowsStageAdvice() => ui.RunAsync(AutoPlanViewTests.Verify, nameof(AutoPlan_ListsCandidatesAndShowsStageAdvice));
+
+    [Fact]
     public Task UpdateDialog_ReportsDownloadProgress() => ui.RunAsync(() =>
     {
         var info = new ASPAssistant.Core.Services.UpdateInfo(

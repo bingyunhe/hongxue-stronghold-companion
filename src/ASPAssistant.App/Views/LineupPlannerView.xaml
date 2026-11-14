@@ -671,6 +671,33 @@
             </DataTemplate.Triggers>
         </DataTemplate>
 
+        <!-- 抓位: a card of a later stage that the current shop already offers -->
+        <DataTemplate x:Key="RouteReserveTemplate" DataType="{x:Type vm:RouteOperatorItem}">
+            <StackPanel Width="66" Margin="0,0,2,4" Background="Transparent" Tag="{Binding Operator}"
+                        ToolTip="{StaticResource OperatorDetailsToolTip}" ToolTipService.IsEnabled="{Binding HasDetails}"
+                        ToolTipService.InitialShowDelay="0" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000">
+                <Grid Width="30" Height="30" HorizontalAlignment="Center">
+                    <controls:Avatar x:Name="photo" Small="True" Text="{Binding Name}" Source="{Binding IconPath}"
+                                     Ring="{DynamicResource TransitionBrush}" RingDashed="True" />
+                    <Border Style="{StaticResource PlannedBadge}" Visibility="Visible" HorizontalAlignment="Left" Margin="-4,0,0,-4"
+                            Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding TierText}" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   FontFamily="{DynamicResource NumberFontFamily}" Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                </Grid>
+                <TextBlock Text="{Binding Name}" FontSize="10" TextAlignment="Center" Margin="0,4,0,0"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBlock Text="{Binding Sub}" FontSize="9" TextAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextSecondaryBrush}" />
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsFinal}" Value="True">
+                    <Setter TargetName="photo" Property="Ring" Value="{DynamicResource FinalBrush}" />
+                    <Setter TargetName="photo" Property="RingDashed" Value="False" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
         <!-- 条件 / 盾奶叠 chips -->
         <DataTemplate x:Key="RouteChipTemplate" DataType="{x:Type vm:RouteChip}">
             <Border x:Name="chip" CornerRadius="{DynamicResource PillCornerRadius}" Padding="7,1" Margin="0,0,4,4"
@@ -727,6 +754,31 @@
 
                     <!-- expanded -->
                     <StackPanel x:Name="body" Visibility="Collapsed" Margin="0,8,0,0">
+                        <!-- 自动规划: what the stage is for and when to upgrade the terminal -->
+                        <Border CornerRadius="{DynamicResource RowCornerRadius}" Padding="8,6" Margin="0,0,0,8"
+                                Background="{DynamicResource SectionBackgroundBrush}"
+                                Visibility="{Binding HasAdvice, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding FocusText}" FontSize="11" FontWeight="Bold" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <DockPanel Margin="0,5,0,0" Visibility="{Binding HasUpgrade, Converter={StaticResource BoolToVis}}">
+                                    <Border x:Name="paceBadge" DockPanel.Dock="Left" VerticalAlignment="Top" Margin="0,1,6,0" Padding="6,0"
+                                            CornerRadius="{DynamicResource PillCornerRadius}" Background="{DynamicResource AccentSoftBrush}"
+                                            ToolTip="升本节奏：速升 = 不为搜牌停留；停留搜牌 = 这一档有大成 / 叠层要用的卡">
+                                        <TextBlock x:Name="paceText" Text="{Binding PaceText}" FontSize="10" FontWeight="Bold"
+                                                   Foreground="{DynamicResource AccentBrush}" />
+                                    </Border>
+                                    <TextBlock Text="{Binding UpgradeText}" FontSize="11" LineHeight="16" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               ToolTip="回合按资金推算：升二至六本 5 / 8 / 11 / 12 / 13 费，每过一回合便宜 1；速升 = 资金够就升，稳升多留 1 回合，停留搜牌多留 2 回合" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding UnlockText}" Style="{StaticResource PlannerHint}" Margin="0,4,0,0"
+                                           Visibility="{Binding HasUnlock, Converter={StaticResource BoolToVis}}" />
+                                <TextBlock Text="{Binding FundsText}" Style="{StaticResource PlannerHint}" Margin="0,2,0,0"
+                                           ToolTip="资金从第 1 回合的 4 起每回合 +1，到 12 为止；道具、策略给的另算"
+                                           Visibility="{Binding HasFunds, Converter={StaticResource BoolToVis}}" />
+                            </StackPanel>
+                        </Border>
                         <WrapPanel>
                             <ItemsControl ItemsSource="{Binding Conditions}" ItemTemplate="{StaticResource RouteChipTemplate}" Focusable="False">
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -753,6 +805,15 @@
                             <TextBlock Text="{Binding ChangeText}" FontSize="10" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextSecondaryBrush}"
                                        ToolTip="{Binding ChangeText}" />
                         </DockPanel>
+                        <!-- 自动规划 抓位: buy ahead for later stages -->
+                        <StackPanel Margin="0,0,0,4" Visibility="{Binding HasReserve, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding ReserveTitle}" FontSize="10" FontWeight="Bold" Margin="0,0,0,5"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       ToolTip="后面阶段要用、这一档商店已经会出的卡：见到就买下留在备战区" />
+                            <ItemsControl ItemsSource="{Binding Reserve}" ItemTemplate="{StaticResource RouteReserveTemplate}" Focusable="False">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
                         <ItemsControl ItemsSource="{Binding Covenants}" Focusable="False">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -796,6 +857,14 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsFinal}" Value="True">
                     <Setter TargetName="stageTitle" Property="Foreground" Value="{DynamicResource SuccessTextBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsRushPace}" Value="True">
+                    <Setter TargetName="paceBadge" Property="Background" Value="{DynamicResource SuccessTintBrush}" />
+                    <Setter TargetName="paceText" Property="Foreground" Value="{DynamicResource SuccessTextBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsStayPace}" Value="True">
+                    <Setter TargetName="paceBadge" Property="Background" Value="{DynamicResource WarningTintBrush}" />
+                    <Setter TargetName="paceText" Property="Foreground" Value="{DynamicResource WarningTextBrush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -847,6 +916,85 @@
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
+
+        <!-- ── 自动规划 ─────────────────────────────────────────────── -->
+        <!-- 先小后大 / 先大后小 button on a plan card; the recommended one is the primary button -->
+        <DataTemplate x:Key="AutoStyleButtonTemplate" DataType="{x:Type vm:AutoStyleChoice}">
+            <Button x:Name="open" Content="{Binding Label}" Style="{StaticResource DialogSecondaryButton}" MinWidth="0" Margin="0,0,6,0"
+                    ToolTip="{Binding Hint}" ToolTipService.InitialShowDelay="350"
+                    Command="{Binding DataContext.OpenAutoPlanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsRecommended}" Value="True">
+                    <Setter TargetName="open" Property="Style" Value="{StaticResource DialogPrimaryButton}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- One 本家: its 大成 lineup, where its stackers sit, and the two ways to play it -->
+        <DataTemplate x:Key="AutoPlanCardTemplate" DataType="{x:Type vm:AutoPlanItem}">
+            <Border Style="{StaticResource ItemCardBorder}" CornerRadius="{DynamicResource CardCornerRadius}" Padding="10" Margin="0,0,0,8">
+                <StackPanel>
+                    <DockPanel>
+                        <Border x:Name="rank" DockPanel.Dock="Left" Width="26" Height="26" Margin="0,0,8,0" VerticalAlignment="Top"
+                                CornerRadius="{DynamicResource RowCornerRadius}" Background="{DynamicResource SectionBackgroundBrush}">
+                            <TextBlock x:Name="rankText" Text="{Binding Rank}" FontSize="13" FontWeight="Bold" FontFamily="{DynamicResource NumberFontFamily}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource PlannerHint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding Covenants}" Focusable="False" Margin="0,8,0,-4">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:PlannerGoalPill}">
+                                <Border x:Name="pill" CornerRadius="{DynamicResource PillCornerRadius}" Padding="7,1" Margin="0,0,4,4" BorderThickness="1"
+                                        Background="{DynamicResource SuccessTintBrush}" BorderBrush="Transparent">
+                                    <TextBlock x:Name="pillText" Text="{Binding Text}" FontSize="10" Foreground="{DynamicResource SuccessTextBrush}" />
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsGoal}" Value="True">
+                                        <Setter TargetName="pill" Property="BorderBrush" Value="{DynamicResource SuccessBrush}" />
+                                        <Setter TargetName="pillText" Property="FontWeight" Value="Bold" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ContentControl Content="{Binding StrategyPiece}" ContentTemplate="{StaticResource StrategyPieceTemplate}" Focusable="False"
+                                    Margin="0,8,0,0" Visibility="{Binding HasStrategyPiece, Converter={StaticResource BoolToVis}}" />
+                    <ItemsControl ItemsSource="{Binding Operators}" ItemTemplate="{StaticResource PlannedAvatarTemplate}" Focusable="False" Margin="0,8,0,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="9" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding StackText}" Style="{StaticResource PlannerHint}" Margin="0,7,0,0" />
+                    <TextBlock Text="{Binding LayerText}" Style="{StaticResource PlannerHint}" Margin="0,2,0,0"
+                               ToolTip="按普通版本特质估算，每回合给本家叠的层数（最多算 3 名叠层手）"
+                               Visibility="{Binding HasLayerText, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{Binding Note}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,0"
+                               Foreground="{DynamicResource TransitionTextBrush}"
+                               Visibility="{Binding HasNote, Converter={StaticResource BoolToVis}}" />
+                    <ItemsControl ItemsSource="{Binding Styles}" ItemTemplate="{StaticResource AutoStyleButtonTemplate}" Focusable="False" Margin="0,9,-6,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding StyleReason}" Style="{StaticResource PlannerHint}" Margin="0,6,0,0" />
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsFirst}" Value="True">
+                    <Setter TargetName="rank" Property="Background" Value="{DynamicResource AccentSolidBrush}" />
+                    <Setter TargetName="rankText" Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
     </UserControl.Resources>
 
     <DockPanel>
@@ -854,20 +1002,20 @@
         <StackPanel DockPanel.Dock="Top" Margin="10,10,10,8">
             <Border Background="{DynamicResource TitleBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1" CornerRadius="{DynamicResource RowCornerRadius}" Padding="3">
-                <UniformGrid Columns="2">
+                <UniformGrid Columns="3">
                     <Button x:Name="GoalTabButton" Margin="0,0,2,0"
                             Content="{Binding GoalTabText}" Command="{Binding ShowGoalPageCommand}" >
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource PlannerSegmentButton}">
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ShowResults}" Value="False">
+                                    <DataTrigger Binding="{Binding ShowGoals}" Value="True">
                                         <Setter Property="Tag" Value="Active" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
                     </Button>
-                    <Button x:Name="ResultTabButton" Margin="2,0,0,0"
+                    <Button x:Name="ResultTabButton" Margin="2,0,2,0"
                             Content="{Binding ResultTabText}" Command="{Binding ShowResultPageCommand}" >
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource PlannerSegmentButton}">
@@ -879,12 +1027,25 @@
                             </Style>
                         </Button.Style>
                     </Button>
+                    <!-- 自动规划: no targets needed, one plan per core covenant -->
+                    <Button x:Name="AutoTabButton" Margin="2,0,0,0" Content="自动" Command="{Binding ShowAutoPageCommand}"
+                            ToolTip="不用选目标：按本局 Ban 位为每个核心盟约生成方案，给出抓位和升本建议">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource PlannerSegmentButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowAuto}" Value="True">
+                                        <Setter Property="Tag" Value="Active" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </UniformGrid>
             </Border>
             <!-- 本局策略: one per run; only 暴躁铁皮 / Pith / 变形同构 change planning -->
             <Border Margin="0,8,0,0" Padding="8,7,8,7" CornerRadius="{DynamicResource CardCornerRadius}" BorderThickness="1"
                     Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}"
-                    Visibility="{Binding ShowRoute, Converter={StaticResource InverseBoolToVis}}">
+                    Visibility="{Binding ShowRouteView, Converter={StaticResource InverseBoolToVis}}">
                 <StackPanel>
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" IsEnabled="{Binding IsMechStrategy}"
@@ -943,7 +1104,7 @@
                     <TextBlock Text="{Binding StrategyHint}" Style="{StaticResource PlannerHint}" Margin="0,5,0,0" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Border>
-            <DockPanel Margin="0,8,0,0" Visibility="{Binding ShowResults, Converter={StaticResource InverseBoolToVis}}">
+            <DockPanel Margin="0,8,0,0" Visibility="{Binding ShowGoals, Converter={StaticResource BoolToVis}}">
                 <CheckBox DockPanel.Dock="Right" Content="只看本局" FontSize="11" VerticalContentAlignment="Center"
                           Foreground="{DynamicResource TextPrimaryBrush}" IsChecked="{Binding OnlyCurrentRun}"
                           IsEnabled="{Binding HasRunInfo}" ToolTip="只显示本局可用的盟约（已选目标始终显示）" />
@@ -954,13 +1115,14 @@
             </DockPanel>
         </StackPanel>
 
-        <!-- Footer -->
+        <!-- Footer: status of the target search (the 自动 page reports its own) -->
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource TitleBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                BorderThickness="0,1,0,0" Padding="10,8,10,9">
+                BorderThickness="0,1,0,0" Padding="10,8,10,9"
+                Visibility="{Binding ShowAuto, Converter={StaticResource InverseBoolToVis}}">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Style="{StaticResource PlannerPrimaryButton}" Height="30" Padding="14,0" FontSize="12"
                         Content="{Binding ViewResultsText}" Command="{Binding ShowResultPageCommand}"
-                        Visibility="{Binding ShowResults, Converter={StaticResource InverseBoolToVis}}" />
+                        Visibility="{Binding ShowGoals, Converter={StaticResource BoolToVis}}" />
                 <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
                     <TextBlock x:Name="StatusLine" Text="{Binding StatusText}" FontSize="11" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource TextPrimaryBrush}" />
@@ -975,7 +1137,7 @@
         <Grid>
             <!-- ① Targets -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10,0,10,10"
-                          Visibility="{Binding ShowResults, Converter={StaticResource InverseBoolToVis}}">
+                          Visibility="{Binding ShowGoals, Converter={StaticResource BoolToVis}}">
                 <StackPanel>
                     <ItemsControl ItemsSource="{Binding GoalChips}" Focusable="False" Margin="0,0,0,6"
                                   Visibility="{Binding HasGoals, Converter={StaticResource BoolToVis}}">
@@ -1084,12 +1246,12 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- ② Results -->
+            <!-- ② Results, and the route of a candidate (from the results or from the 自动 page) -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10,0,10,10"
-                          Visibility="{Binding ShowResults, Converter={StaticResource BoolToVis}}">
+                          Visibility="{Binding ShowResultsPanel, Converter={StaticResource BoolToVis}}">
                 <Grid>
                 <!-- 道中路线 of one candidate -->
-                <StackPanel Visibility="{Binding ShowRoute, Converter={StaticResource BoolToVis}}">
+                <StackPanel Visibility="{Binding ShowRouteView, Converter={StaticResource BoolToVis}}">
                     <DockPanel Margin="0,0,0,10">
                         <Button DockPanel.Dock="Left" Style="{StaticResource RowIconButton}" Tag="{StaticResource IconBack}" Width="28" Height="28"
                                 Margin="0,0,8,0" ToolTip="返回方案" Command="{Binding CloseRouteCommand}" />
@@ -1131,7 +1293,7 @@
                                Visibility="{Binding IsRouteBusy, Converter={StaticResource BoolToVis}}" />
                     <ItemsControl x:Name="RouteStagesList" ItemsSource="{Binding RouteStages}" ItemTemplate="{StaticResource RouteStageTemplate}" Focusable="False" />
                 </StackPanel>
-                <StackPanel Visibility="{Binding ShowRoute, Converter={StaticResource InverseBoolToVis}}">
+                <StackPanel Visibility="{Binding ShowResultList, Converter={StaticResource BoolToVis}}">
                     <WrapPanel Margin="0,0,0,10">
                         <ItemsControl ItemsSource="{Binding GoalChips}" Focusable="False">
                             <ItemsControl.ItemsPanel>
@@ -1204,6 +1366,27 @@
                                Visibility="{Binding HasVisibleLineups, Converter={StaticResource InverseBoolToVis}}" />
                 </StackPanel>
                 </Grid>
+            </ScrollViewer>
+
+            <!-- ③ 自动规划: one candidate per core covenant -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10,0,10,10"
+                          Visibility="{Binding ShowAutoList, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource PlannerHint}" Margin="0,0,0,8"
+                               Text="按本局 Ban 位和策略，为每个可用的核心盟约配一套大成阵容。先选主盟约，再选打法，就能看到每个阶段的阵容、抓位和升本建议。" />
+                    <DockPanel Margin="0,0,0,8">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" ToolTip="大成阵容按 9 人规划（默认 8 人）">
+                            <TextBlock Text="9 人" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource TextSecondaryBrush}" />
+                            <CheckBox Style="{StaticResource SwitchToggle}" IsChecked="{Binding AutoNinePeople}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="AutoStatusLine" Text="{Binding AutoStatusText}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </DockPanel>
+                    <ProgressBar IsIndeterminate="True" Height="2" Margin="0,0,0,8" BorderThickness="0"
+                                 Background="Transparent" Foreground="{DynamicResource AccentBrush}"
+                                 Visibility="{Binding IsAutoBusy, Converter={StaticResource BoolToVis}}" />
+                    <ItemsControl x:Name="AutoPlanList" ItemsSource="{Binding AutoPlans}" ItemTemplate="{StaticResource AutoPlanCardTemplate}" Focusable="False" />
+                </StackPanel>
             </ScrollViewer>
         </Grid>
     </DockPanel>
