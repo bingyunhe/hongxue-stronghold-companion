@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   build:
@@ -214,3 +214,13 @@ jobs:
             publish/SHA256SUMS.txt
             publish/PACKAGE-MANIFEST.txt
           fail_on_unmatched_files: true
+
+      - name: Trigger MirrorChyanUploading
+        if: ${{ github.repository_owner == 'bingyunhe' }}
+        shell: bash
+        run: |
+          gh workflow run --repo "$GITHUB_REPOSITORY" mirrorchyan_release.yml -f tag="$RELEASE_TAG"
+          gh workflow run --repo "$GITHUB_REPOSITORY" mirrorchyan_release_note.yml -f tag="$RELEASE_TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
