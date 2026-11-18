@@ -375,13 +375,13 @@ public partial class SidePanelWindow : Window
     }
 
     /// <summary>Settings card: source in the title, live status below, icon tinted by state (PC grey, ADB green / red).</summary>
-    public void UpdateGameConnectionStatus(bool isAdb, string status)
+    public void UpdateGameConnectionStatus(bool isAdb, GameConnectionStatus status)
     {
-        var failed = isAdb && (status.Contains("重试") || status.Contains("失败") || status.Contains("横屏"));
-        var connected = isAdb && status.StartsWith("ADB 已连接");
+        var failed = isAdb && status.State == GameConnectionState.Failed;
+        var connected = isAdb && status.State == GameConnectionState.Connected;
         GameConnectionTitle.Text = isAdb ? "截图来源 · MuMu / ADB" : "截图来源 · PC 客户端";
-        GameConnectionStatus.Text = status;
-        GameConnectionStatus.ToolTip = status;
+        GameConnectionStatus.Text = status.Message;
+        GameConnectionStatus.ToolTip = status.Message;
         GameConnectionGlyph.Text = !isAdb ? "PC" : failed ? "!" : connected ? "✓" : "…";
         var (fill, text) = !isAdb ? ("SectionBackgroundBrush", "TextSecondaryBrush")
             : failed ? ("DangerTintBrush", "DangerBrush")

@@ -6,6 +6,9 @@ using MaaFramework.Binding.Buffers;
 
 namespace ASPAssistant.Core.Services;
 
+public enum GameConnectionState { Pc, Connecting, Connected, Failed }
+public sealed record GameConnectionStatus(GameConnectionState State, string Message);
+
 /// <summary>Shares the selected screenshot source and desktop viewport with all consumers.</summary>
 public sealed class GameConnectionService : IDisposable
 {
@@ -18,7 +21,7 @@ public sealed class GameConnectionService : IDisposable
     private IntPtr _window;
     private uint _windowProcessId;
     private bool _disposed;
-    private string _status = "PC 窗口截图";
+    private GameConnectionStatus _status = new(GameConnectionState.Pc, "PC 窗口截图");
     private int _screenWidth;
     private int _screenHeight;
     private string _windowTitle;
@@ -38,7 +41,11 @@ public sealed class GameConnectionService : IDisposable
 
     public GameConnectionSettings Settings { get; private set; }
     public bool IsAdb => Settings.Source == GameCaptureSource.Adb;
-    public string Status => Volatile.Read(ref _status);
+    public GameConnectionStatus ConnectionStatus => Volatile.Read(ref _status);
+    public string Status => ConnectionStatus.Message;
+
+    private void SetStatus(GameConnectionState state, string message)
+        => Volatile.Write(ref _status, new GameConnectionStatus(state, message));
 
     public GameConnectionService(GameConnectionSettings? settings = null, IntPtr selectedWindow = default)
         : this(settings ?? new(), selectedWindow, AdbGameScreens.Find) { }
@@ -55,7 +62,7 @@ public sealed class GameConnectionService : IDisposable
             User32.GetWindowThreadProcessId(_window, out _windowProcessId);
             _windowTitle = User32.GetWindowTitle(_window);
         }
-        if (IsAdb) _status = "等待 ADB 连接";
+        if (IsAdb) SetStatus(GameConnectionState.Connecting, "等待 ADB 连接");
     }
 
     public IntPtr FindGameWindow() => FindGameWindow(User32.GetForegroundWindow());
@@ -129,7 +136,7 @@ public sealed class GameConnectionService : IDisposable
                     if (_awaitingFocusedDisplay && (!display.IsFocused || _display is not null && _confirmedWindow != _window
                         && _display.DisplayId == display.DisplayId && _display.PackageName == display.PackageName && _display.PhysicalDisplayId == display.PhysicalDisplayId))
                     {
-                        _status = "窗口已关联，等待 Android 焦点切换…";
+                        SetStatus(GameConnectionState.Connecting, "窗口已关联，等待 Android 焦点切换…");
                         return false;
                     }
                     if (_display is null || _display.DisplayId != display.DisplayId || _display.PackageName != display.PackageName
@@ -147,7 +154,7 @@ public sealed class GameConnectionService : IDisposable
             }
             if (_awaitingFocusedDisplay || _display is null)
             {
-                _status = "窗口已关联，正在后台确认游戏屏幕…";
+                SetStatus(GameConnectionState.Connecting, "窗口已关联，正在后台确认游戏屏幕…");
                 return false;
             }
             return true;
@@ -202,7 +209,7 @@ public sealed class GameConnectionService : IDisposable
                 var captureRevision = CaptureRevision;
                 if (_controller is null)
                 {
-                    _status = "正在连接游戏屏幕…";
+                    SetStatus(GameConnectionState.Connecting, "正在连接游戏屏幕…");
                     _controller = new MaaAdbController(Settings.AdbPath, Settings.AdbSerial,
                         AdbScreencapMethods.Encode, AdbInputMethods.AdbShell, AdbGameScreens.ControllerConfig(_display!),
                         agentPath: Path.Combine(AppContext.BaseDirectory, "MaaAgentBinary"), link: LinkOption.None);
@@ -222,7 +229,7 @@ public sealed class GameConnectionService : IDisposable
                 _screenHeight = height;
                 if (!WindowGeometry.IsSupportedGameAspectRatio(width, height))
                 {
-                    _status = $"当前画面 {width}×{height}，请设置为横屏 16∶9";
+                    SetStatus(GameConnectionState.Failed, $"当前画面 {width}×{height}，请设置为横屏 16∶9");
                     return null;
                 }
                 if (width > maxWidth)
@@ -231,14 +238,14 @@ public sealed class GameConnectionService : IDisposable
                     throw new IOException("ADB 画面编码失败");
                 FindGameWindow();
                 if (captureRevision != CaptureRevision) return null;
-                _status = $"ADB 已连接 · {_display!.Label} · {width}×{height}";
+                SetStatus(GameConnectionState.Connected, $"ADB 已连接 · {_display!.Label} · {width}×{height}");
                 _retryAfter = default;
                 return png;
             }
             catch (Exception ex)
             {
-                _status = $"{ex.Message}（5 秒后重试）";
-                AppLogger.Warn("AdbCapture", _status);
+                SetStatus(GameConnectionState.Failed, $"{ex.Message}（5 秒后重试）");
+                AppLogger.Warn("AdbCapture", Status);
                 _controller?.Dispose();
                 _controller = null;
                 if (_display is not null)
