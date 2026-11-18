@@ -1,4 +1,5 @@
 // Modified for ASP Assistant Arknights on 2026-11-11; see NOTICE.
+using System.Diagnostics;
 using ASPAssistant.Core.Interop;
 using ASPAssistant.Core.Models;
 using MaaFramework.Binding;
@@ -7,7 +8,7 @@ using MaaFramework.Binding.Buffers;
 namespace ASPAssistant.Core.Services;
 
 public enum GameConnectionState { Pc, Connecting, Connected, Failed }
-public sealed record GameConnectionStatus(GameConnectionState State, string Message);
+public sealed record GameConnectionStatus(GameConnectionState State, string Message, string? CaptureDetails = null);
 
 /// <summary>Shares the selected screenshot source and desktop viewport with all consumers.</summary>
 public sealed class GameConnectionService : IDisposable
@@ -30,10 +31,16 @@ public sealed class GameConnectionService : IDisposable
     private DateTime _nextDisplayRead;
     private AdbGameDisplay? _display;
     private readonly Func<GameConnectionSettings, IReadOnlyList<AdbGameDisplay>> _findDisplays;
-    private Task<AdbGameDisplay>? _displayRead;
+    private sealed record DisplaySelection(AdbGameDisplay Display, bool UniquePackage);
+    private Task<DisplaySelection>? _displayRead;
     private long _displayReadRevision;
     private IntPtr _confirmedWindow;
     private bool _awaitingFocusedDisplay;
+    private bool _uniquePackage;
+    private bool _usingMuMuEnhanced;
+    private string? _enhancedFallbackReason;
+    private string? _lastEnhancedFailure;
+    private DateTime _enhancedRetryAfter;
 
     public long CaptureRevision => Volatile.Read(ref _captureRevision);
     public AdbGameDisplay? CurrentDisplay => _display;
@@ -44,8 +51,8 @@ public sealed class GameConnectionService : IDisposable
     public GameConnectionStatus ConnectionStatus => Volatile.Read(ref _status);
     public string Status => ConnectionStatus.Message;
 
-    private void SetStatus(GameConnectionState state, string message)
-        => Volatile.Write(ref _status, new GameConnectionStatus(state, message));
+    private void SetStatus(GameConnectionState state, string message, string? captureDetails = null)
+        => Volatile.Write(ref _status, new GameConnectionStatus(state, message, captureDetails));
 
     public GameConnectionService(GameConnectionSettings? settings = null, IntPtr selectedWindow = default)
         : this(settings ?? new(), selectedWindow, AdbGameScreens.Find) { }
@@ -119,12 +126,18 @@ public sealed class GameConnectionService : IDisposable
                 Interlocked.Exchange(ref _refreshDisplay, 0);
                 var settings = Settings;
                 _displayReadRevision = CaptureRevision;
-                _displayRead = Task.Run(() => AdbGameScreens.Select(_findDisplays(settings), settings));
+                _displayRead = Task.Run(() =>
+                {
+                    var displays = _findDisplays(settings);
+                    var display = AdbGameScreens.Select(displays, settings);
+                    return new DisplaySelection(display, displays.Count(d => d.PackageName == display.PackageName) == 1);
+                });
             }
             if (_displayRead is { IsCompleted: true } read)
             {
                 _displayRead = null;
-                var display = read.GetAwaiter().GetResult();
+                var selection = read.GetAwaiter().GetResult();
+                var display = selection.Display;
                 lock (_windowLock)
                 {
                     if (_displayReadRevision != CaptureRevision)
@@ -140,12 +153,16 @@ public sealed class GameConnectionService : IDisposable
                         return false;
                     }
                     if (_display is null || _display.DisplayId != display.DisplayId || _display.PackageName != display.PackageName
-                        || _display.PhysicalDisplayId != display.PhysicalDisplayId)
+                        || _display.PhysicalDisplayId != display.PhysicalDisplayId
+                        || Settings.PreferMuMuEnhancedCapture && Settings.Emulator == EmulatorKind.MuMu
+                            && _uniquePackage != selection.UniquePackage)
                     {
                         _controller?.Dispose(); _controller = null;
+                        _usingMuMuEnhanced = false;
                         Interlocked.Exchange(ref _captureRevision, Interlocked.Increment(ref _nextRevision));
                     }
                     _display = display;
+                    _uniquePackage = selection.UniquePackage;
                     _confirmedWindow = _window;
                     _awaitingFocusedDisplay = false;
                     if (_window != IntPtr.Zero) _windowTitle = User32.GetWindowTitle(_window);
@@ -235,35 +252,47 @@ public sealed class GameConnectionService : IDisposable
                 if (_controller is null)
                 {
                     SetStatus(GameConnectionState.Connecting, "正在连接游戏屏幕…");
-                    _controller = new MaaAdbController(Settings.AdbPath, Settings.AdbSerial,
-                        AdbScreencapMethods.Encode, AdbInputMethods.AdbShell, AdbGameScreens.ControllerConfig(_display!),
-                        agentPath: Path.Combine(AppContext.BaseDirectory, "MaaAgentBinary"), link: LinkOption.None);
-                    if (_controller.LinkStart().Wait() != MaaJobStatus.Succeeded)
-                        throw new IOException("ADB 连接失败，请检查设备与连接地址");
-                    _controller.SetOption_ScreenshotUseRawSize(true);
+                    ConnectCaptureController();
                 }
 
-                if (_controller.Screencap().Wait() != MaaJobStatus.Succeeded)
-                    throw new IOException("ADB 截图失败，请检查模拟器与连接地址");
-                using var image = new MaaImageBuffer();
-                if (!_controller.GetCachedImage(image) || image.IsEmpty)
-                    throw new IOException("ADB 未返回有效画面");
-                var width = image.Width;
-                var height = image.Height;
+                byte[]? png;
+                int width, height;
+                long captureTimeMs;
+                try
+                {
+                    var started = Stopwatch.GetTimestamp();
+                    png = ReadControllerFrame(_controller!, maxWidth, out width, out height);
+                    captureTimeMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    if (png is null && _usingMuMuEnhanced)
+                        throw new IOException($"MuMu 增强截图返回不支持的画面尺寸 {width}×{height}");
+                }
+                catch (Exception ex) when (_usingMuMuEnhanced)
+                {
+                    // The framework selects one screencap unit at link time; it cannot switch units
+                    // after a later failure. Replace it with an Encode-only controller explicitly.
+                    RememberEnhancedFailure("MuMu 增强截图画面不可用", ex);
+                    _controller?.Dispose();
+                    _controller = null;
+                    _usingMuMuEnhanced = false;
+                    _controller = ConnectController(AdbScreencapMethods.Encode, null);
+                    var started = Stopwatch.GetTimestamp();
+                    png = ReadControllerFrame(_controller, maxWidth, out width, out height);
+                    captureTimeMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                }
                 _screenWidth = width;
                 _screenHeight = height;
-                if (!WindowGeometry.IsSupportedGameAspectRatio(width, height))
+                if (png is null)
                 {
                     SetStatus(GameConnectionState.Failed, $"当前画面 {width}×{height}，请设置为横屏 16∶9");
                     return null;
                 }
-                if (width > maxWidth)
-                    image.TryResize(maxWidth, (int)Math.Round(height * (double)maxWidth / width));
-                if (!image.TryGetEncodedData(out byte[]? png) || png is null)
-                    throw new IOException("ADB 画面编码失败");
                 FindGameWindow();
                 if (captureRevision != CaptureRevision) return null;
-                SetStatus(GameConnectionState.Connected, $"ADB 已连接 · {_display!.Label} · {width}×{height}");
+                var backend = _usingMuMuEnhanced ? "MuMu 增强截图" : _enhancedFallbackReason is null
+                    ? "普通 ADB" : $"普通 ADB（{_enhancedFallbackReason}）";
+                var captureDetails = $"{backend} · 截图耗时 · {captureTimeMs} ms";
+                SetStatus(GameConnectionState.Connected,
+                    $"ADB 已连接 · {backend} · {_display!.Label} · {width}×{height} · 截图耗时 · {captureTimeMs} ms", captureDetails);
                 _retryAfter = default;
                 return png;
             }
@@ -273,6 +302,7 @@ public sealed class GameConnectionService : IDisposable
                 AppLogger.Warn("AdbCapture", Status);
                 _controller?.Dispose();
                 _controller = null;
+                _usingMuMuEnhanced = false;
                 if (_display is not null)
                 {
                     _display = null;
@@ -282,6 +312,89 @@ public sealed class GameConnectionService : IDisposable
                 return null;
             }
         }
+    }
+
+    private void ConnectCaptureController()
+    {
+        _usingMuMuEnhanced = false;
+        _enhancedFallbackReason = null;
+        if (Settings.PreferMuMuEnhancedCapture && Settings.Emulator == EmulatorKind.MuMu)
+        {
+            if (_display!.DisplayId != 0)
+                _enhancedFallbackReason = "增强截图仅支持模拟器主屏幕（屏幕 0）";
+            else if (!_uniquePackage)
+                _enhancedFallbackReason = "存在同包名的多个游戏屏幕";
+            else if (DateTime.UtcNow < _enhancedRetryAfter)
+                _enhancedFallbackReason = _lastEnhancedFailure;
+            else
+            {
+                var config = EmulatorDiscovery.FindMuMuCaptureConfig(Settings.AdbPath, Settings.AdbSerial, out var reason);
+                if (config is null) RememberEnhancedFailure(reason);
+                else
+                {
+                    try
+                    {
+                        // Only MuMu extras are enabled in this config, so a successful controller
+                        // using this single method really is the MuMu backend.
+                        _controller = ConnectController(AdbScreencapMethods.EmulatorExtras, config);
+                        _usingMuMuEnhanced = true;
+                        _enhancedRetryAfter = default;
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        RememberEnhancedFailure("MuMu 增强截图连接失败", ex);
+                    }
+                }
+            }
+        }
+        _controller = ConnectController(AdbScreencapMethods.Encode, null);
+    }
+
+    private void RememberEnhancedFailure(string reason, Exception? exception = null)
+    {
+        _lastEnhancedFailure = _enhancedFallbackReason = reason;
+        // A fallback controller remains in use. On a later reconnect or display change,
+        // avoid immediately retrying an unavailable SDK over and over.
+        _enhancedRetryAfter = DateTime.UtcNow.AddMinutes(1);
+        if (exception is not null) AppLogger.Warn("AdbCapture", $"{reason}：{exception.Message}");
+    }
+
+    private MaaAdbController ConnectController(AdbScreencapMethods method, MuMuCaptureConfig? mumu)
+    {
+        MaaAdbController? candidate = null;
+        try
+        {
+            candidate = new MaaAdbController(Settings.AdbPath, Settings.AdbSerial,
+                method, AdbInputMethods.AdbShell, AdbGameScreens.ControllerConfig(_display!, mumu),
+                agentPath: Path.Combine(AppContext.BaseDirectory, "MaaAgentBinary"), link: LinkOption.None);
+            if (candidate.LinkStart().Wait() != MaaJobStatus.Succeeded)
+                throw new IOException("ADB 连接失败，请检查设备与连接地址");
+            candidate.SetOption_ScreenshotUseRawSize(true);
+            return candidate;
+        }
+        catch
+        {
+            candidate?.Dispose();
+            throw;
+        }
+    }
+
+    private static byte[]? ReadControllerFrame(MaaAdbController controller, int maxWidth, out int width, out int height)
+    {
+        if (controller.Screencap().Wait() != MaaJobStatus.Succeeded)
+            throw new IOException("ADB 截图失败，请检查模拟器与连接地址");
+        using var image = new MaaImageBuffer();
+        if (!controller.GetCachedImage(image) || image.IsEmpty)
+            throw new IOException("ADB 未返回有效画面");
+        width = image.Width;
+        height = image.Height;
+        if (!WindowGeometry.IsSupportedGameAspectRatio(width, height)) return null;
+        if (width > maxWidth)
+            image.TryResize(maxWidth, (int)Math.Round(height * (double)maxWidth / width));
+        if (!image.TryGetEncodedData(out byte[]? png) || png is null)
+            throw new IOException("ADB 画面编码失败");
+        return png;
     }
 
     public void Dispose()

@@ -50,6 +50,7 @@ public partial class GameConnectionWindow : Window
         AdbPathBox.Text = saved.AdbPath;
         AdbSerialBox.Text = saved.AdbSerial;
         FollowFocusedGameToggle.IsChecked = saved.FollowFocusedGame;
+        MuMuEnhancedCaptureToggle.IsChecked = saved.PreferMuMuEnhancedCapture;
         // A saved manual address is only visible in the manual section, so open it.
         ManualToggle.IsChecked = !string.IsNullOrWhiteSpace(saved.AdbSerial);
         RefreshWindows();
@@ -85,6 +86,7 @@ public partial class GameConnectionWindow : Window
         AdbSettings.Visibility = IsAdb ? Visibility.Visible : Visibility.Collapsed;
         PcSettings.Visibility = IsAdb ? Visibility.Collapsed : Visibility.Visible;
         NoDevicesText.Visibility = DeviceSelector.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateMuMuOptionVisibility();
         if (IsAdb)
         {
             ApplyButton.Content = _tested is null ? "测试并应用" : "应用";
@@ -102,6 +104,15 @@ public partial class GameConnectionWindow : Window
             else SetStatus(Tone.Neutral, "等待游戏窗口", "保存后，打开或恢复明日方舟窗口即可识别");
             pc.Dispose();
         }
+    }
+
+    private void UpdateMuMuOptionVisibility()
+    {
+        var window = (WindowSelector.SelectedItem as WindowChoice)?.Window;
+        var device = !_manualEdited ? DeviceSelector.SelectedItem as DeviceChoice : null;
+        var kind = window is not null ? GameConnectionService.GetWindowKind(window.Handle)
+            : device?.Kind ?? (!_manualEdited ? _capture.Connection.Settings.Emulator : EmulatorKind.Unknown);
+        MuMuCaptureOptions.Visibility = kind == EmulatorKind.MuMu ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SetStatus(Tone tone, string title, string text, BitmapSource? preview = null)
@@ -144,6 +155,7 @@ public partial class GameConnectionWindow : Window
             DisplaySelector.ItemsSource = null;
             RefreshWindows(reset: true);
         }
+        UpdateMuMuOptionVisibility();
     }
 
     private void OnManualToggled(object sender, RoutedEventArgs e)
@@ -229,6 +241,7 @@ public partial class GameConnectionWindow : Window
             if (named.Count == 1) WindowSelector.SelectedItem = named[0];
         }
         if (WindowSelector.SelectedItem is null && choices.Count == 1) WindowSelector.SelectedIndex = 0;
+        UpdateMuMuOptionVisibility();
     }
 
     private async void OnRefreshDisplays(object sender, RoutedEventArgs e) => await RefreshDisplaysAsync();
@@ -267,6 +280,7 @@ public partial class GameConnectionWindow : Window
         AndroidPackageName = (DisplaySelector.SelectedItem as AdbGameDisplay)?.PackageName ?? "",
         AndroidDisplayId = (DisplaySelector.SelectedItem as AdbGameDisplay)?.DisplayId,
         FollowFocusedGame = FollowFocusedGameToggle.IsChecked == true,
+        PreferMuMuEnhancedCapture = MuMuEnhancedCaptureToggle.IsChecked == true,
     };
 
     private GameConnectionService NewCandidate(bool adb, DesktopWindowInfo? window)
@@ -307,8 +321,8 @@ public partial class GameConnectionWindow : Window
                 throw new IOException("游戏显示区域不可用，请恢复对应模拟器窗口后重试。");
             var (preview, width, height) = Decode(png);
             _tested = candidate;
-            SetStatus(Tone.Ok, "已读到画面",
-                preview is null ? candidate.Status : $"{candidate.CurrentDisplay?.Label} · {width}×{height} · 点「应用」开始使用", preview);
+            SetStatus(Tone.Ok, "已读到画面", preview is null ? candidate.Status
+                : $"{candidate.CurrentDisplay?.Label} · {width}×{height} · {candidate.ConnectionStatus.CaptureDetails} · 点「应用」开始使用", preview);
             ApplyButton.Content = "应用";
         }
         catch (Exception ex)

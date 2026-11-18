@@ -19,6 +19,7 @@ public sealed record GameConnectionSettings
     public string AndroidPackageName { get; init; } = "";
     public int? AndroidDisplayId { get; init; }
     public bool FollowFocusedGame { get; init; } = true;
+    public bool PreferMuMuEnhancedCapture { get; init; }
 }
 
 public sealed record AdbGameDisplay(int DisplayId, string? PhysicalDisplayId, string PackageName, bool IsFocused)
