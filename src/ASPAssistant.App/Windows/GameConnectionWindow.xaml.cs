@@ -301,7 +301,7 @@ public partial class GameConnectionWindow : Window
         SetStatus(Tone.Busy, "正在连接并读取画面", "首次连接需要几秒");
         try
         {
-            var png = await Task.Run(() => candidate.CaptureAdbScreen(_capture.MaxCaptureWidth));
+            var png = await candidate.CaptureForConnectionTestAsync(_capture.MaxCaptureWidth);
             if (png is null) throw new IOException(candidate.Status);
             if (candidate.FindGameWindow() == IntPtr.Zero || candidate.GetViewport(window.Handle) is null)
                 throw new IOException("游戏显示区域不可用，请恢复对应模拟器窗口后重试。");

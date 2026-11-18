@@ -189,6 +189,31 @@ public sealed class GameConnectionService : IDisposable
             ? WindowGeometry.FitAspectRatio(rect, 16, 9) : null;
     }
 
+    /// <summary>Wait for the initial display query when confirming a connection in the dialog.</summary>
+    public async Task<byte[]?> CaptureForConnectionTestAsync(int maxWidth)
+    {
+        var frame = await Task.Run(() => CaptureAdbScreen(maxWidth)).ConfigureAwait(false);
+        if (frame is not null) return frame;
+
+        Task? pending;
+        lock (_captureLock) pending = _displayRead;
+        if (pending is null) return null;
+        try
+        {
+            await pending.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            lock (_captureLock) SetStatus(GameConnectionState.Failed, "确认游戏屏幕超时，请检查模拟器与连接地址");
+            return null;
+        }
+        catch
+        {
+            // The next capture consumes the completed task and reports its error normally.
+        }
+        return await Task.Run(() => CaptureAdbScreen(maxWidth)).ConfigureAwait(false);
+    }
+
     /// <summary>Captures the selected ADB device; its dimensions also bound information-panel scrolling.</summary>
     public byte[]? CaptureAdbScreen(int maxWidth)
     {
