@@ -105,15 +105,23 @@ public static class AdbGameScreens
         };
     }
 
-    public static string ControllerConfig(AdbGameDisplay display)
+    public static string ControllerConfig(AdbGameDisplay display) => ControllerConfig(display, null);
+
+    internal static string ControllerConfig(AdbGameDisplay display, MuMuCaptureConfig? mumu)
     {
         if (display.DisplayId != 0 && display.PhysicalDisplayId is null)
             throw new IOException("该游戏屏幕未提供独立截图编号，无法安全截图，请选择可截图的游戏屏幕。");
         var capture = display.PhysicalDisplayId is { } id ? $"screencap -p -d {id}" : "screencap -p";
-        return JsonSerializer.Serialize(new { command = new Dictionary<string, string[]>
+        var command = new Dictionary<string, string[]>
         {
             ["ScreencapEncode"] = ["{ADB}", "-s", "{ADB_SERIAL}", "exec-out", capture],
             ["Swipe"] = ["{ADB}", "-s", "{ADB_SERIAL}", "shell", $"input{(display.DisplayId == 0 ? "" : $" -d {display.DisplayId}")} swipe {{X1}} {{Y1}} {{X2}} {{Y2}} {{DURATION}}"]
-        } });
+        };
+        if (mumu is null) return JsonSerializer.Serialize(new { command });
+        return JsonSerializer.Serialize(new { command, extras = new { mumu = new
+        {
+            enable = true, path = mumu.Path, index = mumu.Index, lib = mumu.LibraryPath ?? "",
+            app_package = display.PackageName, app_cloned_index = 0
+        } } });
     }
 }

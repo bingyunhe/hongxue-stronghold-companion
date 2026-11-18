@@ -63,9 +63,11 @@ public sealed class GameConnectionTests : IDisposable
     {
         using var connection = new GameConnectionService(new() { Source = GameCaptureSource.Adb,
             AdbPath = Path.Combine(_directory, "missing-adb.exe"), AdbSerial = "offline" });
+        connection.ConnectionStatus.State.Should().Be(GameConnectionState.Connecting);
         var capture = new ScreenCaptureService(connection);
         capture.CaptureScreen().Should().BeNull();
         connection.Status.Should().Contain("adb.exe");
+        connection.ConnectionStatus.State.Should().Be(GameConnectionState.Failed);
         capture.CaptureScreen().Should().BeNull();
     }
 

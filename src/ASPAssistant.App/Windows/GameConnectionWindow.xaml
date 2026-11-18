@@ -232,6 +232,13 @@
                               IsChecked="True" Checked="OnInputChanged" Unchecked="OnInputChanged"
                               ToolTip="优先读取当前操作的官服或B服；不会跨到其他模拟器实例。"
                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <StackPanel x:Name="MuMuCaptureOptions" Visibility="Collapsed" Margin="0,8,0,0">
+                        <CheckBox x:Name="MuMuEnhancedCaptureToggle" Content="优先使用 MuMu 增强截图"
+                                  Checked="OnInputChanged" Unchecked="OnInputChanged"
+                                  Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="不可用时自动使用普通 ADB 截图" Style="{StaticResource Hint}" Margin="20,2,0,0" />
+                        <TextBlock Text="增强截图目前仅支持模拟器主屏幕（屏幕 0）" Style="{StaticResource Hint}" Margin="20,0,0,0" />
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- PC: what was found -->
