@@ -139,6 +139,8 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
       - name: Run data tests
+        env:
+          PYTHONIOENCODING: utf-8
         run: python -B -m unittest discover -s data/tests -p "test_*.py"
       - name: Record successful test evidence
         shell: pwsh
