@@ -60,7 +60,16 @@ public partial class DeployView
         BenchRow.Columns = 10;
         BenchRow.Children.Clear();
         for (int col = 0; col < 10; col++)
-            BenchRow.Children.Add(LiveTile(VisibleUnits.FirstOrDefault(u => u.Mark.Slot == new FieldSlot(col,-1))));
+        {
+            var slot = new FieldSlot(col,-1);
+            var tile = LiveTile(VisibleUnits.FirstOrDefault(u => u.Mark.Slot == slot));
+            if (tile.ContextMenu == null)
+            {
+                tile.ContextMenu = new ContextMenu();
+                AddFeedbackItem(tile.ContextMenu,slot);
+            }
+            BenchRow.Children.Add(tile);
+        }
         var known = VisibleUnits.Where(u => u.Name != null && _operators.ContainsKey(u.Name)).ToList();
         var positions = new Dictionary<string, (BoardCell Cell, Facing Facing)>();
         var pool = new List<PlacementCandidate>();
@@ -141,7 +150,61 @@ public partial class DeployView
                 ? $"本局已记住 · {unit.Mark.Slot} {name}" : "该干员已移动，请重新选择";
         };
         menu.Items.Add(correct);
+        AddFeedbackItem(menu, unit.Mark.Slot);
         return menu;
+    }
+
+    private void OnBoardFeedbackMenu(object sender, MouseButtonEventArgs e)
+    {
+        var p = e.GetPosition(BoardCanvas);
+        var cell = new BoardCell((int)Math.Floor((p.X - L) / S) + _firstCol, (int)Math.Floor((p.Y - T) / S));
+        if (!Visible(cell)) return;
+        var slot = new FieldSlot(cell.Col,cell.Row);
+        var unit = ShowingLive ? VisibleUnits.FirstOrDefault(u => u.Mark.Slot == slot) : null;
+        var menu = unit == null ? new ContextMenu() : LiveMenu(unit);
+        if (unit == null) AddFeedbackItem(menu,slot);
+        menu.PlacementTarget = BoardCanvas;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void AddFeedbackItem(ContextMenu menu, FieldSlot slot)
+    {
+        var roster = _roster;
+        var observation = roster.Observations.LastOrDefault();
+        var item = new MenuItem { Header = ShowingLive ? "这格识别有误" : "标记推荐站位有误",
+            IsEnabled = observation != null && observation.Map == DisplayMap?.Id };
+        var mode = ShowingLive ? "实况" : _state.Mode switch { PlacementMode.Combat => "战斗", PlacementMode.Stacking => "叠层", _ => "平衡" };
+        var plan = _recommended;
+        var planPool = _recommendedPool;
+        menu.Opened += (_,_) =>
+        {
+            var latest = _liveScanner?.LiveRoster;
+            if (latest?.Observations.LastOrDefault() is not { } recent || recent.Game != observation?.Game ||
+                latest.Map != roster.Map || latest.Round != roster.Round || !latest.Bought.SequenceEqual(roster.Bought)) return;
+            if (latest.Units.Select(u => (u.Id,u.Mark.Slot,u.Name,u.IdentitySource))
+                .SequenceEqual(roster.Units.Select(u => (u.Id,u.Mark.Slot,u.Name,u.IdentitySource)))) roster = latest;
+        };
+        item.Click += async (_,_) =>
+        {
+            var recommendation = $"视图：{mode} · 候选：{string.Join("、",Candidates(roster).Select(c => c.Key))}";
+            if (plan != null) recommendation += $" · 方案地图：{plan.Map.Id} · 该方案计算时的候选：{string.Join("、",planPool.Select(c => c.Key))} · 上阵：{string.Join("、",plan.Placed.Select(p => p.Key + " " + p.CellCode))} · 替补：{string.Join("、",plan.Bench.Select(b => b.Name))}";
+            else recommendation += " · 暂无已计算方案";
+            var purchase = RecognitionDiagnostics.Samples.Freeze().FirstOrDefault(s => s.Game == observation!.Game &&
+                s.Round == roster.Round && s.Kind.StartsWith("实况购入", StringComparison.Ordinal));
+            var sample = FieldFeedback.Mark(roster, slot, recommendation, purchase);
+            string message;
+            try
+            {
+                await Task.Run(() => FieldFeedback.Save(observation!.Game,sample));
+                message = $"{slot} 已标记，可在「设置 → 关于 → 识别有误」补充并导出整局。";
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            { message = $"标记保存失败：{ex.Message}"; }
+            if (ShowingLive) { LiveMessage.Text = message; LiveMessage.Visibility = Visibility.Visible; }
+            else SetStatus(message);
+        };
+        menu.Items.Add(item);
     }
 
     private async void OnReadField(object sender,RoutedEventArgs e) => await ReadField(null);

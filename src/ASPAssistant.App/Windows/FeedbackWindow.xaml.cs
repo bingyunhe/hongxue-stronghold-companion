@@ -38,6 +38,7 @@ public partial class FeedbackWindow : Window
         _report = report with { Selected = null };
         EventChoice.ItemsSource = null;
         EventChoice.Visibility = Visibility.Collapsed;
+        MarkPanel.Visibility = Visibility.Collapsed;
         FrameChoice.ItemsSource = null;
         ScreenshotChoice.Content = "附上这次识别画面";
         ScreenshotChoice.IsEnabled = report.Recognition is { Frame.Length: > 0 };
@@ -51,12 +52,34 @@ public partial class FeedbackWindow : Window
     {
         if (EventChoice.SelectedItem is not RecognitionSample sample) return;
         _report = _report with { Selected = sample };
+        MarkPanel.Visibility = sample.IsGameReport ? Visibility.Visible : Visibility.Collapsed;
+        MarkChoice.ItemsSource = sample.Cases;
+        MarkChoice.SelectedIndex = sample.Cases.Length > 0 ? 0 : -1;
         ScreenshotChoice.IsChecked = false;
         ScreenshotChoice.IsEnabled = sample.Frames.Length > 0;
         ScreenshotChoice.Content = $"附上这组游戏画面（{sample.Frames.Length} 张）";
         RecognitionText.Text = sample.Result;
         FrameChoice.ItemsSource = sample.Frames;
         FrameChoice.SelectedIndex = sample.Frames.Length - 1;
+        if (sample.IsGameReport)
+        {
+            ScreenshotChoice.IsChecked = sample.Frames.Length > 0;
+            if (string.IsNullOrWhiteSpace(DescriptionBox.Text)) DescriptionBox.Text = "棋盘识别标记";
+        }
+    }
+
+    private void OnMarkChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var i = MarkChoice.SelectedIndex;
+        if (i >= 0 && _report.Selected is { } sample)
+            ExpectedBox.Text = sample.Cases[i].Expected;
+    }
+
+    private void OnExpectedChanged(object sender, TextChangedEventArgs e)
+    {
+        int i = MarkChoice.SelectedIndex;
+        if (i >= 0 && _report.Selected is { IsGameReport: true } sample)
+            sample.Cases[i] = sample.Cases[i] with { Expected = ExpectedBox.Text };
     }
 
     private void OnFrameChanged(object sender, SelectionChangedEventArgs e)

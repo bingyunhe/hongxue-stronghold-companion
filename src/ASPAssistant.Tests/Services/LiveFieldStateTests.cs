@@ -12,6 +12,55 @@ public class LiveFieldStateTests
     private static ShopItem Card(string name,double x) => new() { Name=name, OcrRegion=(x,.92,.06,.03) };
     private static ShopEconomy Hud(int funds) => new(1,funds,null,false,"规程等级13",true);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NewlyBoughtCopyKeepsTheOriginalOnItsOccludedTile(bool observeBench)
+    {
+        using var image = new Bitmap(320,180);
+        var frame = BmpPixels.TryRead(ImageBytes.Encode(image))!;
+        var state = State();
+        var original = Mark(4,1,1,50) with { StandaloneName = "烈夏" };
+        var obscured = original with { StandaloneName = null };
+        var deployed = Mark(2,3,1,160) with { StandaloneName = "烈夏" };
+        state.Observe("city",3,[original],0);
+        long originalId = Assert.Single(state.Roster.Units).Id;
+        state.Observe("city",4,[original],1000);
+        var filler = Card("装备",.25);
+        state.Shop(frame,[filler,Card("烈夏",.53)],Hud(2) with { Round = 4 },true,1100);
+        state.Shop(frame,[filler],Hud(0) with { Round = 4 },true,1200);
+        long? purchasedId = null;
+        if (observeBench)
+        {
+            state.Observe("city",4,[obscured, deployed with { Slot = new(9,-1) }],1250);
+            purchasedId = state.Roster.Units.Single(u => u.Mark.Slot.Bench).Id;
+        }
+        state.Observe("city",4,[obscured,deployed],1400);
+        Assert.Equal(originalId,state.Roster.Units.Single(u => u.Mark.Slot == original.Slot).Id);
+        var copy = state.Roster.Units.Single(u => u.Mark.Slot == deployed.Slot);
+        Assert.NotEqual(originalId,copy.Id);
+        if (observeBench) Assert.Equal(purchasedId,copy.Id);
+        Assert.All(state.Roster.Units,u => Assert.Equal("烈夏",u.Name));
+        Assert.Equal("烈夏", Assert.Single(state.Roster.Bought));
+        state.Observe("city",4,[deployed],1500);
+        state.Observe("city",4,[original,deployed],1700);
+        Assert.Equal(originalId,state.Roster.Units.Single(u => u.Mark.Slot == original.Slot).Id);
+        Assert.Equal(copy.Id,state.Roster.Units.Single(u => u.Mark.Slot == deployed.Slot).Id);
+    }
+
+    [Fact]
+    public void MovingTheOnlyCopyFromB7ToD5RetainsItsIdentity()
+    {
+        var state = State();
+        var original = Mark(4,1,1,50) with { StandaloneName = "烈夏" };
+        state.Observe("city",3,[original],1000);
+        var id = Assert.Single(state.Roster.Units).Id;
+        state.Observe("city",4,[original with { Slot = new(2,3) }],2000);
+        var moved = Assert.Single(state.Roster.Units);
+        Assert.Equal(id,moved.Id);
+        Assert.Equal("烈夏",moved.Name);
+    }
+
     [Fact] public void BatchKeepsDuplicatesAndDoesNotInferOrderFromShopSlots()
     {
         using var black=new Bitmap(320,180);

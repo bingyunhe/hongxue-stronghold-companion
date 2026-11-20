@@ -26,9 +26,13 @@ public sealed partial class LiveFieldReader
     private readonly GarrisonBoardData _maps;
     private readonly Lazy<FieldSpriteLibrary> _sprites;
     private readonly Lazy<Dictionary<string,byte[][]>> _purchasePoses;
+    private sealed record BoardAppearance(string Name, int Tier, int[][] Samples);
+    private readonly BoardAppearance[] _boardAppearances;
     public LiveFieldReader(string directory, GarrisonBoardData maps)
     {
         _maps = maps;
+        using var boardFile = File.OpenRead(Path.Combine(directory, "template", "field-board-appearances.json"));
+        _boardAppearances = System.Text.Json.JsonSerializer.Deserialize<BoardAppearance[]>(boardFile)!;
         _purchasePoses = new(() => LoadPurchasePoses(Path.Combine(directory, "template", "field-purchase-poses.json")));
         _sprites = new(() => new FieldSpriteLibrary(Path.Combine(directory, "template", "field-sprites.bin")));
         for (int tier = 1; tier <= 6; tier++)
@@ -60,6 +64,12 @@ public sealed partial class LiveFieldReader
     private Dictionary<FieldSlot, FieldMark> _previous = [];
     private string? _map;
 
+    internal Point CellCenter(FieldSlot slot, BoardCamera camera, BmpPixels pixels)
+    {
+        var center = _maps.Cameras[camera].Project(slot.Col + .5, slot.Row + .5);
+        return new((int)Math.Round(center.X * pixels.Width), (int)Math.Round(center.Y * pixels.Height));
+    }
+
     // While dragging, the game paints both legal floor cells green and the bench cyan.
     // The sprite still shown in its old seat is a ghost, not a second observation.
     internal static bool IsDragging(BmpPixels frame)
@@ -83,6 +93,10 @@ public sealed partial class LiveFieldReader
         return green>=55;
     }
     public List<FieldMark> Read(BmpPixels frame, BoardMatch board, bool identify, bool force = false, CancellationToken cancellation = default)
+        => ReadWithTrace(frame, board, identify, force, cancellation, null);
+
+    internal List<FieldMark> ReadWithTrace(BmpPixels frame, BoardMatch board, bool identify, bool force,
+        CancellationToken cancellation, Dictionary<FieldSlot, SlotReading>? readings)
     {
         var marks = new List<FieldMark>();
         double scale = frame.Width / 1920d;
@@ -107,14 +121,30 @@ public sealed partial class LiveFieldReader
         void Inspect(FieldSlot slot, double x, double y, double tile)
         {
             cancellation.ThrowIfCancellationRequested();
-            var badge = ReadBadge(frame, frame.Width, frame.Height, x, y, !slot.Bench, expanded);
-            if (badge is null || badge.X + 90 * scale >= frame.Width || badge.Y + 151 * scale >= frame.Height ||
-                slot.Bench && HasSummonCount(frame, badge, scale)) return;
-            var foot = new Point((int)(badge.X + 35 * scale), (int)(badge.Y + (slot.Bench ? 132 : 112) * scale));
-            bool body = HasUnitEvidence(frame, badge, frame.Width, frame.Height, !slot.Bench);
-            bool obscured = !body || badge.Tier == 4 && badge.Score < .73;
-            if (obscured && badge.Tier != 1 && (slot.Bench || badge.Tier != 4)) return;
-            if (!slot.Bench && badge.Tier == 4 && IsPhantom(frame, foot, tile)) return;
+            var badge = ReadBadge(frame, frame.Width, frame.Height, x, y, !slot.Bench, expanded, out var bounds);
+            void Trace(string reason) { if (readings != null) readings[slot] = new(bounds, reason); }
+            // The covenant HUD can cover the entire badge in row A. Look for a known
+            // head and torso relative to the tile, independently of that overlay.
+            BoardAppearance? boardLook = null;
+            double boardError = 0;
+            if (!slot.Bench && (badge != null || expanded && slot.Row == 0))
+            {
+                var center = projection.Project(slot.Col + .5, slot.Row + .5);
+                boardLook = MatchBoardAppearance(frame, center.X * frame.Width, center.Y * frame.Height,
+                    tile, expanded && slot.Row == 0 ? null : badge?.Tier, out boardError);
+                if (boardLook != null && badge?.Tier != boardLook.Tier)
+                    badge = null;
+            }
+            if (badge is null && boardLook is null) { Trace("角标与已知棋盘外观均未匹配"); return; }
+            if (badge != null && (badge.X + 90 * scale >= frame.Width || badge.Y + 151 * scale >= frame.Height ||
+                slot.Bench && HasSummonCount(frame, badge, scale))) { Trace("超出取样边界或整备区召唤物"); return; }
+            var foot = new Point((int)((badge?.X ?? x) + 35 * scale), (int)((badge?.Y ?? y) + (slot.Bench ? 132 : 112) * scale));
+            var tier = boardLook?.Tier ?? badge!.Tier;
+            bool obscured = boardLook == null && (!HasUnitEvidence(frame, badge!, frame.Width, frame.Height, !slot.Bench)
+                || tier == 4 && badge!.Score < .73);
+            if (obscured && tier != 1 && (slot.Bench || tier != 4)) { Trace("身体特征不足"); return; }
+            if (!slot.Bench && tier == 4 && IsPhantom(frame, foot, tile)) { Trace("幻影过滤"); return; }
+            Trace("检测到占用");
             var appearance = new byte[5 * 6 * 3];
             for (int r = 0; r < 6; r++)
                 for (int c = 0; c < 5; c++)
@@ -125,7 +155,7 @@ public sealed partial class LiveFieldReader
                     appearance[i] = (byte)(color >> 16); appearance[i+1] = (byte)(color >> 8); appearance[i+2] = (byte)color;
                 }
             if (identify && !force && _map == board.Map.Id && _previous.TryGetValue(slot, out var prior) &&
-                prior.Tier == badge.Tier && LiveFieldState.Difference(prior.Appearance, appearance) < 5 &&
+                prior.Tier == tier && (boardLook == null || prior.StandaloneName == boardLook.Name) && LiveFieldState.Difference(prior.Appearance, appearance) < 5 &&
                 (!obscured || prior.SpriteName is string known && prior.Scores![known] <= 23))
             {
                 marks.Add(prior with { Foot=foot, Appearance=appearance, Tile=tile });
@@ -143,17 +173,23 @@ public sealed partial class LiveFieldReader
                 }
             if (!identify && !obscured)
             {
-                marks.Add(new(slot,badge.Tier,foot,appearance,null) { Tile=tile, Portrait=portrait });
+                marks.Add(new(slot,tier,foot,appearance,boardLook?.Name) { Tile=tile, Portrait=portrait });
                 return;
             }
-            var name = _sprites.Value.Match(frame,foot,tile,badge.Tier,slot.Bench,out var scores,out var patch);
-            if (obscured && (name == null || scores[name] > 23)) return;
+            if (boardLook != null)
+            {
+                marks.Add(new(slot,tier,foot,appearance,boardLook.Name) { Tile=tile, Portrait=portrait,
+                    StandaloneName=boardLook.Name, Scores=new Dictionary<string,double> { [boardLook.Name]=boardError } });
+                return;
+            }
+            var name = _sprites.Value.Match(frame,foot,tile,tier,slot.Bench,out var scores,out var patch);
+            if (obscured && (name == null || scores[name] > 23)) { Trace("遮挡且身份匹配不足"); return; }
             if (!identify)
             {
-                marks.Add(new(slot,badge.Tier,foot,appearance,null) { Tile=tile, Portrait=portrait });
+                marks.Add(new(slot,tier,foot,appearance,null) { Tile=tile, Portrait=portrait });
                 return;
             }
-            var mark = new FieldMark(slot,badge.Tier,foot,appearance,name) { Scores=scores, Tile=tile, Portrait=portrait };
+            var mark = new FieldMark(slot,tier,foot,appearance,name) { Scores=scores, Tile=tile, Portrait=portrait };
             var poses = _purchasePoses.Value;
             var shortlist = poses.Keys.Where(scores.ContainsKey)
                 .OrderBy(n=>PoseError(patch,slot.Bench,poses[n],25)).Take(5);
@@ -184,7 +220,42 @@ public sealed partial class LiveFieldReader
             marks.Add(mark with { StandaloneName=independent });
         }
     }
-    private FieldBadge? ReadBadge(BmpPixels px, int width, int height, double cx, double cy, bool board, bool expanded)
+    private BoardAppearance? MatchBoardAppearance(BmpPixels pixels, double cx, double cy, double tile, int? tier, out double best)
+    {
+        best = 22;
+        BoardAppearance? match = null;
+        int step = Math.Max(1, (int)Math.Round(tile * .035));
+        foreach (var look in _boardAppearances)
+        {
+            if (tier.HasValue && tier != look.Tier) continue;
+            for (int dy = -step; dy <= step; dy += step)
+            for (int dx = -2 * step; dx <= 2 * step; dx += step)
+            {
+                int sum = 0;
+                double limit = best * 3 * look.Samples.Length;
+                foreach (var sample in look.Samples)
+                {
+                    int x = (int)Math.Round(cx + sample[0] * tile / 100) + dx;
+                    int y = (int)Math.Round(cy + sample[1] * tile / 100) + dy;
+                    if (x < 1 || y < 1 || x >= pixels.Width - 1 || y >= pixels.Height - 1) { sum = int.MaxValue; break; }
+                    int a = pixels.Color(x-1,y), b = pixels.Color(x+1,y), c = pixels.Color(x,y-1), d = pixels.Color(x,y+1);
+                    for (int channel = 0; channel < 3; channel++)
+                    {
+                        int shift = 16 - channel * 8;
+                        int value = (((a >> shift) & 255) + ((b >> shift) & 255) + ((c >> shift) & 255) + ((d >> shift) & 255)) / 4;
+                        sum += Math.Abs(value - sample[2 + channel]);
+                    }
+                    if (sum >= limit) break;
+                }
+                if (sum >= limit) continue;
+                match = look;
+                best = sum / (3d * look.Samples.Length);
+            }
+        }
+        return match;
+    }
+
+    private FieldBadge? ReadBadge(BmpPixels px, int width, int height, double cx, double cy, bool board, bool expanded, out Rectangle bounds)
     {
         double scale = width / 1920d;
         // 展开商店时第一排角标与盟约栏重叠，只比较角标下半部。
@@ -192,6 +263,7 @@ public sealed partial class LiveFieldReader
         var values = new double[lower ? 50 : 100];
         var fine = new double[lower ? 200 : 400];
         FieldBadge? best = null;
+        bounds = Rectangle.Empty;
         foreach (int size in new[] { 34, 40, 44 })
         {
             var templates = _templates.Where(t => t.Size == size).ToArray();
@@ -200,11 +272,16 @@ public sealed partial class LiveFieldReader
             int horizontal = (int)Math.Ceiling((!board && expanded ? 18 : 12) * scale);
             // 横向扩展按完整的两像素步长进行，保留原搜索窗的粗采样位置。
             horizontal += (horizontal - radius) % 2;
+            // Bottom-row badges can sit another coarse sample to the left in the open-shop camera.
+            if (board && expanded && cy > height * .37) horizontal += 2;
             int left = (int)Math.Round(cx) - actualSize / 2;
             int top = (int)Math.Round(cy) - actualSize / 2;
             // Search the full vertical interval between the normal and elevated badge.
             int step = board ? 2 : 1;
             int firstY = (int)Math.Round(cy - (board ? 26 * scale : expanded ? 20 * scale : 0)) - actualSize / 2 - radius;
+            var area = Rectangle.FromLTRB(Math.Max(0,left-horizontal), Math.Max(0,firstY),
+                Math.Min(width,left+horizontal+actualSize+step-1), Math.Min(height,top+radius+actualSize+step-1));
+            bounds = bounds.IsEmpty ? area : Rectangle.Union(bounds, area);
             for (int y = Math.Max(0, firstY); y <= Math.Min(height - actualSize - 1, top + radius); y += step)
                 for (int x = Math.Max(0, left - horizontal); x <= Math.Min(width - actualSize - 1, left + horizontal); x += step)
                 {

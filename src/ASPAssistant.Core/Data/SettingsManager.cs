@@ -352,6 +352,26 @@ public class SettingsManager
     public Task SaveAutomaticRoundEnemiesAsync(bool enabled) =>
         SavePreferenceAsync("automatic-round-enemies.json", JsonSerializer.Serialize(enabled));
 
+    public async Task<bool> LoadStartupInformationAsync()
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<bool>(await File.ReadAllTextAsync(Path.Combine(_settingsDir, "startup-information.json")));
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (JsonException)
+        {
+            AppLogger.Warn("Settings", "中途启动自动识别对局信息设置无效，恢复关闭");
+            return false;
+        }
+    }
+
+    public Task SaveStartupInformationAsync(bool enabled) =>
+        SavePreferenceAsync("startup-information.json", JsonSerializer.Serialize(enabled));
+
     public async Task<bool> LoadAutomaticCurrentRunFiltersAsync()
     {
         try

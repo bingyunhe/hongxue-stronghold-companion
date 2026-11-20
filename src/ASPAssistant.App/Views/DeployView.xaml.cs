@@ -46,6 +46,7 @@ public partial class DeployView : UserControl
 
     private BoardMatch? _recognized;
     private PlacementPlan? _recommended;   // last planner output
+    private IReadOnlyList<PlacementCandidate> _recommendedPool = [];
     private PlacementPlan? _plan;          // what is shown (recommended, or after the player moved someone)
     private Dictionary<string, (BoardCell Cell, Facing Facing)> _working = [];
     private readonly Dictionary<string, PlacementPin> _pins = [];
@@ -154,7 +155,7 @@ public partial class DeployView : UserControl
         if (_routeRound == round && _routeMode == mode &&
             (ReferenceEquals(_routeEnemies, enemies) || (_routeEnemies is not null && enemies is not null &&
              _routeEnemies.IsPartial == enemies.IsPartial && _routeEnemies.Names.SequenceEqual(enemies.Names) && _routeEnemies.Leaders.SequenceEqual(enemies.Leaders)
-             && _routeEnemies.Bounties.SequenceEqual(enemies.Bounties)))) return;
+             && _routeEnemies.Bounties.SequenceEqual(enemies.Bounties) && _routeEnemies.BountyLanes.SequenceEqual(enemies.BountyLanes)))) return;
         _routeRound = round;
         _routeMode = mode;
         _routeEnemies = enemies;
@@ -212,11 +213,13 @@ public partial class DeployView : UserControl
         DeployPoolBuilder.Build(_tracking?.DisplayOperators ?? [], _operators, _state);
 
     /// <summary>Owned operators; a duplicated operator gives one candidate per copy (keys 冻河, 冻河#2…).</summary>
-    private List<PlacementCandidate> Candidates()
+    private List<PlacementCandidate> Candidates() => Candidates(_roster);
+
+    private List<PlacementCandidate> Candidates(LiveRoster roster)
     {
         var counts = _state.Owned.Distinct().Where(_operators.ContainsKey)
             .ToDictionary(name => name, _state.CountOf);
-        foreach (var group in _roster.Units.Where(u => u.Name is not null && _operators.ContainsKey(u.Name))
+        foreach (var group in roster.Units.Where(u => u.Name is not null && _operators.ContainsKey(u.Name))
                      .GroupBy(u => u.Name!).OrderBy(g => g.Key, StringComparer.Ordinal))
             counts[group.Key] = Math.Max(counts.GetValueOrDefault(group.Key), group.Count());
         return [.. counts.SelectMany(entry => Enumerable.Range(0, entry.Value)
@@ -261,6 +264,7 @@ public partial class DeployView : UserControl
         if (_planner is not { } planner || map is null || pool.Count == 0)
         {
             _plan = _recommended = null;
+            _recommendedPool = [];
             _working = [];
             RefreshAll();
             PublishPlan();
@@ -277,6 +281,7 @@ public partial class DeployView : UserControl
             var plan = await Task.Run(() => planner.Plan(map, pool, options, cts.Token), cts.Token);
             if (cts.IsCancellationRequested) return;
             _recommended = _plan = plan;
+            _recommendedPool = pool;
             _working = plan.Placed.ToDictionary(p => p.Key, p => (p.Cell, p.Facing));
             _dirty = false;
             if (_selected is not null && plan.Find(_selected) is null) _selected = null;
@@ -491,7 +496,13 @@ public partial class DeployView : UserControl
                     foreach (var segment in route.Path.Segments)
                         DrawRoute(segment, (Brush)FindResource(route.Path.Flying ? "AccentBrush" : "DangerBrush"), 2.6,
                             route.Candidate ? [3, 2] : null, route);
-                BuildRouteDetails(_routeMatch);
+                var bountyRoutes = (_routeEnemies?.Bounties ?? []).ToDictionary(name => name,
+                    name => _roundRouteStore!.FindBountyPaths(map.Id, _routeMode, roundNumber, name,
+                        _routeEnemies!.BountyLanes.GetValueOrDefault(name)));
+                foreach (var route in bountyRoutes.Values.SelectMany(routes => routes))
+                    foreach (var segment in route.Path.Segments)
+                        DrawRoute(segment, (Brush)FindResource("AccentBrush"), 2.6, [3, 2], route);
+                BuildRouteDetails(_routeMatch, bountyRoutes);
                 if (_routeMatch.Routes.Any(r => r.Sources.Count > 0))
                     RoundRouteStatus.ToolTip = string.Join("\n", _routeMatch.Routes.SelectMany(r => r.Sources).Distinct()
                         .GroupBy(s => (s.Enemy, s.Level, s.Candidate)).Select(g =>

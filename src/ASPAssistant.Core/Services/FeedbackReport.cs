@@ -10,10 +10,19 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
 {
     public RecognitionSample[] Samples { get; init; } = [];
     public RecognitionSample? Selected { get; init; }
+    private static string? _latestConnectionFailure;
+    private string? ConnectionFailure { get; init; }
+
+    public static void RecordConnectionFailure(string operation, string reason)
+    {
+        var message = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} · {operation} · {Sanitize(reason)}";
+        AppLogger.Warn("GameConnection", message);
+        Volatile.Write(ref _latestConnectionFailure, message);
+    }
 
     public static FeedbackReport Prepare()
     {
-        var samples = RecognitionDiagnostics.Samples.Freeze();
+        RecognitionSample[] samples = [..FieldFeedback.LoadGames(), ..RecognitionDiagnostics.Samples.Freeze()];
         var snapshot = RecognitionDiagnostics.Latest;
         var version = Assembly.GetEntryAssembly()!.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
         var details = $"程序版本：{version}\n系统：{RuntimeInformation.OSDescription}\n架构：{RuntimeInformation.ProcessArchitecture}\n运行时：{RuntimeInformation.FrameworkDescription}\n生成时间：{DateTimeOffset.Now:O}";
@@ -38,13 +47,16 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
                 logs = $"无法读取日志，仍可填写问题和导出已有识别记录。\n{ex.Message}";
             }
         }
-        return new(Sanitize(details), Sanitize(logs), snapshot is null ? null : snapshot with { Result = Sanitize(snapshot.Result) }) { Samples = samples };
+        return new(Sanitize(details), Sanitize(logs), snapshot is null ? null : snapshot with { Result = Sanitize(snapshot.Result) })
+        { Samples = samples, ConnectionFailure = Volatile.Read(ref _latestConnectionFailure) };
     }
 
     public string Preview(string category, string description, string steps) =>
-        $"问题类型：{category}\n问题描述：\n{Sanitize(description)}\n\n复现步骤：\n{Sanitize(steps)}\n\n{Environment}\n\n识别记录：\n" +
+        $"问题类型：{category}\n问题描述：\n{Sanitize(description)}\n\n复现步骤：\n{Sanitize(steps)}\n\n{Environment}" +
+        (ConnectionFailure is null ? "" : $"\n\n本次运行最近一次模拟器连接失败：\n{ConnectionFailure}") + "\n\n识别记录：\n" +
         (Selected is { } sample ? $"{sample.Label}\n{Sanitize(sample.Result)}\n{Sanitize(string.Join("\n", sample.Actions))}\n" +
-            string.Join("\n", sample.Frames.Select((f,i) => $"{i+1:00} · {f.Time:O} · {Sanitize(f.Step)}")) :
+            string.Join("\n", sample.Frames.Select((f,i) => $"{i+1:00} · {f.Time:O} · {Sanitize(f.Step)}")) +
+            string.Concat(sample.Cases.Where(c => c.Expected.Length > 0).Select(c => $"\n{c.Label} · 玩家说明：{Sanitize(c.Expected)}")) :
             Recognition is { } frame ? $"时间：{frame.CapturedAt:O}\n来源：{frame.Source}\n{frame.Result}" : "暂无识别记录。") +
         $"\n\n近期日志：\n{(Selected is null ? Logs : string.Join("\n", Logs.Split('\n').Where(line =>
             line.Contains("[LiveField]") || line.Contains("[RoundEnemy]") || line.Contains("[ShopPurchase]")).TakeLast(120)))}";
@@ -76,7 +88,7 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
             using (var manifest = zip.CreateEntry("recognition.json").Open())
                 System.Text.Json.JsonSerializer.Serialize(manifest, new { version = 1, round = sample.Round,
                     kind = Sanitize(sample.Kind), started = sample.Started, result = Sanitize(sample.Result),
-                    actions = sample.Actions.Select(Sanitize), frames });
+                    actions = sample.Actions.Select(Sanitize), cases = sample.Cases.Select(c => c with { Expected = Sanitize(c.Expected) }), frames });
             for (int i = 0; i < sample.Frames.Length; i++)
             {
                 var frame = sample.Frames[i];

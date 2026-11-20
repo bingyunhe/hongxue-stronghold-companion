@@ -7,6 +7,7 @@ namespace ASPAssistant.Core.Services;
 public sealed record RoundEnemyInfo(int Round, IReadOnlyList<string> Names)
 {
     public IReadOnlyList<string> Bounties { get; init; } = [];
+    public IReadOnlyDictionary<string, string> BountyLanes { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<string> Leaders { get; init; } = [];
     public IReadOnlyList<string> RouteNames => Leaders.Count == 0 ? Names : [.. Names, .. Leaders];
     public bool IsPartial { get; init; }
@@ -168,10 +169,13 @@ public partial class OcrScannerService
         int round;
         long version;
         bool manualRequest;
+        Guid game;
         lock (_runLock)
         {
             if (revision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)
                 || _economy.Current is not { Round: int confirmedRound, IsPreparation: true }) return;
+            if (_roundEnemyState.OpenedPanel != (connection, captureRevision)) _roundEnemyState.OpenedPanel = null;
+            game = _fieldGame;
             round = confirmedRound;
             newRound = _roundEnemyState.Observe(round);
             if (_roundEnemyState.Info?.Round != round || _roundEnemyState.Info.HasCompleteList) return;
@@ -282,6 +286,7 @@ public partial class OcrScannerService
             lock (_runLock)
             {
                 if (!RequestCurrent() || revision != _runRevision || _roundEnemyState.Info?.Round != round) return;
+                if (result == ClickResult.Sent && manual) _roundEnemyState.OpenedPanel = (connection, captureRevision);
                 if (result == ClickResult.Sent && !manual) _roundEnemyState.BeginConfirmation();
                 if (result != ClickResult.Sent)
                 {
@@ -329,146 +334,199 @@ public partial class OcrScannerService
         var readTimer = Stopwatch.StartNew();
         var mode = hud.Mode ?? _economy.Current?.Mode;
         bool StillRequested() { lock (_runLock) return RequestCurrent(); }
-        var read = await reader.ReadAsync(screenshot, frame, layout, previousPage, mode, round, manualRequest ? StillRequested : null);
-        int scrolls = 0, captures = 0, pageReads = 1, lineRetries = read?.Retries ?? 0;
-        bool complete, returnToBoard;
-        lock (_runLock)
+        bool requestedReturn = manualRequest, verifiedReturn = false;
+        try
         {
-            if (revision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)
-                || _roundEnemyState.Info?.Round != round) return;
-            if (!RequestCurrent()) { samples.Step(sampleId, "请求已结束，忽略迟到的名单"); return; }
-            manual = _roundEnemyState.Info.IsReading || _roundEnemyState.ManualContinuation;
-            returnToBoard = manual || retrying || _roundEnemyState.CanClosePanel;
-            if (read is not { HasNames: true } && !retrying && (manual || AutomaticRoundEnemies && _roundEnemyState.CanClosePanel))
-            {
-                // Retain ownership until a subsequent main scan sees the panel or the player leaves it.
-                samples.Step(sampleId, "未读到名单，等待下一帧");
-                _roundEnemyState.EmptyReadTick = Environment.TickCount64;
-                AppLogger.Info("RoundEnemy", $"round={round} empty-read-retry=scheduled elapsed={readTimer.ElapsedMilliseconds}ms");
-                return;
-            }
-            if (read is { HasNames: true }) _roundEnemyState.ApplyRead(read);
-            else _roundEnemyState.Fail("未读到小怪，可以点击「识别小怪」重试。");
-            complete = _roundEnemyState.Info.HasCompleteList;
-            _roundEnemyState.EndConfirmation();
-            if (returnToBoard && read is { HasNames: true } && !complete)
-                _roundEnemyState.ContinuePartial(manual);
-        }
-        RoundEnemiesChanged?.Invoke();
-        if (!complete && returnToBoard && connection is not null && read is { HasNames: true })
-        {
-            for (int page = 0; page < 5 && !read.EndsAtBottom; page++)
-            {
-                if (!CurrentPanelRead() || _captureScreen() is not { } before) break;
-                captures++;
-                using var beforeStream = new MemoryStream(before);
-                using var beforeFrame = new Bitmap(beforeStream);
-                var beforeLayout = RoundEnemyReader.Inspect(beforeFrame, false);
-                if (beforeLayout.Title.IsEmpty || RoundEnemyReader.PageStamp(beforeFrame, beforeLayout) != stamp) break;
-                var visibleHud = await economyReader.ReadPreparationAsync(before, beforeFrame.Width, beforeFrame.Height);
-                if (!visibleHud.IsPreparation || visibleHud.Round != round || !CurrentPanelRead()) break;
-                var target = new Point(beforeLayout.Names.Left + beforeLayout.Names.Width / 2,
-                    beforeLayout.Names.Top + beforeLayout.Names.Height * 2 / 3);
-                if (!RoundEnemyScroll(connection, target, beforeFrame.Size, captureRevision)) break;
-                scrolls++;
-                ulong? moving = null;
-                RoundEnemyReadResult? next = null;
-                for (int sample = 0; sample < 4; sample++)
-                {
-                    await Task.Delay(120);
-                    if (!CurrentPanelRead() || _captureScreen() is not { } fresh) break;
-                    captures++;
-                    using var freshStream = new MemoryStream(fresh);
-                    using var freshFrame = new Bitmap(freshStream);
-                    var freshLayout = RoundEnemyReader.Inspect(freshFrame, false);
-                    if (freshLayout.Title.IsEmpty) break;
-                    var freshStamp = RoundEnemyReader.PageStamp(freshFrame, freshLayout);
-                    if (freshStamp == stamp || moving != freshStamp) { moving = freshStamp; continue; }
-                    var freshHud = await economyReader.ReadPreparationAsync(fresh, freshFrame.Width, freshFrame.Height);
-                    if (!freshHud.IsPreparation || freshHud.Round != round || !CurrentPanelRead()) break;
-                    next = await reader.ReadAsync(fresh, freshFrame, freshLayout, read, mode, round, manualRequest ? StillRequested : null);
-                    samples.Step(sampleId, $"滚动后第 {pageReads+1} 页", fresh);
-                    pageReads++;
-                    lineRetries += next?.Retries ?? 0;
-                    stamp = freshStamp;
-                    break;
-                }
-                if (next is not { HasNames: true }) break;
-                lock (_runLock)
-                {
-                    if (!CurrentPanelRead()) return;
-                    _roundEnemyState.LastStamp = stamp;
-                    _roundEnemyState.LastReadTick = Environment.TickCount64;
-                    _roundEnemyState.ApplyRead(next);
-                    complete = _roundEnemyState.Info!.HasCompleteList;
-                }
-                RoundEnemiesChanged?.Invoke();
-                read = next;
-                if (complete) break;
-            }
-        }
-        bool CurrentPanelRead()
-        {
-            lock (_runLock) return RequestCurrent() && !_disposed && revision == _runRevision && !_pauseBanScreenDetection && !_banScreenActive
-                && IsCurrentCapture(connection, captureRevision) && _roundEnemyState.Info?.Round == round
-                && _economy.Current is { IsPreparation: true } current && current.Round == round
-                && (manual || AutomaticRoundEnemies);
-        }
-        AppLogger.Info("RoundEnemy", $"round={round} source={(buffered ? "buffered-panel" : manual ? "manual" : returnToBoard ? "automatic" : "visible-panel")} names={read?.Names.Length ?? 0} bounties={read?.Bounties.Length ?? 0} complete={complete} empty-read-retry={retrying} pages={pageReads} scrolls={scrolls} scrollCaptures={captures} retries={lineRetries} elapsed={readTimer.ElapsedMilliseconds}ms");
-        var info = CurrentRoundEnemies;
-        string summary = $"名单{(complete ? "完整" : "待补全")} · {string.Join("、", info?.RouteNames ?? [])} · 悬赏 {string.Join("、", info?.Bounties ?? [])}";
-        samples.Step(sampleId, summary);
-        if (!returnToBoard || !CurrentPanelRead() || !manual && read is not { HasNames: true }) return;
-        var returnTimer = Stopwatch.StartNew();
-        if (connection is null || !IsCurrentCapture(connection, captureRevision) || _captureScreen() is not { } latest)
-        {
-            samples.Step(sampleId, summary + " · 返回前未取得画面");
-            AppLogger.Info("RoundEnemy", $"round={round} return-skipped=capture-unavailable");
-            return;
-        }
-        using var closeStream = new MemoryStream(latest);
-        using var closeFrame = new Bitmap(closeStream);
-        var closeLayout = RoundEnemyReader.Inspect(closeFrame, locateButton: false);
-        if (closeLayout.Title.IsEmpty || complete && (closeLayout.MoreBelow || closeLayout.BottomUnknown) ||
-            !complete && closeFrame.Size == frame.Size && RoundEnemyReader.PageStamp(closeFrame, closeLayout) != stamp)
-        {
-            samples.Step(sampleId, summary + " · 返回前面板发生变化", latest);
-            AppLogger.Info("RoundEnemy", $"round={round} return-skipped=panel-no-longer-visible");
-            return;
-        }
-        var closingHud = await economyReader.ReadPreparationAsync(latest, closeFrame.Width, closeFrame.Height);
-        lock (_runLock)
-        {
-            if (!RequestCurrent() || _disposed || revision != _runRevision || _pauseBanScreenDetection || _banScreenActive ||
-                !IsCurrentCapture(connection, captureRevision) || _roundEnemyState.Info?.Round != round ||
-                !closingHud.IsPreparation || closingHud.Round != round)
-            {
-                samples.Step(sampleId, summary + " · 返回前回合或请求已变化", latest);
-                AppLogger.Info("RoundEnemy", $"round={round} return-skipped=context-changed-or-round-unconfirmed");
-                return;
-            }
-        }
-        var center = new Point(closeFrame.Width / 2, closeFrame.Height / 2);
-        var closed = SendCapturedClick(connection, center, closeFrame.Size, captureRevision);
-        AppLogger.Info("RoundEnemy", $"round={round} auto-close-input={closed} point={center.X},{center.Y} elapsed={returnTimer.ElapsedMilliseconds}ms");
-        samples.Step(sampleId, $"{summary} · 返回点击 {center} · {closed}", latest);
-        if (closed != ClickResult.Sent) return;
-        await Task.Delay(150);
-        if (!CurrentPanelRead() || _captureScreen() is not { } after) return;
-        using var afterStream = new MemoryStream(after);
-        using var afterFrame = new Bitmap(afterStream);
-        var returned = RoundEnemyReader.Inspect(afterFrame, locateButton: true);
-        bool boardVisible = returned.Title.IsEmpty && returned.Button.HasValue;
-        AppLogger.Info("RoundEnemy", $"round={round} returned-to-board={boardVisible}");
-        samples.Step(sampleId, summary + (boardVisible ? " · 已返回棋盘" : " · 未确认返回棋盘"), after);
-        if (boardVisible && !complete)
-        {
+            var read = await reader.ReadAsync(screenshot, frame, layout, previousPage, mode, round, manualRequest ? StillRequested : null);
+            var lastLayout = layout;
+            bool SameScrollPosition(RoundEnemyReader.Layout current) => lastLayout.ThumbBottom > 0 &&
+                current.ThumbTop == lastLayout.ThumbTop && current.ThumbBottom == lastLayout.ThumbBottom;
+            int scrolls = 0, captures = 0, pageReads = 1, lineRetries = read?.Retries ?? 0;
+            bool complete, returnToBoard, ownedReturn;
             lock (_runLock)
             {
-                if (!CurrentPanelRead() || _roundEnemyState.Info?.IsPartial != true) return;
-                _roundEnemyState.MarkPartialReturned();
+                if (revision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)
+                    || _roundEnemyState.Info?.Round != round) return;
+                if (!RequestCurrent()) { samples.Step(sampleId, "请求已结束，忽略迟到的名单"); return; }
+                manual = _roundEnemyState.Info.IsReading || _roundEnemyState.ManualContinuation;
+                returnToBoard = manual || retrying || _roundEnemyState.CanClosePanel;
+                if (read is not { HasNames: true } && !retrying && (manual || AutomaticRoundEnemies && _roundEnemyState.CanClosePanel))
+                {
+                    // Retain ownership until a subsequent main scan sees the panel or the player leaves it.
+                    samples.Step(sampleId, "未读到名单，等待下一帧");
+                    _roundEnemyState.EmptyReadTick = Environment.TickCount64;
+                    AppLogger.Info("RoundEnemy", $"round={round} empty-read-retry=scheduled elapsed={readTimer.ElapsedMilliseconds}ms");
+                    return;
+                }
+                if (read is { HasNames: true }) _roundEnemyState.ApplyRead(read);
+                else _roundEnemyState.Fail("未读到小怪，可以点击「识别小怪」重试。");
+                complete = _roundEnemyState.Info.HasCompleteList;
+                ownedReturn = complete && !buffered && _roundEnemyState.OpenedPanel == (connection, captureRevision);
+                returnToBoard |= ownedReturn;
+                requestedReturn = returnToBoard;
+                _roundEnemyState.EndConfirmation();
+                if (returnToBoard && read is { HasNames: true } && !complete)
+                    _roundEnemyState.ContinuePartial(manual);
             }
             RoundEnemiesChanged?.Invoke();
+            if (!complete && returnToBoard && connection is not null && read is { HasNames: true })
+            {
+                for (int page = 0; page < 5 && !read.EndsAtBottom; page++)
+                {
+                    if (!CurrentPanelRead() || _captureScreen() is not { } before) break;
+                    captures++;
+                    using var beforeStream = new MemoryStream(before);
+                    using var beforeFrame = new Bitmap(beforeStream);
+                    var beforeLayout = RoundEnemyReader.Inspect(beforeFrame, false);
+                    if (beforeLayout.Title.IsEmpty || !SameScrollPosition(beforeLayout) && RoundEnemyReader.PageStamp(beforeFrame, beforeLayout) != stamp) break;
+                    var visibleHud = await economyReader.ReadPreparationAsync(before, beforeFrame.Width, beforeFrame.Height);
+                    if (!visibleHud.IsPreparation || visibleHud.Round != round || !CurrentPanelRead()) break;
+                    var target = new Point(beforeLayout.Names.Left + beforeLayout.Names.Width / 2,
+                        beforeLayout.Names.Top + beforeLayout.Names.Height * 2 / 3);
+                    if (!RoundEnemyScroll(connection, target, beforeFrame.Size, captureRevision)) break;
+                    scrolls++;
+                    RoundEnemyReader.Layout? movingLayout = null;
+                    ulong? moving = null;
+                    RoundEnemyReadResult? next = null;
+                    for (int sample = 0; sample < 4; sample++)
+                    {
+                        await Task.Delay(120);
+                        if (!CurrentPanelRead() || _captureScreen() is not { } fresh) break;
+                        captures++;
+                        using var freshStream = new MemoryStream(fresh);
+                        using var freshFrame = new Bitmap(freshStream);
+                        var freshLayout = RoundEnemyReader.Inspect(freshFrame, false);
+                        if (freshLayout.Title.IsEmpty) break;
+                        var freshStamp = RoundEnemyReader.PageStamp(freshFrame, freshLayout);
+                        if (freshStamp == stamp || SameScrollPosition(freshLayout)) continue;
+                        if (moving != freshStamp && !(freshLayout.ThumbBottom > 0 && movingLayout is { } prior &&
+                            prior.ThumbTop == freshLayout.ThumbTop && prior.ThumbBottom == freshLayout.ThumbBottom))
+                        {
+                            moving = freshStamp;
+                            movingLayout = freshLayout;
+                            continue;
+                        }
+                        var freshHud = await economyReader.ReadPreparationAsync(fresh, freshFrame.Width, freshFrame.Height);
+                        if (!freshHud.IsPreparation || freshHud.Round != round || !CurrentPanelRead()) break;
+                        next = await reader.ReadAsync(fresh, freshFrame, freshLayout, read, mode, round, manualRequest ? StillRequested : null);
+                        samples.Step(sampleId, $"滚动后第 {pageReads+1} 页", fresh);
+                        pageReads++;
+                        lineRetries += next?.Retries ?? 0;
+                        stamp = freshStamp;
+                        lastLayout = freshLayout;
+                        break;
+                    }
+                    if (next is not { HasNames: true }) break;
+                    lock (_runLock)
+                    {
+                        if (!CurrentPanelRead()) return;
+                        _roundEnemyState.LastStamp = stamp;
+                        _roundEnemyState.LastReadTick = Environment.TickCount64;
+                        _roundEnemyState.ApplyRead(next);
+                        complete = _roundEnemyState.Info!.HasCompleteList;
+                        if (complete)
+                        {
+                            ownedReturn = _roundEnemyState.OpenedPanel == (connection, captureRevision);
+                            _roundEnemyState.EndConfirmation();
+                        }
+                    }
+                    RoundEnemiesChanged?.Invoke();
+                    read = next;
+                    if (complete) break;
+                }
+            }
+            bool CurrentRequestOrReturn() => RequestCurrent() || ownedReturn && version == _roundEnemyState.ManualVersion &&
+                _roundEnemyState.OpenedPanel == (connection, captureRevision);
+            bool CurrentPanelRead()
+            {
+                lock (_runLock) return CurrentRequestOrReturn() && !_disposed && revision == _runRevision && !_pauseBanScreenDetection && !_banScreenActive
+                    && IsCurrentCapture(connection, captureRevision) && _roundEnemyState.Info?.Round == round
+                    && _economy.Current is { IsPreparation: true } current && current.Round == round
+                    && (manual || AutomaticRoundEnemies || ownedReturn && _roundEnemyState.OpenedPanel == (connection, captureRevision));
+            }
+            AppLogger.Info("RoundEnemy", $"round={round} source={(buffered ? "buffered-panel" : manual ? "manual" : ownedReturn ? "owned-panel-complete" : returnToBoard ? "automatic" : "visible-panel")} names={read?.Names.Length ?? 0} bounties={read?.Bounties.Length ?? 0} complete={complete} empty-read-retry={retrying} pages={pageReads} scrolls={scrolls} scrollCaptures={captures} retries={lineRetries} elapsed={readTimer.ElapsedMilliseconds}ms");
+            var info = CurrentRoundEnemies;
+            string summary = $"名单{(complete ? "完整" : "待补全")} · {string.Join("、", info?.RouteNames ?? [])} · 悬赏 {string.Join("、", info?.Bounties ?? [])}";
+            samples.Step(sampleId, summary);
+            if (!returnToBoard || !CurrentPanelRead() || !manual && read is not { HasNames: true }) return;
+            var returnTimer = Stopwatch.StartNew();
+            if (connection is null || !IsCurrentCapture(connection, captureRevision) || _captureScreen() is not { } latest)
+            {
+                samples.Step(sampleId, summary + " · 返回前未取得画面");
+                AppLogger.Info("RoundEnemy", $"round={round} return-skipped=capture-unavailable");
+                return;
+            }
+            using var closeStream = new MemoryStream(latest);
+            using var closeFrame = new Bitmap(closeStream);
+            var closeLayout = RoundEnemyReader.Inspect(closeFrame, locateButton: true);
+            if (closeLayout.Title.IsEmpty)
+            {
+                samples.Step(sampleId, summary + " · 返回前面板发生变化", latest);
+                AppLogger.Info("RoundEnemy", $"round={round} return-skipped=panel-no-longer-visible");
+                return;
+            }
+            if (!complete && closeFrame.Size == frame.Size && !SameScrollPosition(closeLayout) &&
+                RoundEnemyReader.PageStamp(closeFrame, closeLayout) != stamp)
+            {
+                samples.Step(sampleId, summary + " · 敌人面板仍打开，等待识别变化后的页面", latest);
+                AppLogger.Info("RoundEnemy", $"round={round} return-deferred=page-changed");
+                return;
+            }
+            if (closeLayout.Button is not { } magnifier)
+            {
+                samples.Step(sampleId, summary + " · 返回前未找到黄色放大镜", latest);
+                AppLogger.Info("RoundEnemy", $"round={round} return-skipped=magnifier-not-found");
+                return;
+            }
+            var closingHud = await economyReader.ReadPreparationAsync(latest, closeFrame.Width, closeFrame.Height);
+            lock (_runLock)
+            {
+                if (!CurrentRequestOrReturn() || ownedReturn && _roundEnemyState.OpenedPanel != (connection, captureRevision) || _disposed || revision != _runRevision || _pauseBanScreenDetection || _banScreenActive ||
+                    !IsCurrentCapture(connection, captureRevision) || _roundEnemyState.Info?.Round != round ||
+                    !closingHud.IsPreparation || closingHud.Round != round)
+                {
+                    samples.Step(sampleId, summary + " · 返回前回合或请求已变化", latest);
+                    AppLogger.Info("RoundEnemy", $"round={round} return-skipped=context-changed-or-round-unconfirmed");
+                    return;
+                }
+            }
+            var closed = SendCapturedClick(connection, magnifier, closeFrame.Size, captureRevision);
+            AppLogger.Info("RoundEnemy", $"round={round} auto-close-input={closed} target=yellow-magnifier point={magnifier.X},{magnifier.Y} elapsed={returnTimer.ElapsedMilliseconds}ms");
+            samples.Step(sampleId, $"{summary} · 返回点击黄色放大镜 {magnifier} · {closed}", latest);
+            if (closed != ClickResult.Sent) return;
+            lock (_runLock)
+                if (_roundEnemyState.ManualVersion == version) _roundEnemyState.OpenedPanel = null;
+            await Task.Delay(150);
+            lock (_runLock)
+                if (_disposed || revision != _runRevision || version != _roundEnemyState.ManualVersion ||
+                    !IsCurrentCapture(connection, captureRevision) || _roundEnemyState.Info?.Round != round) return;
+            if (_captureScreen() is not { } after) return;
+            using var afterStream = new MemoryStream(after);
+            using var afterFrame = new Bitmap(afterStream);
+            var returned = RoundEnemyReader.Inspect(afterFrame, locateButton: true);
+            bool boardVisible = returned.Title.IsEmpty && returned.Button.HasValue;
+            AppLogger.Info("RoundEnemy", $"round={round} returned-to-board={boardVisible}");
+            samples.Step(sampleId, summary + (boardVisible ? " · 已返回棋盘" : " · 未确认返回棋盘"), after);
+            verifiedReturn = boardVisible;
+            if (boardVisible && !complete)
+            {
+                lock (_runLock)
+                {
+                    if (!CurrentPanelRead() || _roundEnemyState.Info?.IsPartial != true) return;
+                    _roundEnemyState.MarkPartialReturned();
+                }
+                RoundEnemiesChanged?.Invoke();
+            }
+        }
+        finally
+        {
+            if (requestedReturn && (!verifiedReturn || CurrentRoundEnemies?.IsPartial == true) &&
+                samples.Event(sampleId) is { } failed)
+            {
+                try { FieldFeedback.Save(game, failed); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { AppLogger.Warn("Feedback", "小怪名单留样失败：" + ex.GetType().Name); }
+            }
         }
     }
 
@@ -489,6 +547,7 @@ internal sealed class RoundEnemyState
     internal bool AutoAttempted { get; private set; }
     internal bool AutoSkipLogged { get; set; }
     private bool _manualOpenAttempted;
+    internal (GameConnectionService Connection, long Capture)? OpenedPanel { get; set; }
     internal bool PanelRead { get; set; }
     internal RoundEnemyReadResult? CoveredPage => _coveredPage;
     internal ulong LastStamp { get; set; }
@@ -504,7 +563,7 @@ internal sealed class RoundEnemyState
     internal long ManualVersion { get; private set; }
     internal bool WithinManualDeadline => DateTime.UtcNow < _manualUntil;
     private DateTime _manualUntil;
-    private bool _coveredFromTop;
+    private RoundEnemyReadResult? _connectedPage;
     private RoundEnemyReadResult? _coveredPage;
 
     internal bool NeedsPanelFrame(int round) => Info is not { } info || info.Round != round ||
@@ -562,6 +621,8 @@ internal sealed class RoundEnemyState
     {
         if (Info?.IsReading != true && !ManualContinuation || now < _manualUntil) return false;
         ManualVersion++;
+        if (Info?.IsPartial != true || !PanelRead) OpenedPanel = null;
+        AppLogger.Info("RoundEnemy", $"round={Info?.Round} manual-expired pending-panel-return={OpenedPanel.HasValue}");
         AutoAttempted = true;
         EndConfirmation();
         Fail("识别超时（8 秒），可重新识别。");
@@ -580,6 +641,7 @@ internal sealed class RoundEnemyState
         // The player may have opened the panel while capture was unavailable.
         if (captureLost)
         {
+            OpenedPanel = null;
             CanClosePanel = ManualContinuation = false;
             if (EmptyReadTick.HasValue) EndConfirmation();
         }
@@ -622,28 +684,32 @@ internal sealed class RoundEnemyState
     }
     internal void PanelClosed()
     {
+        if (PanelRead) OpenedPanel = null;
         PanelRead = false;
         if (!AwaitingPanel) CanClosePanel = ManualContinuation = false;
     }
     internal void ApplyRead(RoundEnemyReadResult read)
     {
         var previous = Info!;
-        bool overlaps = _coveredPage is { } page && (read.Names.Intersect(page.Names, StringComparer.Ordinal).Any() ||
+        bool overlaps = _connectedPage is { } page && (read.Names.Intersect(page.Names, StringComparer.Ordinal).Any() ||
             read.Bounties.Intersect(page.Bounties, StringComparer.Ordinal).Any() || read.Leaders.Intersect(page.Leaders).Any());
         // A partly clipped final row is resolved when the next page includes its preceding name.
-        bool connected = read.StartsAtTop || _coveredFromTop && overlaps &&
-            (_coveredPage?.UnreadTailAnchor is not { } anchor ||
+        bool connected = read.StartsAtTop || overlaps &&
+            (_connectedPage?.UnreadTailAnchor is not { } anchor ||
                 Array.IndexOf(read.Names, anchor) is var at && at >= 0 && at + 1 < read.Names.Length);
-        _coveredFromTop = connected && (!read.HasUnreadRows || read.UnreadTailAnchor is not null);
+        bool covered = connected && (!read.HasUnreadRows || read.UnreadTailAnchor is not null);
+        if (covered) _connectedPage = read;
         _coveredPage = read;
-        bool complete = _coveredFromTop && !read.HasUnreadRows && read.EndsAtBottom &&
+        bool complete = covered && !read.HasUnreadRows && read.EndsAtBottom &&
             (read.Names.Length > 0 || read.Leaders.Length > 0 || !read.StartsAtTop && (previous.Names.Count > 0 || previous.Leaders.Count > 0));
         bool replace = complete && read.StartsAtTop;
         var names = replace ? read.Names : previous.Names.Union(read.Names, StringComparer.Ordinal).ToArray();
-        var bounties = replace ? read.Bounties : previous.Bounties.Union(read.Bounties, StringComparer.Ordinal).ToArray();
+        var bounties = previous.Bounties.Union(read.Bounties, StringComparer.Ordinal).ToArray();
         Info = new(previous.Round, Array.AsReadOnly(names))
         {
             Bounties = Array.AsReadOnly(bounties),
+            BountyLanes = read.BountyLanes.Count == 0 ? previous.BountyLanes :
+                previous.BountyLanes.Concat(read.BountyLanes).GroupBy(k => k.Key).ToDictionary(g => g.Key, g => g.Last().Value),
             Leaders = replace ? read.Leaders : previous.Leaders.Union(read.Leaders, StringComparer.Ordinal).ToArray(),
             IsPartial = !complete,
             Hint = complete ? null : read.HasUnreadRows ? "有名称待确认，可点击「识别小怪」重试。"
@@ -655,9 +721,10 @@ internal sealed class RoundEnemyState
 
     internal void Reset()
     {
+        OpenedPanel = null;
         Info = null;
         AutoAttempted = AutoSkipLogged = _manualOpenAttempted = PanelRead = false;
-        _coveredFromTop = false;
+        _connectedPage = null;
         _coveredPage = null;
         _autoRetries = 0;
         EndConfirmation();

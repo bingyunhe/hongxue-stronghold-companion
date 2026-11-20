@@ -20,10 +20,11 @@ internal static class UpdateHistoryViewTests
         var appearance = new SidebarAppearance(); WindowUiScale.Initialize(appearance);
         ThemeManager.Apply(theme, night);
         var entries = UpdateHistory.Load(Path.Combine(AppContext.BaseDirectory, "data", "update-history.json"));
-        entries.Should().HaveCount(18); entries[0].Version.Should().Be("v1.9.5"); entries[^1].Version.Should().Be("v1.0.0");
-        entries[0].Content.Should().Contain("8 秒").And.Contain("地图模拟").And.Contain("Mirror酱");
-        entries[1].Content.Should().Contain("HongxueCompanion.exe").And.Contain("反馈与诊断").And.Contain("新增").And.Contain("修复").And.Contain("修改");
-        entries[2].Content.Should().Contain("单阶段支持最大15人");
+        entries.Should().HaveCount(19); entries[0].Version.Should().Be("v1.9.6"); entries[^1].Version.Should().Be("v1.0.0");
+        entries[0].Content.Should().Contain("32 MiB").And.Contain("1104531618");
+        entries[1].Content.Should().Contain("8 秒").And.Contain("地图模拟").And.Contain("Mirror酱");
+        entries[2].Content.Should().Contain("HongxueCompanion.exe").And.Contain("反馈与诊断").And.Contain("新增").And.Contain("修复").And.Contain("修改");
+        entries[3].Content.Should().Contain("单阶段支持最大15人");
         entries.Should().OnlyContain(entry => !entry.Content.Contains("## 下载"));
         var directory = Path.Combine(TestOutput.Directory, "update-history"); Directory.CreateDirectory(directory);
         var window = new UpdateHistoryWindow(entries) { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };

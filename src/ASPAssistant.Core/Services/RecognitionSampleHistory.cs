@@ -8,7 +8,12 @@ public sealed record SampleFrame(DateTimeOffset Time, string Step, byte[] Image)
 
 public sealed record RecognitionSample(int? Round, string Kind, string Result, DateTimeOffset Started, SampleFrame[] Frames)
 {
+    public sealed record MarkedCase(string Label, int? Round, string Result, int? InputFrame, string Expected);
+    public MarkedCase[] Cases { get; init; } = [];
+    public int? InputFrame { get; init; }
     public string[] Actions { get; init; } = [];
+    public bool IsGameReport { get; init; }
+    public Guid? Game { get; init; }
     public string Label => $"{Started.LocalDateTime:HH:mm:ss} · {(Round is int r ? $"第 {r} 回合 · " : "")}{Kind}";
 }
 
@@ -39,13 +44,13 @@ public sealed class RecognitionSampleHistory
         }
     }
 
-    public long Begin(string kind, int? round, bool includeRecent = false)
+    public long Begin(string kind, int? round, bool includeRecent = false, Guid? game = null)
     {
         lock (_gate)
         {
             var frames = includeRecent && round == _recentRound ? _recent.TakeLast(3).ToArray() : [];
             var id = ++_sequence;
-            _events.Add((id, new(round, kind, "进行中", DateTimeOffset.Now, frames)));
+            _events.Add((id, new RecognitionSample(round, kind, "进行中", DateTimeOffset.Now, frames) { Game = game }));
             Trim();
             return id;
         }
@@ -90,5 +95,10 @@ public sealed class RecognitionSampleHistory
                 frozen.Add(new(_recentRound, "最近游戏画面", "按采集顺序排列", _recent[^1].Time, [.._recent]));
             return [..frozen];
         }
+    }
+
+    internal RecognitionSample? Event(long id)
+    {
+        lock (_gate) return _events.FirstOrDefault(e => e.Id == id).Sample;
     }
 }

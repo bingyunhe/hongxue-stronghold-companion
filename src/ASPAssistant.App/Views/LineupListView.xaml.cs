@@ -24,6 +24,9 @@ public partial class LineupListView : UserControl
     public event Action<Lineup>? ShareLineupRequested;
     public event Action<Lineup>? TrackLineupRequested;
     public event Action<Lineup>? DeleteLineupRequested;
+    public event Action<IReadOnlyList<Lineup>>? DeleteSelectedRequested;
+    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
+    private bool _selecting;
     /// <summary>修补: open the planner with this lineup's surviving operators locked.</summary>
     public event Action<LineupRecommendation>? RepairLineupRequested;
 
@@ -69,6 +72,9 @@ public partial class LineupListView : UserControl
             _vm.Recommendations.CollectionChanged -= OnListChanged;
             _vm.PropertyChanged -= OnVmPropertyChanged;
         }
+        _selected.Clear();
+        _selecting = false;
+        SetSelectionLayout();
         _vm = e.NewValue as LineupViewModel;
         if (_vm is not null)
         {
@@ -128,10 +134,11 @@ public partial class LineupListView : UserControl
         var recs = _vm.Recommendations.ToDictionary(r => r.Lineup.Id);
 
         // 本局推荐
-        bool hasRun = _vm.HasRunInfo && _vm.Lineups.Count > 0
+        bool hasRun = !_selecting && _vm.HasRunInfo && _vm.Lineups.Count > 0
             && _vm.SelectedAvailabilityFilter == LineupAvailabilityFilter.Pending;
         RecommendSection.Visibility = hasRun ? Visibility.Visible : Visibility.Collapsed;
         var matching = _vm.FilteredLineups.Select(l => l.Id).ToHashSet(StringComparer.Ordinal);
+        _selected.IntersectWith(matching);
         if (hasRun)
         {
             var recommendations = _vm.Recommendations.Where(r => matching.Contains(r.Lineup.Id)).ToList();
@@ -149,14 +156,74 @@ public partial class LineupListView : UserControl
 
         // 全部
         LineupItems.ItemsSource = hasRun ? Array.Empty<LineupCardItem>() : _vm.FilteredLineups
-            .Select(l => LineupCardItem.From(l, recs.GetValueOrDefault(l.Id), _vm, isRecommendation: false, isBest: false)).ToArray();
+            .Select(l => LineupCardItem.From(l, recs.GetValueOrDefault(l.Id), _vm, isRecommendation: false, isBest: false,
+                selected: _selecting ? _selected.Contains(l.Id) : null)).ToArray();
         int total = _vm.Lineups.Count, matched = _vm.FilteredLineups.Count;
         bool filtered = matched != total;
         CountText.Text = filtered ? $"符合 {matched} 套" : $"{total} 套阵容";
         TotalText.Text = filtered ? $"· 共 {total} 套" : "";
+        if (_selecting) UpdateSelectedCount();
         EmptyHint.Visibility = total == 0 ? Visibility.Visible : Visibility.Collapsed;
         NoMatchHint.Visibility = total > 0 && matched == 0 ? Visibility.Visible : Visibility.Collapsed;
         UpdateTagsRow();
+    }
+
+    private void SetSelectionLayout()
+    {
+        BulkDelete.Visibility = BulkCancel.Visibility = BulkAll.Visibility = _selecting ? Visibility.Visible : Visibility.Collapsed;
+        BulkMode.Style = (Style)FindResource(_selecting ? "LineupPrimaryButton" : "LineupTopButton");
+        Grid.SetColumnSpan(CountGroup, _selecting ? 2 : 1);
+        Grid.SetRow(ListActions, _selecting ? 1 : 0);
+        Grid.SetColumn(ListActions, _selecting ? 0 : 1);
+        Grid.SetColumnSpan(ListActions, _selecting ? 2 : 1);
+        ListActions.Margin = new Thickness(0, _selecting ? 5 : 0, 0, 0);
+    }
+
+    internal void EndSelection()
+    {
+        _selecting = false;
+        _selected.Clear();
+        SetSelectionLayout();
+        Rebuild();
+    }
+
+    private void OnBulkMode(object sender, RoutedEventArgs e)
+    {
+        if (_selecting) { EndSelection(); return; }
+        _selecting = true;
+        SetSelectionLayout();
+        Rebuild();
+    }
+
+    private void UpdateSelectedCount()
+    {
+        CountText.Text = $"筛选结果 {_vm!.FilteredLineups.Count} 套 · 已选 {_selected.Count} 套";
+        TotalText.Text = "";
+        BulkDelete.IsEnabled = _selected.Count > 0;
+        BulkAll.IsEnabled = _selected.Count < _vm.FilteredLineups.Count;
+    }
+
+    private void OnBulkCheck(object sender, RoutedEventArgs e)
+    {
+        var box = (CheckBox)sender;
+        var id = ((LineupCardItem)box.DataContext).Lineup.Id;
+        if (box.IsChecked == true) _selected.Add(id);
+        else _selected.Remove(id);
+        UpdateSelectedCount();
+    }
+
+    private void OnBulkAll(object sender, RoutedEventArgs e)
+    {
+        _selected.UnionWith(_vm!.FilteredLineups.Select(l => l.Id));
+        Rebuild();
+    }
+
+    internal Lineup[] SelectedVisible() => _vm!.FilteredLineups.Where(l => _selected.Contains(l.Id)).ToArray();
+
+    private void OnBulkDelete(object sender, RoutedEventArgs e)
+    {
+        var selected = SelectedVisible();
+        if (selected.Length > 0) DeleteSelectedRequested?.Invoke(selected);
     }
 
     private void UpdateTagsRow()
@@ -260,9 +327,11 @@ public sealed class LineupCardItem
     public bool IsBest { get; init; }
     /// <summary>Share / delete live on the full list; 本局推荐 keeps to 修补 / 追踪 / 编辑.</summary>
     public bool ShowManage { get; init; }
+    public bool ShowSelection { get; init; }
+    public bool IsSelected { get; init; }
     public bool HasAutoRoute => Lineup.AutoRoute is not null;
 
-    public static LineupCardItem From(Lineup lineup, LineupRecommendation? rec, LineupViewModel vm, bool isRecommendation, bool isBest)
+    public static LineupCardItem From(Lineup lineup, LineupRecommendation? rec, LineupViewModel vm, bool isRecommendation, bool isBest, bool? selected = null)
     {
         List<LineupTargetPill> targets;
         if (rec is not null)
@@ -285,6 +354,8 @@ public sealed class LineupCardItem
             Targets = targets,
             Avatars = [.. lineup.Slots.Where(s => s.OperatorName.Length > 0)
                 .Select(s => new LineupAvatarItem(s.OperatorName, banned.Contains(s.OperatorName)))],
+            ShowSelection = selected.HasValue,
+            IsSelected = selected == true,
             IsBest = isBest,
             ShowManage = !isRecommendation,
         };

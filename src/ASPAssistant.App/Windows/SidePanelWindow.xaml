@@ -528,6 +528,15 @@
                                                 <TextBlock Text="备战时自动打开敌人面板读取名单。关闭后仍可手动识别。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                             </StackPanel>
                                         </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
+                                            <CheckBox x:Name="StartupInformationToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      AutomationProperties.Name="中途启动自动识别对局信息" />
+                                            <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                                <TextBlock Text="中途启动自动识别对局信息" FontSize="12" FontWeight="Bold" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="下次中途启动助手时，在整备阶段自动录入对局信息，成功后返回棋盘。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
                                         <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" Visibility="Collapsed" />
                                         <DockPanel Visibility="Collapsed">
                                             <CheckBox x:Name="BoardOverlayToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"

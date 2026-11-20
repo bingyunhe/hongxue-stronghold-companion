@@ -100,7 +100,7 @@ public class UpdateDownloadTests
         try
         {
             Environment.SetEnvironmentVariable(UpdateService.FeedOverrideVariable, url);
-            var service = new UpdateService();
+            var service = new UpdateService { DownloadCacheDirectory = Path.Combine(Path.GetTempPath(), "test-download-cache") };
             var info = await service.CheckForUpdateAsync(timeout.Token);
             info.Should().NotBeNull();
             if (wrongHash)

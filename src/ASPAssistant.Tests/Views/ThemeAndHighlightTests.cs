@@ -530,6 +530,10 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     public Task LineupStates_FilterAndShowPendingRecommendations(GameShopTheme theme, bool night)
         => ui.RunAsync(() => LineupStateFilterViewTests.Verify(theme, night), $"{nameof(LineupStates_FilterAndShowPendingRecommendations)}-{theme}-{night}");
 
+    [Fact]
+    public Task BulkLineupDeletion_PreservesHiddenLineups()
+        => ui.RunAsync(UpdateAndTrayTests.VerifyBulkLineupDeletion, nameof(BulkLineupDeletion_PreservesHiddenLineups));
+
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
     [InlineData(GameShopTheme.Terminal, true)]
@@ -650,10 +654,28 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     [Fact]
     public Task UpdateDialog_ReportsDownloadProgress() => ui.RunAsync(() =>
     {
+        const string invite = "https://qm.qq.com/q/x5Z2uPdJRK";
+        const string mirror = "https://mirrorchyan.com/zh/projects?rid=hongxue-stronghold-companion";
+        string notes = $"## 更新内容\n[点击加入 QQ 交流群（1104531618）]({invite})\n\n已有 Mirror酱 CDK 可以 [前往 Mirror酱 高速下载]({mirror})\n\n## 下载与使用\n安装说明";
         var info = new ASPAssistant.Core.Services.UpdateInfo(
-            "v99.9.9", "99.9.9", "- 测试更新说明", "https://example.test/a.zip", "a.zip", null);
-        // 不 Show()：在测试宿主里显示窗口会拉起到前台并可能拖垮 testhost。
-        var dialog = new UpdateDialog(info);
+            "v99.9.9", "99.9.9", notes, "https://example.test/a.zip", "a.zip", null);
+        var opened = new List<string>();
+        bool clientAvailable = true;
+        var dialog = new UpdateDialog(info, uri =>
+        {
+            opened.Add(uri);
+            if (!clientAvailable && uri.StartsWith("mqqapi:")) throw new System.ComponentModel.Win32Exception(1155);
+        });
+        var release = (TextBlock)dialog.FindName("ReleaseNotesText");
+        var links = release.Inlines.OfType<System.Windows.Documents.Hyperlink>().ToArray();
+        links.Select(link => link.NavigateUri.AbsoluteUri).Should().Equal(invite, mirror);
+        release.Text.Should().NotContain("安装说明");
+        opened.Should().BeEmpty();
+        links[0].RaiseEvent(new RoutedEventArgs(System.Windows.Documents.Hyperlink.ClickEvent));
+        opened.Should().ContainSingle().Which.Should().Contain("uin=1104531618&card_type=group");
+        clientAvailable = false;
+        links[0].RaiseEvent(new RoutedEventArgs(System.Windows.Documents.Hyperlink.ClickEvent));
+        opened.Skip(1).Should().Equal(opened[0], invite);
         dialog.ReportProgress(0.42);
         var bar = (System.Windows.Controls.ProgressBar)dialog.FindName("DialogProgress");
         var percent = (TextBlock)dialog.FindName("ProgressPercentText");

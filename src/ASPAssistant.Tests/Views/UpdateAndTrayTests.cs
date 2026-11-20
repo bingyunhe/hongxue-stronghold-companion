@@ -152,7 +152,7 @@ internal static class UpdateAndTrayTests
             Pump();
             ((Border)panel.FindName("UpdateBanner")).Visibility.Should().Be(Visibility.Collapsed);
             server.Pending().Should().BeFalse("skipping the version must not download");
-            panel.PresentAvailableUpdate(new UpdateInfo("v99.9.9", "99.9.9", "测试版本说明", address + "/package.zip", "test-win-x64.zip", null));
+            panel.PresentAvailableUpdate(new UpdateInfo("v99.9.9", "99.9.9", "测试版本说明", address + "/package.zip", "test-win-x64.zip", address + "/checksums"));
             panel.Dispatcher.BeginInvoke(() =>
             {
                 var dialog = Application.Current.Windows.OfType<UpdateDialog>().Single();
@@ -165,19 +165,45 @@ internal static class UpdateAndTrayTests
             panel.Dispatcher.BeginInvoke(() =>
             {
                 var dialog = Application.Current.Windows.OfType<UpdateDialog>().Single();
-                var request = Task.Run(() => Respond(server, 503, "unavailable"));
+                var request = Task.Run(() => Respond(server, 404, "unavailable"));
                 ((Button)dialog.FindName("DownloadButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Await(request);
                 requestServed = true;
                 var download = (Task)typeof(SidePanelWindow).GetField("_downloadTask", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panel)!;
                 Await(download);
                 Pump();
-                ((TextBlock)dialog.FindName("DownloadHintText")).Text.Should().Contain("503").And.Contain("重试");
+                ((TextBlock)dialog.FindName("DownloadHintText")).Text.Should().Contain("404").And.Contain("重试");
                 ((Button)dialog.FindName("DownloadButton")).Visibility.Should().Be(Visibility.Visible);
                 dialog.Close();
             });
             bannerAction.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             requestServed.Should().BeTrue("only the explicit download action requests the package");
+            foreach (var night in new[] { false, true })
+            {
+                ThemeManager.Apply(GameShopTheme.Closure, night);
+                var info = new UpdateInfo("v1.9.5", "1.9.5", "测试更新", address, "full.zip", null)
+                {
+                    FullSize = 209144815, Delta = new UpdateDelta("delta.zip", address, 7185940)
+                };
+                var dialog = new UpdateDialog(info) { Owner = panel };
+                dialog.Show();
+                Pump();
+                var hint = (TextBlock)dialog.FindName("DownloadHintText");
+                hint.Text.Should().Be(info.DownloadSizeText);
+                Save((FrameworkElement)dialog.Content, $"Delta-size-{night}");
+                dialog.ReportFailure("本机文件与旧版不一致。重试将下载完整包 199.46 MiB");
+                dialog.UpdateLayout();
+                Save((FrameworkElement)dialog.Content, $"Delta-fallback-{night}");
+                dialog.ReportProgress(0.8);
+                dialog.ShowTransferStatus("连接中断，3 秒后自动重试（1/1）");
+                dialog.UpdateLayout();
+                Save((FrameworkElement)dialog.Content, $"Transfer-retry-{night}");
+                dialog.ReportFailure("网络未恢复", true);
+                ((Button)dialog.FindName("DownloadButton")).Content.Should().Be("继续下载");
+                dialog.UpdateLayout();
+                Save((FrameworkElement)dialog.Content, $"Transfer-resume-{night}");
+                dialog.Close();
+            }
             foreach (var theme in Enum.GetValues<GameShopTheme>())
             foreach (var night in new[] { false, true })
             {
@@ -261,6 +287,44 @@ internal static class UpdateAndTrayTests
             panel.Close();
             Directory.Delete(folder, true);
         }
+    }
+
+    public static void VerifyBulkLineupDeletion()
+    {
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+        var folder = Directory.CreateTempSubdirectory("lineup-delete-");
+        var settings = new SettingsManager(folder.FullName);
+        var panel = CreatePanel(settings);
+        try
+        {
+            panel.Show();
+            var vm = panel.LineupVm;
+            foreach (var name in new[] { "批量甲", "保留", "批量乙" })
+                Await(vm.AddOrUpdateAsync(new Lineup { Id = name, Name = name }));
+            vm.SearchText = "批量"; Pump();
+            var view = (ASPAssistant.App.Views.LineupListView)panel.FindName("LineupView");
+            void Click(string key) => ((Button)view.FindName(key)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Click("BulkMode");
+            Click("BulkAll");
+            foreach (bool confirm in new[] { false, true })
+            {
+                string message = "";
+                panel.Dispatcher.BeginInvoke(() =>
+                {
+                    var dialog = Application.Current.Windows.OfType<ConfirmDialog>().Single();
+                    message = ((TextBlock)dialog.FindName("MessageText")).Text;
+                    ((Button)dialog.FindName(confirm ? "OkButton" : "CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                });
+                Click("BulkDelete");
+                message.Should().Contain("2 套");
+                AwaitWhen(() => view.IsEnabled);
+                vm.Lineups.Count.Should().Be(confirm ? 1 : 3);
+            }
+            var store = new LineupStore(Path.Combine(folder.FullName, "lineups"), vm.Calculator.EquipmentRules);
+            Await(store.LoadAllAsync()).Select(l => l.Name).Should().Equal("保留");
+            Directory.GetFiles(Path.Combine(folder.FullName, "lineups"), "*.deleted.bak").Should().HaveCount(2);
+        }
+        finally { panel.Close(); folder.Delete(true); }
     }
 
     private static SidePanelWindow CreatePanel(SettingsManager settings)

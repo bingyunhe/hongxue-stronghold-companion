@@ -123,7 +123,7 @@ jobs:
             $packageRoot = $topLevel[0].FullName
             $appRoot = Join-Path $packageRoot 'app'
             $rootNames = @(Get-ChildItem -LiteralPath $packageRoot -Force | ForEach-Object Name | Sort-Object)
-            $allowed = @('HongxueCompanion.exe', 'ASPAssistant.App.exe', 'app', 'licenses', 'update-layout.json', '使用说明.txt') | Sort-Object
+            $allowed = @('HongxueCompanion.exe', 'ASPAssistant.App.exe', 'app', 'licenses', 'update-layout.json', '使用说明.txt', '问题排查指南.md') | Sort-Object
             if (Compare-Object $rootNames $allowed) { throw '安装根目录包含非预期文件或缺少入口' }
             $layout = Get-Content -LiteralPath (Join-Path $packageRoot 'update-layout.json') -Raw | ConvertFrom-Json
             if ($layout.formatVersion -ne 1 -or $layout.executable -cne 'app/HongxueCompanion.exe') {

@@ -47,6 +47,11 @@
                                       AutomationProperties.Name="按回合和时间选择识别记录" SelectionChanged="OnEventChanged" />
                             <TextBlock x:Name="RecognitionText" TextWrapping="Wrap" Margin="0,12,0,8" FontSize="11"
                                        Foreground="{DynamicResource TextSecondaryBrush}" />
+                            <StackPanel x:Name="MarkPanel" Visibility="Collapsed">
+                                <ComboBox x:Name="MarkChoice" DisplayMemberPath="Label" SelectionChanged="OnMarkChanged" AutomationProperties.Name="选择棋盘标记" />
+                                <TextBlock Text="实际姓名、空格或预期站位（选填）" Margin="0,6,0,2"/>
+                                <TextBox x:Name="ExpectedBox" MaxLength="300" Style="{StaticResource DialogTextBox}" Margin="0,0,0,6" TextChanged="OnExpectedChanged"/>
+                            </StackPanel>
                             <CheckBox x:Name="ScreenshotChoice" Content="附上这次识别画面" Checked="OnScreenshotChanged" Unchecked="OnScreenshotChanged"
                                       Foreground="{DynamicResource TextPrimaryBrush}" />
                             <TextBlock x:Name="PrivacyText" Text="截图可能含游戏昵称或聊天内容，请先查看下方画面。反馈包不包含个人阵容和设置文件。"

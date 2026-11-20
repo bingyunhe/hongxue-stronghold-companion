@@ -198,6 +198,25 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
         }
     }
 
+    [Theory]
+    [InlineData("renamed current install")]
+    [InlineData("activated new version")]
+    public async Task InterruptedDeltaInstallation_ReopensThePreviousVersion(string phase)
+    {
+        var (app, source) = await PrepareFilesAsync(_root, "installed");
+        var script = UpdateService.BuildUpdateScript(int.MaxValue, source, app,
+            Path.Combine(app, "ASPAssistant.App.exe"), Path.Combine(_root, "staging"), Path.Combine(_root, "backup"),
+            Path.Combine(_root, "update.log"), "ASPAssistant.App.exe", incremental: true);
+        var fault = script.Split('\n').Single(line => line.Contains("Write-Log \"" + phase));
+        script = script.Replace(fault, "[Diagnostics.Process]::GetCurrentProcess().Kill()");
+        var file = Path.Combine(_root, "update.ps1");
+        await File.WriteAllTextAsync(file, script, new UTF8Encoding(true));
+        var result = await RunPowerShellAsync(file, _root);
+        result.ExitCode.Should().NotBe(0);
+        await AssertStartedAsync(app, "old");
+        File.Exists(Path.Combine(app, "new-only.txt")).Should().BeFalse();
+    }
+
     [Fact]
     public async Task NewVersionLaunchFails_RestoresCompleteOldDirectory()
     {

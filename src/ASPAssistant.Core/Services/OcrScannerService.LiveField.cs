@@ -36,7 +36,9 @@ public partial class OcrScannerService
         return light < 10;
     }
     public event Action? LiveFieldChanged;
-    public LiveRoster LiveRoster { get { lock (_runLock) return _liveState?.Roster ?? new(null,null,[]); } }
+    private Guid _fieldGame = Guid.NewGuid();
+    private FieldObservation[] _fieldObservations = [];
+    public LiveRoster LiveRoster { get { lock (_runLock) return _liveState is null ? new(null,null,[]) : _liveState.Roster with { Observations = _fieldObservations }; } }
 
     public bool SetLiveIdentity(long id, FieldSlot slot, string name)
     {
@@ -46,12 +48,13 @@ public partial class OcrScannerService
         return applied;
     }
 
-    private void ObserveField(BmpPixels pixels, BoardMatch match, int round, IReadOnlyList<ShopItem> cards,
+    private void ObserveField(byte[] image, BmpPixels pixels, BoardMatch match, int round, IReadOnlyList<ShopItem> cards,
         ShopEconomy? economy, bool open, long tick, int run, GameConnectionService? connection, long revision, bool manual, CancellationToken cancellation = default)
     {
         var clock = Stopwatch.StartNew();
         if (FieldDetailFocus.Visible(pixels)) return;
-        var marks = LiveReader!.Read(pixels, match, true, manual, cancellation);
+        var readings = new Dictionary<FieldSlot, SlotReading>();
+        var marks = LiveReader!.ReadWithTrace(pixels, match, true, manual, cancellation, readings);
         bool changed;
         lock (_runLock)
         {
@@ -64,6 +67,13 @@ public partial class OcrScannerService
             _reviewBoard = (pixels, match, after, marks);
             changed = !before.Bought.SequenceEqual(after.Bought) || before.Map != after.Map || before.Round != round || before.Units.Count != after.Units.Count ||
                 after.Units.Any(u => !before.Units.Any(p => p.Id == u.Id && p.Mark.Slot == u.Mark.Slot && p.Name == u.Name && p.IdentitySource == u.IdentitySource));
+            var frame = new SampleFrame(DateTimeOffset.Now, $"识别原帧 {pixels.Width}×{pixels.Height} · {match.Camera}",
+                image.Length <= RecognitionDiagnostics.MaximumFrameBytes ? image : []);
+            var observed = new FieldObservation(_fieldGame, frame, match.Map.Id, round, after.Units, after.Bought) { Readings = readings };
+            // An unrecognised arrival may leave the roster unchanged. Keep that scan as the
+            // latest evidence without displacing previous purchase/movement transitions.
+            _fieldObservations = changed || _fieldObservations.Length == 0
+                ? [.._fieldObservations.TakeLast(2), observed] : [.._fieldObservations[..^1], observed];
         }
         if (changed || manual)
         {
@@ -130,7 +140,7 @@ public partial class OcrScannerService
                 if (detailOpen) return "请先收起干员详情，再识别全场";
                 var board = BoardRecognizer.Recognize(pixels);
                 if (board == null || LiveFieldReader.IsDragging(pixels)) return "请回到可见完整棋盘的休整画面";
-                ObserveField(pixels, board, round, [], null, false, Environment.TickCount64, run, connection, revision, true, token);
+                ObserveField(image, pixels, board, round, [], null, false, Environment.TickCount64, run, connection, revision, true, token);
                 token.ThrowIfCancellationRequested();
                 var roster = LiveRoster;
                 if (!Current() || roster.Map != board.Map.Id || roster.Round != round) return "对局已切换，请重新识别";
@@ -155,6 +165,8 @@ public partial class OcrScannerService
                 return "游戏画面已切换，请重新选择";
             var samples = RecognitionDiagnostics.Samples;
             var review = samples.Begin($"干员复核 · {unit.Mark.Slot}", round);
+            var reviewGame = LiveRoster.Observations.LastOrDefault()?.Game;
+            bool wrongSlot = false;
             samples.Step(review, "点击前", before);
             var freshPixels=BmpPixels.TryRead(ImageBytes.ToBmp(before))!;
             Point? click=null;
@@ -195,6 +207,9 @@ public partial class OcrScannerService
                 // Aim inside the torso. An adjacent melee sprite or a summon can cover the lower edge.
                 click=current.Slot.Bench ? new(current.Foot.X,current.Foot.Y-(int)Math.Round(current.Tile*.15))
                     : new(current.Foot.X+(int)Math.Round(current.Tile*.06),current.Foot.Y-(int)Math.Round(current.Tile*.30));
+                // A unit immediately behind the target can intercept the torso tap before its name is known.
+                if (!current.Slot.Bench && marks.Any(m => !m.Slot.Bench && m.Slot.Col == current.Slot.Col && m.Slot.Row == current.Slot.Row - 1))
+                    click = LiveReader.CellCenter(current.Slot, same.Camera, freshPixels);
             }
             if (click is Point point && (!Current() || SendCapturedClick(connection, point, new Size(size.Width,size.Height), revision) != ClickResult.Sent))
             {
@@ -214,6 +229,7 @@ public partial class OcrScannerService
                 var selectedSlot = visible ? focus.Locate(freshFrame)?.Mark.Slot : null;
                 if (selectedSlot != unit.Mark.Slot)
                 {
+                    wrongSlot |= selectedSlot.HasValue;
                     reason = !visible ? "panel-hidden" : $"focus={selectedSlot?.ToString() ?? "unknown"}";
                     samples.Step(review, $"目标 {unit.Mark.Slot} · {reason}", fresh);
                     last=null;
@@ -234,7 +250,8 @@ public partial class OcrScannerService
                         if (saved == null) return "该干员已移动";
                         if (saved.Manual && saved.Name != name) return $"详情为{name} · 已保留手动记录{saved.Name}";
                         result = saved.Manual ? $"详情与手动记录一致 · {name}" : $"{unit.Mark.Slot} · 已核实为{name}";
-                        if (!saved.Manual) _liveState!.Confirm(unit.Id,unit.Mark.Slot,name,false,beforeClick);
+                        if (!saved.Manual && !_liveState!.Confirm(unit.Id,unit.Mark.Slot,name,false,beforeClick))
+                            return "该干员已移动，请重新选择";
                     }
                     LiveFieldChanged?.Invoke();
                     AppLogger.Info("LiveField",$"review slot={unit.Mark.Slot} detail={name}");
@@ -245,6 +262,12 @@ public partial class OcrScannerService
                 last = name;
             }
             AppLogger.Info("LiveField",$"review slot={unit.Mark.Slot} reason={reason}");
+            if (wrongSlot && reviewGame.HasValue && samples.Event(review) is { } failed)
+            {
+                try { FieldFeedback.Save(reviewGame.Value, failed with { Result = "复核点错格 · " + reason }); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { AppLogger.Warn("Feedback", "复核留样失败：" + ex.GetType().Name); }
+            }
             return Unresolved("详情未能核实，可右键选择「更换干员并记住」");
 
             async Task<string> ReturnToBoard()
@@ -294,6 +317,13 @@ public partial class OcrScannerService
         var (w,h) = ImageBytes.GetDimensions(frame);
         // The name is the single row between the class icon and the level and stats.
         var lines = await _ocrEngine.RecognizeRegionAsync(frame, (int)(w*.005), (int)(h*.247), (int)(w*.22), (int)(h*.054));
-        return lines.Select(l => l.Text.Trim().Replace(" ", "").Replace('傑', '杰')).FirstOrDefault(FieldTiers.ContainsKey);
+        foreach (var line in lines)
+        {
+            var text = line.Text.Trim().Replace(" ", "").Replace('傑', '杰');
+            if (FieldTiers.ContainsKey(text)) return text;
+            var quoted = "“" + text.Trim('“','”','"') + "”";
+            if (FieldTiers.ContainsKey(quoted)) return quoted;
+        }
+        return null;
     }
 }

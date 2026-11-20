@@ -85,6 +85,61 @@ public sealed class FeedbackReportTests : IDisposable
     }
 
     [Fact]
+    public void BothFeedbackArchivesKeepTheConnectionCauseAfterLogTruncation()
+    {
+        var missing = Path.Combine(_directory, "missing-adb.exe");
+        var error = Assert.Throws<IOException>(() => AdbGameScreens.Run(missing, ["devices"]));
+        FeedbackReport.RecordConnectionFailure("查找屏幕失败", error.Message);
+        File.ReadAllText(AppLogger.LogFilePath!).Should().Contain("Windows 错误 2").And.NotContain(missing);
+        File.AppendAllText(AppLogger.LogFilePath!, new string('x', 3 * 1024 * 1024) + "\n");
+        var history = new RecognitionSampleHistory();
+        history.Begin("识别", 1);
+        var report = FeedbackReport.Prepare();
+        foreach (var sample in new RecognitionSample?[] { null, history.Freeze().Single() })
+        {
+            var path = Path.Combine(_directory, $"connection-{sample is null}.zip");
+            (report with { Selected = sample }).Export(path, "程序报错", "", "", false);
+            using var zip = ZipFile.OpenRead(path);
+            using var reader = new StreamReader(zip.GetEntry("反馈说明.txt")!.Open());
+            reader.ReadToEnd().Should().Contain("查找屏幕失败").And.Contain("Windows 错误 2").And.NotContain(missing);
+        }
+    }
+
+    [Fact]
+    public void GameMarksReopenTogetherWithTheOriginalFramesAndPlayerCorrection()
+    {
+        var game = Guid.NewGuid();
+        var now = DateTimeOffset.Now;
+        var unit = new LiveUnit(new(new(4,1),1,new(1,2),[],null),4,"烈夏",null,false,false);
+        var copy = unit with { Id = 7, Mark = unit.Mark with { Slot = new(2,3) } };
+        var before = new FieldObservation(game,new(now,"第三回合原图",[1]),"city",3,[unit],[]);
+        var slot = new FieldSlot(4,0);
+        var after = new FieldObservation(game,new(now.AddSeconds(1),"第四回合原图",[2]),"city",4,[unit,copy],["烈夏"])
+        { Readings = new Dictionary<FieldSlot,SlotReading> { [slot] = new(new(20,30,40,50),"角标与已知棋盘外观均未匹配") } };
+        var roster = new LiveRoster("city",4,[unit,copy]) { Observations = [before,after] };
+        var sample = FieldFeedback.Mark(roster,slot,"战斗 · 候选：暴躁铁皮 · 替补：暴躁铁皮",null);
+        FieldFeedback.Save(_directory,game,sample);
+        FieldFeedback.Save(_directory,game,new(4,"干员复核 · C7","focus=B7",now.AddMinutes(1),
+            [new(now,"点击前",[3]),new(now,"选中 B7",[4])]) { Actions = ["点击 (741,266) · 1280×720"] });
+        FieldFeedback.Save(_directory,Guid.NewGuid(),sample with { Kind = "下一局" });
+        var games = FieldFeedback.LoadGames(_directory);
+        Assert.Equal(2,games.Length);
+        var report = games.Single(s => s.Cases.Length == 2);
+        report.Cases[0] = report.Cases[0] with { Expected = "A7 折桠" };
+        var path = Path.Combine(_directory,"整局.zip");
+        new FeedbackReport("测试","",null) { Selected = report }.Export(path,"识别有误","","",true);
+        using var zip = ZipFile.OpenRead(path);
+        using var text = new StreamReader(zip.GetEntry("反馈说明.txt")!.Open());
+        text.ReadToEnd().Should().Contain("A7 折桠").And.Contain("新增 #7").And.Contain("替补：暴躁铁皮")
+            .And.Contain("focus=B7").And.Contain("X=20").And.Contain("741,266");
+        using var manifest = JsonDocument.Parse(zip.GetEntry("recognition.json")!.Open());
+        int index = manifest.RootElement.GetProperty("cases")[0].GetProperty("InputFrame").GetInt32()-1;
+        var file = manifest.RootElement.GetProperty("frames")[index].GetProperty("file").GetString()!;
+        using var image = zip.GetEntry(file)!.Open();
+        Assert.Equal(2,image.ReadByte());
+    }
+
+    [Fact]
     public void PreparationBoundsLargeLogsAndKeepsTheLatestFailure()
     {
         File.WriteAllText(AppLogger.LogFilePath!, new string('x', 3 * 1024 * 1024) + "\n[ERROR] latest failure\n");

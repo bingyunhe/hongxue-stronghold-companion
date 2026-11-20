@@ -83,6 +83,43 @@ internal static class LineupStateFilterViewTests
                 }
             }
 
+            host.Width = 360;
+            Button ActionButton(string name) => (Button)view.FindName(name);
+            void Click(string name) { ActionButton(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump(); }
+            filter.SelectedIndex = 0; Pump();
+            Click("BulkMode");
+            ActionButton("BulkDelete").IsEnabled.Should().BeFalse();
+            Click("BulkAll");
+            view.SelectedVisible().Length.Should().Be(7);
+            filter.SelectedIndex = 2; Pump();
+            cards.Items.Count.Should().Be(5, "all matching pending lineups can be selected");
+            view.SelectedVisible().Length.Should().Be(5);
+            search.Text = "需替补"; Pump();
+            view.SelectedVisible().Length.Should().Be(3);
+            var presenter = (ContentPresenter)cards.ItemContainerGenerator.ContainerFromIndex(0);
+            var check = (CheckBox)cards.ItemTemplate.FindName("BulkCheck", presenter);
+            check.IsChecked.Should().BeTrue();
+            check.IsChecked = false;
+            check.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            view.SelectedVisible().Length.Should().Be(2);
+            string[] requested = [];
+            view.DeleteSelectedRequested += rows => requested = rows.Select(l => l.Id).ToArray();
+            Click("BulkDelete");
+            requested.Should().BeEquivalentTo(vm.FilteredLineups.Skip(1).Select(l => l.Id));
+            Save(view, theme, night, 360, "bulk");
+            search.Clear(); Pump();
+            view.SelectedVisible().Length.Should().Be(2, "hidden selections must not return");
+            host.Width = 280; Pump();
+            var right = ActionButton("BulkMode").TransformToAncestor(view).TransformBounds(new Rect(ActionButton("BulkMode").RenderSize)).Right;
+            right.Should().BeLessThanOrEqualTo(view.ActualWidth);
+            Click("BulkCancel");
+            view.SelectedVisible().Should().BeEmpty();
+            ActionButton("BulkAll").IsVisible.Should().BeFalse();
+            Click("BulkMode");
+            search.Text = "没有匹配的阵容"; Pump();
+            ActionButton("BulkAll").IsEnabled.Should().BeFalse();
+            ActionButton("BulkDelete").IsEnabled.Should().BeFalse();
+            Click("BulkCancel");
             filter.SelectedIndex = 2;
             search.Text = "安全"; Pump();
             recommendations.Items.Count.Should().Be(0);

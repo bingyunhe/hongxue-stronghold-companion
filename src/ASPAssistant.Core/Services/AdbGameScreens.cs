@@ -12,7 +12,13 @@ public static class AdbGameScreens
         var start = new ProcessStartInfo(adbPath) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8 };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        using var process = Process.Start(start) ?? throw new IOException("无法启动 adb.exe");
+        using var process = new Process { StartInfo = start };
+        try { process.Start(); }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            var reason = new System.ComponentModel.Win32Exception(ex.NativeErrorCode).Message;
+            throw new IOException($"ADB 程序启动失败（Windows 错误 {ex.NativeErrorCode}）：{reason}。请点「浏览…」重新选择 adb.exe。", ex);
+        }
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(5000))

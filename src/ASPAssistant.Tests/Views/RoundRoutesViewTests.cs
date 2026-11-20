@@ -36,19 +36,24 @@ internal static class RoundRoutesViewTests
             var field = new FieldMark(new(1, 3), 1, new(400, 330), [], null);
             var bench = field with { Slot = new(3, -1) };
             var units = new LiveUnit[] { new(field, 1, "杰克", null, false, false),
-                new(bench, 2, null, null, false, false), new(field with { Slot = new(2,3) }, 3, "杰克", null, false, false) };
+                new(bench, 2, null, null, false, false), new(field with { Slot = new(3,3) }, 3, "杰克", null, false, false),
+                new(field with { Slot = new(4,2), Tier = 5 }, 4, LineupEquipmentService.MechName, null, false, false),
+                new(field with { Slot = new(4,1) }, 5, "烈夏", null, false, false),
+                new(field with { Slot = new(2,3) }, 6, "烈夏", "烈夏", false, false) };
             deploy.ShowLiveRoster(new("desert_crates", 8, units));
             for (int mode = 1; mode <= 3; mode++)
             {
                 modes.SelectedIndex = mode;
-                AwaitPlan(mode == 1 ? 3 : 4);
+                AwaitPlan(mode == 1 ? 6 : 7);
                 if (mode == 1)
                 {
-                    units = [units[0], units[1] with { Name = "风丸", Manual = true }, units[2]];
+                    units = [.. units.Select(u => u.Mark.Slot.Bench ? u with { Name = "风丸", Manual = true } : u)];
                     deploy.ShowLiveRoster(new("desert_crates", 8, units));
-                    AwaitPlan(4);
+                    AwaitPlan(7);
                 }
                 var plan = deploy.CurrentPlan!;
+                Assert.Contains(plan.Placed, p => p.Name == LineupEquipmentService.MechName);
+                Assert.Equal(2, plan.Placed.Count(p => p.Name == "烈夏"));
                 var names = plan.Placed.Select(u => u.Key).Concat(plan.Bench.Select(u => u.Name)).ToList();
                 Assert.Contains("杰克#2", names);
                 Assert.Contains("风丸", names);
@@ -102,7 +107,7 @@ internal static class RoundRoutesViewTests
         foreach (bool flying in new[] { false, true })
         {
             var roster = flying ? new RoundEnemyInfo(9, ["妖怪", "妖怪MKII", "威龙"])
-                : new RoundEnemyInfo(9, ["深池逐火战士", "深池逐火精锐战士", "深池逐火护卫"]) { Bounties = ["W"] };
+                : new RoundEnemyInfo(9, ["深池逐火战士", "深池逐火精锐战士", "深池逐火护卫"]) { Bounties = ["未收录悬赏"] };
             card.DataContext = new EnemyViewModel { RoundEnemies = roster };
             deploy.SetRoundRouteContext(hud, roster);
             host.UpdateLayout();
@@ -110,7 +115,7 @@ internal static class RoundRoutesViewTests
             var headers = details.Children.OfType<TextBlock>().Select(t => t.Text).ToArray();
             Assert.Contains(flying ? "上口 · 12 只" : "上口 · 6 只", headers);
             Assert.Contains(flying ? "下口 · 7 只" : "下口 · 14 只", headers);
-            if (!flying) Assert.Contains("悬赏 W · 出怪口待确认", headers);
+            if (!flying) Assert.Contains("悬赏 未收录悬赏（额外敌人，关卡数据未标明出怪口）", headers);
             var arrow = Assert.Single(canvas.Children.OfType<System.Windows.Shapes.Polygon>());
             for (int i = 0; i < phases; i++)
             {
@@ -140,6 +145,42 @@ internal static class RoundRoutesViewTests
             deploy.Visibility = Visibility.Collapsed;
             Assert.False(((MatrixTransform)arrow.RenderTransform).HasAnimatedProperties);
             deploy.Visibility = Visibility.Visible;
+        }
+        var bounty = new RoundEnemyInfo(4, ["萨卡兹刀兵", "萨卡兹大剑手", "萨卡兹大剑组长"]) { Bounties = ["遮天面包机"] };
+        deploy.SetRoundRouteContext(hud with { Round = 4 }, bounty);
+        host.UpdateLayout();
+        var candidates = details.Children.OfType<Border>().Where(r => r.Child is TextBlock).ToArray();
+        Assert.Equal(2, candidates.Length);
+        Assert.Contains("上口", ((TextBlock)candidates[0].Child).Text);
+        Assert.Contains("下口", ((TextBlock)candidates[1].Child).Text);
+        var played = new HashSet<string>();
+        // Ordinary routes can share the same timer. Observe one full cycle.
+        for (int i = 0; i <= details.Children.OfType<Border>().Count() && played.Count < 2; i++)
+        {
+            foreach (var row in details.Children.OfType<Border>().Where(r => r.Background != null && r.Child is TextBlock))
+                played.Add(((TextBlock)row.Child).Text);
+            if (played.Count < 2) Pump(2010);
+        }
+        Assert.True(played.Count == 2, $"已播放 {string.Join("、", played)}，地图可见 {canvas.IsVisible}，行数 {details.Children.OfType<Border>().Count()}，箭头 {canvas.Children.OfType<System.Windows.Shapes.Polygon>().Count()}");
+        var bountyView = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        bountyView.Render(surface);
+        var bountyPng = new PngBitmapEncoder();
+        bountyPng.Frames.Add(BitmapFrame.Create(bountyView));
+        using (var file = File.Create(Path.Combine(TestOutput.Directory, $"bounty-routes-Closure-{night}.png"))) bountyPng.Save(file);
+        deploy.SetRoundRouteContext(hud with { Round = 4 }, bounty with { BountyLanes = new Dictionary<string,string> { ["遮天面包机"] = "lower" } });
+        Assert.Contains("下口", ((TextBlock)Assert.Single(details.Children.OfType<Border>(), r => r.Child is TextBlock).Child).Text);
+        Assert.Contains(details.Children.OfType<TextBlock>(), t => t.Text == "上口 · 3 只");
+        Assert.Contains(details.Children.OfType<TextBlock>(), t => t.Text == "下口 · 7 只");
+        for (int i = 0; i <= 3; i++)
+        {
+            Pump(i == 0 ? 250 : 2000);
+            var active = Assert.Single(details.Children.OfType<Border>(), r => r.Background != null);
+            var route = Assert.IsType<GarrisonRoundRoute>(active.Tag);
+            Assert.Equal(i == 2, route.Path.Flying);
+            Assert.Equal($"{i % 3 + 1} / 3", ((TextBlock)deploy.FindName("RoutePhaseNumber")).Text);
+            var arrow = Assert.Single(canvas.Children.OfType<System.Windows.Shapes.Polygon>());
+            Assert.Equal(Visibility.Visible, arrow.Visibility);
+            Assert.True(((MatrixTransform)arrow.RenderTransform).HasAnimatedProperties);
         }
         deploy.SetRoundRouteContext(hud with { Round = 10 }, null);
         Assert.Empty(details.Children);
