@@ -107,10 +107,17 @@ internal static class EmulatorFixViewTests
         foreach (var night in new[] { false, true })
         {
             ASPAssistant.App.ThemeManager.Apply(GameShopTheme.Closure, night);
+            var path = (TextBox)dialog.FindName("AdbPathBox");
+            path.Text = "adb.exe";
             ((ComboBox)dialog.FindName("WindowSelector")).SelectedIndex = -1;
             apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             statusTitle.Text.Should().Be("还没选游戏窗口");
-            statusText.Text = "请恢复对应模拟器窗口，确认当前游戏屏幕，再在列表中重新选择。选择后可重新测试。";
+            path.Text = "  ";
+            Descendants<Button>(dialog).Single(b => Equals(b.Content, "刷新屏幕")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            statusTitle.Text.Should().Be("刷新屏幕失败");
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            statusTitle.Text.Should().Be("测试画面失败");
+            statusText.Text.Should().Contain("ADB 路径为空").And.Contain("发现设备").And.Contain("浏览…");
             body.ScrollToTop();
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             var applyPosition = Bounds(apply);

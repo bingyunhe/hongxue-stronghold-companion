@@ -113,11 +113,18 @@ internal static class GameStartSettingsViewTests
         {
             var panel = current;
             OpenSettings(panel);
+            var startupToggle = (CheckBox)panel.FindName("StartupInformationToggle");
+            panel.InitStartupInformation(Complete(settings.LoadStartupInformationAsync()));
+            startupToggle.IsChecked.Should().BeFalse();
+            startupToggle.IsChecked = true;
+            Wait(() => startupToggle.IsEnabled);
+            Complete(new SettingsManager(directory).LoadStartupInformationAsync()).Should().BeTrue();
             var roundToggle = (CheckBox)panel.FindName("AutomaticRoundEnemiesToggle");
             panel.InitAutomaticRoundEnemies(Complete(settings.LoadAutomaticRoundEnemiesAsync()));
             roundToggle.IsChecked.Should().BeFalse();
             ((ScrollViewer)panel.FindName("SettingsScroll")).ScrollToEnd(); Pump();
             roundToggle.IsVisible.Should().BeTrue();
+            startupToggle.IsVisible.Should().BeTrue();
             Save(panel, $"{theme}-{night}-round-enemy-setting");
             roundToggle.IsChecked = true;
             Wait(() => roundToggle.IsEnabled);

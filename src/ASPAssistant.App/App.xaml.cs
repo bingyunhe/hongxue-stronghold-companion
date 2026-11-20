@@ -323,6 +323,7 @@ public partial class App : Application
             RoundEnemyReader = new RoundEnemyReader(ocrEngine, roundRoutes,
                 Views.CodexBounty.Load().Select(b => b.Title).ToHashSet(StringComparer.Ordinal)),
             CaptureEnemyPanelFrame = captureService.CaptureEnemyPanelFrame,
+            StartupInformationEnabled = await _settingsManager.LoadStartupInformationAsync(),
             AutomaticRoundEnemies = await _settingsManager.LoadAutomaticRoundEnemiesAsync(),
             AutomaticPurchaseTracking = await _settingsManager.LoadAutomaticPurchaseTrackingAsync(),
             PurchaseSpeed = await _settingsManager.LoadPurchaseRecognitionSpeedAsync(),
@@ -353,6 +354,8 @@ public partial class App : Application
         sidePanel.InitAutomaticPurchaseTracking(_ocrScanner.AutomaticPurchaseTracking);
         sidePanel.InitAutomaticCurrentRunFilters(await _settingsManager.LoadAutomaticCurrentRunFiltersAsync());
         sidePanel.AutomaticPurchaseTrackingChanged += enabled => _ocrScanner.AutomaticPurchaseTracking = enabled;
+        sidePanel.InitStartupInformation(_ocrScanner.StartupInformationEnabled);
+        sidePanel.StartupInformationChanged += enabled => { if (!enabled) _ocrScanner.CancelStartupInformation(); };
         sidePanel.InitAutomaticRoundEnemies(_ocrScanner.AutomaticRoundEnemies);
         sidePanel.AutomaticRoundEnemiesChanged += enabled => _ocrScanner.AutomaticRoundEnemies = enabled;
         sidePanel.InitPurchaseRecognitionSpeed(_ocrScanner.PurchaseSpeed);
@@ -665,23 +668,25 @@ public partial class App : Application
         };
 
         // Both entry points classify the same captured page before deciding whether to reset progress.
-        async Task RecordInformationAsync()
+        async Task<bool> RecordInformationAsync(bool showGameResult = true)
         {
-            if (!_informationScanGate.Wait(0)) return;
+            if (!_informationScanGate.Wait(0)) return false;
             try
             {
-                await _banScreenAnalyzer.RunAnalysisAsync();
+                return await _banScreenAnalyzer.RunAnalysisAsync(showGameResult);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 AppLogger.Warn("Run", $"Failed to save run state: {ex.Message}");
                 Dispatcher.Invoke(() => sidePanel.ShowToast($"本局状态保存失败：{ex.Message}"));
+                return false;
             }
             finally
             {
                 _informationScanGate.Release();
             }
         }
+        _ocrScanner.RecordStartupInformationAsync = () => RecordInformationAsync(showGameResult: false);
         _ocrScanner.BanScreenDetected += async () => await RecordInformationAsync();
         _ocrScanner.RegulationLevelChanged += () =>
             Dispatcher.Invoke(() => enemyVm.RegulationLevel = _ocrScanner.RegulationLevel);
@@ -828,6 +833,7 @@ public partial class App : Application
         _windowTracker?.Dispose();
         _connectionStatusTimer?.Stop();
         _captureService?.Connection.Dispose();
+        _sidePanel?.InstallPreparedUpdateOnExit();
         base.OnExit(e);
         // BanScreenAnalyzer and BanIndicatorDetector hold no unmanaged resources
         // of their own beyond what MaaTasker cleans up; no explicit Dispose needed.

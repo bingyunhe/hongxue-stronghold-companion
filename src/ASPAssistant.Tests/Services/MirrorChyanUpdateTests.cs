@@ -28,7 +28,7 @@ public class MirrorChyanUpdateTests
             ? tag is null ? new HttpResponseMessage(HttpStatusCode.BadGateway) : Mirror(tag)
             : GitHub());
         using var http = new HttpClient(handler);
-        var service = new UpdateService(http, new Version(1, 9, 4));
+        var service = new UpdateService(http, new Version(1, 9, 4)) { DownloadCacheDirectory = Path.Combine(Path.GetTempPath(), "test-download-cache") };
         var info = await service.CheckForUpdateAsync();
         info.Should().NotBeNull();
         info!.TagName.Should().Be("v99.1.0");
@@ -73,7 +73,7 @@ public class MirrorChyanUpdateTests
             _ => throw new InvalidOperationException("Unexpected test endpoint"),
         });
         using var http = new HttpClient(handler);
-        var service = new UpdateService(http, new Version(1, 9, 4));
+        var service = new UpdateService(http, new Version(1, 9, 4)) { DownloadCacheDirectory = Path.Combine(Path.GetTempPath(), "test-download-cache") };
         var details = (await service.CheckForUpdateAsync())!;
         handler.Requests.Should().ContainSingle("displaying the update must not ask for a signed URL");
         var before = Directory.GetDirectories(Path.GetTempPath(), "ASPAssistant-Update-*").ToHashSet();

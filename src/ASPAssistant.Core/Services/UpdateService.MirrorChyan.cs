@@ -33,7 +33,7 @@ public partial class UpdateService
             });
         }
         catch (Exception ex) when (!ct.IsCancellationRequested &&
-            ex is HttpRequestException or OperationCanceledException or JsonException or NotSupportedException)
+            (cdk is null || !TransientDownloadError(ex)) && ex is HttpRequestException or OperationCanceledException or JsonException or NotSupportedException)
         {
             return (null, "MirrorChyan 查询失败");
         }
@@ -48,26 +48,33 @@ public partial class UpdateService
             return null;
         }
 
-        var (release, error) = await QueryMirrorChyanAsync(cdk, ct);
-        if (release is null || TryParseVersion(release.VersionName)?.ToString() != info.Version ||
-            release.Sha256 is not { Length: 64 } sha256 || !sha256.All(Uri.IsHexDigit) ||
-            !Uri.TryCreate(release.Url, UriKind.Absolute, out var address) ||
-            address.Scheme != Uri.UriSchemeHttps || address.UserInfo.Length != 0)
+        for (int attempt = 0; ; attempt++)
         {
-            DownloadNotice = error ?? "MirrorChyan 暂无此版本的完整下载包";
-            return null;
-        }
+            var (release, error) = await QueryMirrorChyanAsync(cdk, ct);
+            if (release is null || TryParseVersion(release.VersionName)?.ToString() != info.Version ||
+                release.Sha256 is not { Length: 64 } sha256 || !sha256.All(Uri.IsHexDigit) ||
+                !Uri.TryCreate(release.Url, UriKind.Absolute, out var address) ||
+                address.Scheme != Uri.UriSchemeHttps || address.UserInfo.Length != 0)
+            {
+                DownloadNotice = error ?? "MirrorChyan 暂无此版本的完整下载包";
+                return null;
+            }
 
-        try
-        {
-            await DownloadPackageAsync(address, zipPath, progress, ct);
-            return sha256;
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested &&
-            ex is HttpRequestException or HttpIOException or OperationCanceledException)
-        {
-            DownloadNotice = "MirrorChyan 下载失败或链接已过期";
-            return null;
+            try
+            {
+                await DownloadPackageAsync(address, zipPath, info.Version, sha256, release.FileSize ?? 0, progress, ct);
+                return sha256;
+            }
+            catch (HttpRequestException ex) when (attempt == 0 && ex.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+            {
+                SetTransferStatus("Mirror酱下载链接已过期，正在获取新地址");
+                continue;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is not null && !TransientDownloadError(ex))
+            {
+                DownloadNotice = "MirrorChyan 下载失败或链接已过期";
+                return null;
+            }
         }
     }
 
@@ -79,5 +86,6 @@ public partial class UpdateService
         [property: JsonPropertyName("version_name")] string? VersionName,
         [property: JsonPropertyName("release_note")] string? ReleaseNote,
         [property: JsonPropertyName("url")] string? Url,
-        [property: JsonPropertyName("sha256")] string? Sha256);
+        [property: JsonPropertyName("sha256")] string? Sha256,
+        [property: JsonPropertyName("filesize")] long? FileSize = null);
 }

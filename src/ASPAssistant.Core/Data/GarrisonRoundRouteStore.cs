@@ -27,7 +27,7 @@ public sealed class GarrisonRoundRouteStore
     private sealed record Board(int? Grid, Dictionary<string, int> Routes);
     private sealed record Level(Dictionary<string, Board> Maps, Group[] Groups);
     private sealed record Mode(HashSet<string> Maps, HashSet<string> Inactive, Dictionary<int, string[]> Rounds);
-    private sealed record Dataset(Dictionary<string, Mode> Modes, Dictionary<string, Level> Levels, GarrisonRoundPath[] Paths, string[][] Grids);
+    private sealed record Dataset(Dictionary<string, string> BountyMotion, Dictionary<string, Mode> Modes, Dictionary<string, Level> Levels, GarrisonRoundPath[] Paths, string[][] Grids);
     private readonly Dataset _data;
     private readonly Dictionary<(string Mode, int Round), HashSet<string>> _rosters = [];
 
@@ -123,6 +123,19 @@ public sealed class GarrisonRoundRouteStore
             GateTotals = gateTotals.SelectMany(g => g.Keys).Distinct().ToDictionary(g => g, g => Range(gateTotals, g)),
             RosterMismatch = rosterComplete && !exact
         };
+    }
+
+    public GarrisonRoundRoute[] FindBountyPaths(string map, string? mode, int round, string name, string? lane)
+    {
+        if (!_data.BountyMotion.TryGetValue(name, out var motion) || mode is null ||
+            !_data.Modes.TryGetValue(mode, out var rules) || !rules.Maps.Contains(map) ||
+            !rules.Rounds.TryGetValue(round, out var levels)) return [];
+        return levels.Select(id => _data.Levels[id].Maps[map]).Where(board => board.Grid is null)
+            .SelectMany(board => board.Routes.Where(r => r.Key.StartsWith("routes/")).Select(r => r.Value))
+            .Distinct().Select(index => _data.Paths[index])
+            .Where(path => path.Flying == (motion == "FLY") && (lane is null || path.Lane == lane))
+            .OrderBy(path => path.Lane == "upper" ? 0 : 1)
+            .Select(path => new GarrisonRoundRoute(path, true, [])).ToArray();
     }
 
     private static SpawnCount Range<TKey>(List<Dictionary<TKey, int>> scenarios, TKey key) where TKey : notnull

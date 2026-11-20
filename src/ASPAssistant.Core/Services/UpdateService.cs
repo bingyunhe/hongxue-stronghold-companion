@@ -20,6 +20,11 @@ public record UpdateInfo(
     string AssetName,
     string? ChecksumsUrl)
 {
+    public UpdateDelta? Delta { get; init; }
+    public long FullSize { get; init; }
+    public string DownloadSizeText => Delta is { } patch
+        ? $"增量 {patch.Size / 1048576d:F2} MiB（完整包 {FullSize / 1048576d:F2} MiB）"
+        : FullSize > 0 ? $"完整包 {FullSize / 1048576d:F2} MiB" : "";
     public bool FromMirrorChyan { get; init; }
 }
 
@@ -57,6 +62,7 @@ public partial class UpdateService
         CurrentVersion = currentVersion;
     }
 
+    internal string MainDirectory { get; init; } = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
     public Version CurrentVersion { get; }
 
     /// <summary>
@@ -131,13 +137,19 @@ public partial class UpdateService
             var checksums = release.Assets.FirstOrDefault(a =>
                 string.Equals(a.Name, ChecksumsAssetName, StringComparison.OrdinalIgnoreCase));
 
+            var patchName = $"delta-v{CurrentVersion.ToString(3)}-to-v{latestVersion}.zip";
+            var patch = release.Assets.FirstOrDefault(a => a.Name == patchName && a.Size > 0 && a.Size < asset.Size);
             return new UpdateInfo(
                 release.TagName,
                 latestVersion.ToString(),
                 release.Body ?? string.Empty,
                 asset.DownloadUrl,
                 asset.Name,
-                checksums?.DownloadUrl);
+                checksums?.DownloadUrl)
+            {
+                FullSize = asset.Size,
+                Delta = patch is not null && checksums is not null ? new(patch.Name, patch.DownloadUrl, patch.Size) : null
+            };
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -157,6 +169,23 @@ public partial class UpdateService
         CancellationToken ct = default,
         string? mirrorCdk = null)
     {
+        TransferStatus = null;
+        HasSavedDownload = false;
+        try
+        {
+            await PrepareDownloadAsync(info, progress, ct, mirrorCdk);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && TransientDownloadError(ex))
+        {
+            SetTransferStatus("连接中断，3 秒后自动重试（1/1）");
+            await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            SetTransferStatus("正在重新连接更新源（1/1）");
+            await PrepareDownloadAsync(info, progress, ct, mirrorCdk);
+        }
+    }
+
+    private async Task PrepareDownloadAsync(UpdateInfo info, IProgress<double>? progress, CancellationToken ct, string? mirrorCdk)
+    {
         LastError = null;
         DownloadNotice = null;
 
@@ -165,100 +194,92 @@ public partial class UpdateService
         CleanupStaleUpdateDirs();
         var tempDir = Directory.CreateTempSubdirectory("ASPAssistant-Update-").FullName;
 
-        var zipPath = Path.Combine(tempDir, info.AssetName);
-        string? expectedHash = null;
-        if (info.FromMirrorChyan)
+        try
         {
-            expectedHash = await TryDownloadMirrorChyanAsync(info, mirrorCdk, zipPath, progress, ct);
+            var zipPath = Path.Combine(tempDir, Path.GetFileName(info.AssetName));
+            string? expectedHash = null;
+            if (info.FromMirrorChyan)
+            {
+                expectedHash = await TryDownloadMirrorChyanAsync(info, mirrorCdk, zipPath, progress, ct);
+                if (expectedHash is null)
+                {
+                    SetTransferStatus($"{DownloadNotice}，正在检查 GitHub 备用下载");
+                    var fallback = await CheckGitHubUpdateAsync($"{GitHubReleasesUrl}/tags/{Uri.EscapeDataString(info.TagName)}", ct);
+                    ct.ThrowIfCancellationRequested();
+                    if (fallback is null || fallback.Version != info.Version)
+                        throw new InvalidOperationException($"{DownloadNotice}。GitHub Releases 暂无相同版本的下载包，请稍后重新检查更新。");
+                    info = fallback with { Delta = null };
+                    zipPath = Path.Combine(tempDir, Path.GetFileName(info.AssetName));
+                }
+            }
+
+            var delta = expectedHash is null ? info.Delta : null;
+            if (delta is not null) zipPath = Path.Combine(tempDir, delta.Name);
+            var selectedName = delta?.Name ?? info.AssetName;
             if (expectedHash is null)
             {
-                var fallback = await CheckGitHubUpdateAsync($"{GitHubReleasesUrl}/tags/{Uri.EscapeDataString(info.TagName)}", ct);
-                ct.ThrowIfCancellationRequested();
-                if (fallback is null || fallback.Version != info.Version)
-                    throw new InvalidOperationException($"{DownloadNotice}。GitHub Releases 暂无相同版本的下载包，请稍后重新检查更新。");
-                info = fallback;
-                zipPath = Path.Combine(tempDir, info.AssetName);
+                if (string.IsNullOrWhiteSpace(info.ChecksumsUrl))
+                    throw IntegrityFailure($"发布 {info.TagName} 缺少 {ChecksumsAssetName}，已停止更新");
+                var checksumsText = await _http.GetStringAsync(info.ChecksumsUrl, ct);
+                expectedHash = ParseChecksum(checksumsText, selectedName)
+                    ?? throw IntegrityFailure($"校验文件中没有 {selectedName} 的记录，已停止更新");
+                await DownloadPackageAsync(new Uri(delta?.Url ?? info.DownloadUrl), zipPath, info.Version, expectedHash, delta?.Size ?? info.FullSize, progress, ct);
             }
+
+            progress?.Report(0.87);
+            var actualHash = await ComputeSha256Async(zipPath, ct);
+            if (!ChecksumMatches(expectedHash, actualHash))
+            {
+                File.Delete(zipPath);
+                throw IntegrityFailure(
+                    $"安装包校验不通过（期望 {expectedHash[..12]}…，实际 {actualHash[..12]}…），已停止更新");
+            }
+
+            progress?.Report(0.92);
+
+            // Extract zip
+            var extractDir = Path.Combine(tempDir, "extracted");
+            Directory.CreateDirectory(extractDir);
+            var mainDirectory = MainDirectory;
+            var appDir = ResolveInstallationDirectory(mainDirectory);
+            if (delta is null) ZipFile.ExtractToDirectory(zipPath, extractDir);
+            else await Task.Run(() => DeltaInstaller.Restore(zipPath, appDir, extractDir,
+                CurrentVersion.ToString(3), info.Version, ct), ct);
+
+            progress?.Report(0.96);
+
+            // Resolve the source directory inside the zip: release.yml zips publish/win-x64,
+            // so the archive usually has a single root folder.
+            var subDirs = Directory.GetDirectories(extractDir);
+            var sourceDir = subDirs.Length == 1 && Directory.GetFiles(extractDir).Length == 0 ? subDirs[0] : extractDir;
+            var newExecutable = ResolvePackageExecutable(sourceDir);
+
+            var parentDir = Path.GetDirectoryName(appDir) ?? appDir;
+            var stamp = $"{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+            var scriptPath = Path.Combine(tempDir, "update.ps1");
+
+            var scriptContent = BuildUpdateScript(
+                Environment.ProcessId,
+                sourceDir,
+                appDir,
+                Path.Combine(mainDirectory, "HongxueCompanion.exe"),
+                Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}"),
+                Path.Combine(parentDir, $"ASPAssistant-backup-{stamp}"),
+                Path.Combine(tempDir, "update.log"),
+                newExecutable, delta is not null);
+
+            await File.WriteAllTextAsync(scriptPath, scriptContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), ct);
+
+            // 只记录脚本位置；真正的替换要等用户点“立即重启”后再启动，
+            // 否则脚本会在程序仍运行时白等并误报“无法重命名/已回滚”。
+            PendingScriptPath = scriptPath;
+            PendingStagingDir = Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}");
+            progress?.Report(1.0);
         }
-
-        if (expectedHash is null)
+        finally
         {
-            await DownloadPackageAsync(new Uri(info.DownloadUrl), zipPath, progress, ct);
-            if (string.IsNullOrWhiteSpace(info.ChecksumsUrl))
-                throw IntegrityFailure($"发布 {info.TagName} 缺少 {ChecksumsAssetName}，已停止更新");
-            var checksumsText = await _http.GetStringAsync(info.ChecksumsUrl, ct);
-            expectedHash = ParseChecksum(checksumsText, info.AssetName)
-                ?? throw IntegrityFailure($"校验文件中没有 {info.AssetName} 的记录，已停止更新");
-        }
-
-        progress?.Report(0.87);
-        var actualHash = await ComputeSha256Async(zipPath, ct);
-        if (!ChecksumMatches(expectedHash, actualHash))
-        {
-            File.Delete(zipPath);
-            throw IntegrityFailure(
-                $"安装包校验不通过（期望 {expectedHash[..12]}…，实际 {actualHash[..12]}…），已停止更新");
-        }
-
-        progress?.Report(0.92);
-
-        // Extract zip
-        var extractDir = Path.Combine(tempDir, "extracted");
-        Directory.CreateDirectory(extractDir);
-        ZipFile.ExtractToDirectory(zipPath, extractDir);
-
-        progress?.Report(0.96);
-
-        // Resolve the source directory inside the zip: release.yml zips publish/win-x64,
-        // so the archive usually has a single root folder.
-        var subDirs = Directory.GetDirectories(extractDir);
-        var sourceDir = subDirs.Length == 1 && Directory.GetFiles(extractDir).Length == 0 ? subDirs[0] : extractDir;
-        var newExecutable = ResolvePackageExecutable(sourceDir);
-
-        var mainDirectory = Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
-        var appDir = ResolveInstallationDirectory(mainDirectory);
-        var parentDir = Path.GetDirectoryName(appDir) ?? appDir;
-        var stamp = $"{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-        var scriptPath = Path.Combine(tempDir, "update.ps1");
-
-        var scriptContent = BuildUpdateScript(
-            Environment.ProcessId,
-            sourceDir,
-            appDir,
-            Path.Combine(mainDirectory, "HongxueCompanion.exe"),
-            Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}"),
-            Path.Combine(parentDir, $"ASPAssistant-backup-{stamp}"),
-            Path.Combine(tempDir, "update.log"),
-            newExecutable);
-
-        await File.WriteAllTextAsync(scriptPath, scriptContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), ct);
-
-        // 只记录脚本位置；真正的替换要等用户点“立即重启”后再启动，
-        // 否则脚本会在程序仍运行时白等并误报“无法重命名/已回滚”。
-        PendingScriptPath = scriptPath;
-        PendingStagingDir = Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}");
-        progress?.Report(1.0);
-    }
-
-    private async Task DownloadPackageAsync(Uri address, string zipPath, IProgress<double>? progress, CancellationToken ct)
-    {
-        using var response = await _http.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentType?.MediaType == "application/json")
-            throw new HttpRequestException("更新源未返回 ZIP 安装包");
-
-        var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-        await using var httpStream = await response.Content.ReadAsStreamAsync(ct);
-        await using var fileStream = File.Create(zipPath);
-        var buffer = new byte[65536];
-        long downloaded = 0;
-        int bytesRead;
-        while ((bytesRead = await httpStream.ReadAsync(buffer, ct)) > 0)
-        {
-            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-            downloaded += bytesRead;
-            if (totalBytes > 0)
-                progress?.Report((double)downloaded / totalBytes * 0.85);
+            if (PendingScriptPath != Path.Combine(tempDir, "update.ps1"))
+                Directory.Delete(tempDir, true);
         }
     }
 
@@ -360,6 +381,7 @@ public partial class UpdateService
         HttpRequestException http when http.StatusCode is not null
             => $"更新源返回 HTTP {(int)http.StatusCode}",
         HttpRequestException => "无法连接更新源（网络受限或代理拦截）",
+        HttpIOException { HttpRequestError: HttpRequestError.ResponseEnded } => "下载中断，请重试",
         IOException io when io.Message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase)
             => "文件正被其他程序占用（可能上次更新残留），请关闭杀毒/资源管理器预览后重试",
         IOException => $"读写更新文件失败：{ex.Message}",
@@ -411,7 +433,7 @@ public partial class UpdateService
         string stagingDir,
         string backupDir,
         string logPath,
-        string newExecutableRelativePath)
+        string newExecutableRelativePath, bool incremental = false)
     {
         static string Q(string value) => "'" + (value ?? "").Replace("'", "''") + "'";
 
@@ -498,9 +520,69 @@ public partial class UpdateService
         sb.AppendLine("        throw \"更新包不完整：缺少 $newExecutable\"");
         sb.AppendLine("    }");
         sb.AppendLine();
-        sb.AppendLine("    if (Test-Path -LiteralPath $stagingDir) { Remove-Item -LiteralPath $stagingDir -Recurse -Force }");
-        sb.AppendLine("    if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }");
-        sb.AppendLine("    Copy-Item -LiteralPath $sourceDir -Destination $stagingDir -Recurse -Force");
+        if (incremental)
+            sb.AppendLine("    if ((Test-Path -LiteralPath $stagingDir) -or (Test-Path -LiteralPath $backupDir)) { throw '此更新已执行过，请检查原备份或重新下载' }");
+        else
+        {
+            sb.AppendLine("    if (Test-Path -LiteralPath $stagingDir) { Remove-Item -LiteralPath $stagingDir -Recurse -Force }");
+            sb.AppendLine("    if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }");
+        }
+        if (incremental)
+        {
+            sb.AppendLine("""
+                    if ([IO.Path]::GetPathRoot($sourceDir) -eq [IO.Path]::GetPathRoot($stagingDir)) {
+                        [IO.Directory]::Move($sourceDir, $stagingDir)
+                    } else {
+                        Copy-Item -LiteralPath $sourceDir -Destination $stagingDir -Recurse -Force
+                    }
+                    $recovery = "$backupDir-recover.ps1"
+                    $shortcut = "$backupDir-recover.cmd"
+                    $pendingMarker = (Split-Path -Leaf $backupDir) + '.pending'
+                    [IO.File]::WriteAllText((Join-Path $stagingDir $pendingMarker),'')
+                """);
+            var recovery = $$"""
+                param([int]$Watch)
+                $ErrorActionPreference = 'Stop'
+                $app = {{Q(appDir)}}
+                $backup = {{Q(backupDir)}}
+                $log = {{Q(logPath)}}
+                trap { Add-Content -LiteralPath $log -Encoding UTF8 -Value ("恢复失败：" + $_.Exception.Message); exit 1 }
+                $old = {{Q(Path.GetRelativePath(appDir, exePath))}}
+                if ($Watch) { Wait-Process -Id $Watch -ErrorAction SilentlyContinue }
+                $stage = {{Q(stagingDir)}}
+                $main = Join-Path $app {{Q(newExecutableRelativePath)}}
+                $marker = Join-Path $app ((Split-Path -Leaf $backup) + '.pending')
+                if ([IO.Directory]::Exists($backup) -and [IO.File]::Exists($marker)) {
+                    if (Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($main)) -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $main }) { return }
+                    [IO.Directory]::Move($app,$stage)
+                }
+                if ([IO.Directory]::Exists($backup) -and -not [IO.Directory]::Exists($app)) {
+                    [IO.Directory]::Move($backup,$app)
+                    Add-Content -LiteralPath $log -Encoding UTF8 -Value '已恢复原安装目录，正在启动旧版'
+                    $start = New-Object System.Diagnostics.ProcessStartInfo
+                    $start.FileName = Join-Path $app $old
+                    $start.WorkingDirectory = Split-Path $start.FileName
+                    $start.UseShellExecute = -not $Watch
+                    [Diagnostics.Process]::Start($start).Dispose()
+                    Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($PSCommandPath,'cmd')),$PSCommandPath
+                } elseif (-not $Watch -and [IO.Directory]::Exists($backup)) {
+                    Start-Process explorer.exe -ArgumentList ('"' + $backup + '"')
+                }
+                """;
+            sb.AppendLine($"    [IO.File]::WriteAllText($recovery,{Q(recovery)},[Text.UTF8Encoding]::new($true))");
+            sb.AppendLine("""
+                    $cmd = '@powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0' + [IO.Path]::GetFileName($recovery) + '"'
+                    [IO.File]::WriteAllText($shortcut,$cmd,[Text.Encoding]::ASCII)
+                    $watcher = New-Object System.Diagnostics.ProcessStartInfo
+                    $watcher.FileName = 'powershell.exe'
+                    $watcher.Arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $recovery + '" -Watch ' + $PID
+                    $watcher.UseShellExecute = $false
+                    $watcher.CreateNoWindow = $true
+                    [Diagnostics.Process]::Start($watcher).Dispose()
+                """);
+        }
+        else
+            sb.AppendLine("    Copy-Item -LiteralPath $sourceDir -Destination $stagingDir -Recurse -Force");
         sb.AppendLine("    Write-Log \"staged new files to $stagingDir\"");
         sb.AppendLine();
         sb.AppendLine("    $renamedOld = $false");
@@ -554,6 +636,8 @@ public partial class UpdateService
         sb.AppendLine("        if ([DateTime]::UtcNow -ge $deadline) { throw '等待新版启动就绪超时' }");
         sb.AppendLine("        Start-Sleep -Milliseconds 200");
         sb.AppendLine("    }");
+        if (incremental)
+            sb.AppendLine("    Remove-Item -LiteralPath (Join-Path $appDir $pendingMarker)");
         sb.AppendLine("    Write-Log 'new version confirmed ready'");
         sb.AppendLine();
         sb.AppendLine("    try {");
@@ -564,6 +648,7 @@ public partial class UpdateService
         sb.AppendLine("    }");
         sb.AppendLine("} catch {");
         sb.AppendLine("    $message = $_.Exception.Message");
+        sb.AppendLine("    Write-Log $message");
         sb.AppendLine("    if ($renamedOld -and $null -ne $newProcess -and -not $newProcess.HasExited) {");
         sb.AppendLine("        Show-Failure \"更新未确认完成：$message。新版进程仍在运行，未执行回滚；旧版备份保留在 $backupDir，请先检查辅助状态。\"");
         sb.AppendLine("        exit 1");
@@ -588,6 +673,8 @@ public partial class UpdateService
         sb.AppendLine("}");
         sb.AppendLine("finally {");
         sb.AppendLine("    if ($null -ne $newProcess) { $newProcess.Dispose() }");
+        if (incremental)
+            sb.AppendLine("    if ($recovery -and !(Test-Path -LiteralPath $backupDir)) { Remove-Item -LiteralPath $shortcut,$recovery -ErrorAction SilentlyContinue }");
         sb.AppendLine("}");
         sb.AppendLine("exit 0");
         return sb.ToString();
@@ -603,5 +690,6 @@ public partial class UpdateService
 
     private record GitHubAsset(
         [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("browser_download_url")] string DownloadUrl);
+        [property: JsonPropertyName("browser_download_url")] string DownloadUrl,
+        [property: JsonPropertyName("size")] long Size = 0);
 }

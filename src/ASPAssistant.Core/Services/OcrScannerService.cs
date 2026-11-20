@@ -395,12 +395,21 @@ public partial class OcrScannerService : IDisposable
                 return;
             }
 
+            // MuMu / ADB frames are PNG; the board reader samples raw BMP pixels.
+            var pixels = BoardRecognizer == null ? null : Pixels();
+            var boardMatch = pixels == null ? null : BoardRecognizer!.Recognize(pixels);
+            bool checkStartup = StartupInformationEnabled && !_startupOpportunityConsumed && !_startupCancelled &&
+                !confirmingEnemyPanel && !observedEnemyFrame;
+            if (checkStartup && boardMatch != null &&
+                await TryStartupInformationAsync(screenshot, connection, runRevision, captureRevision)) return;
             ReadGameTheme(screenshot);
             stageStart = elapsed.ElapsedMilliseconds;
             var rawItems = await _shopReader.ReadAsync(screenshot, imgWidth, imgHeight, _shopNames);
             var shopMs = elapsed.ElapsedMilliseconds - stageStart;
             if (!IsCurrentCapture(connection, captureRevision)) return;
             shopOpenThisScan = _shopReader.IsShopOpen;
+            if (checkStartup && boardMatch == null && shopOpenThisScan &&
+                await TryStartupInformationAsync(screenshot, connection, runRevision, captureRevision)) return;
             rawText = _shopReader.DiagnosticText;
             diagnosticItems = rawItems.Select(item => new { item.Name, item.Price,
                 Region = new { item.OcrRegion.X, item.OcrRegion.Y, item.OcrRegion.Width, item.OcrRegion.Height } }).ToArray();
@@ -476,9 +485,6 @@ public partial class OcrScannerService : IDisposable
                 }
             }
             if (!IsCurrentCapture(connection, captureRevision)) return;
-            // MuMu / ADB frames are PNG; the board reader samples raw BMP pixels.
-            var pixels = BoardRecognizer == null ? null : Pixels();
-            var boardMatch = pixels == null ? null : BoardRecognizer!.Recognize(pixels);
             ObserveBoard(boardMatch);
             if (!shopOccluded && LiveReader is not null && boardMatch is not null && !LiveFieldReader.IsDragging(pixels!) && IsCurrentCapture(connection, captureRevision) &&
                 (economy ?? CurrentEconomy) is { Round: int fieldRound, IsPreparation: true } fieldHud)
@@ -489,7 +495,7 @@ public partial class OcrScannerService : IDisposable
                 if (fieldWallet == null && needsBalance && shopOpenThisScan && EconomyReader != null)
                     fieldWallet = fieldHud with { Money = await EconomyReader.ReadMoneyAsync(screenshot,imgWidth,imgHeight) };
                 var previousRoster = LiveRoster;
-                ObserveField(pixels!, boardMatch, fieldRound, rawItems, fieldWallet, shopOpenThisScan, frameTick, runRevision, connection, captureRevision, false);
+                ObserveField(screenshot, pixels!, boardMatch, fieldRound, rawItems, fieldWallet, shopOpenThisScan, frameTick, runRevision, connection, captureRevision, false);
                 RecordFieldPurchases(previousRoster, LiveRoster, screenshot, fieldWallet?.Money);
             }
             else if (!shopOccluded && LiveReader != null && pixels != null && shopOpenThisScan && economy is { IsPreparation:true, Round:int shopRound })
@@ -537,7 +543,7 @@ public partial class OcrScannerService : IDisposable
         {
             lock (_runLock)
             {
-                if (!observedEnemyFrame && _roundEnemyState.AwaitingPanel)
+                if (!observedEnemyFrame && (_roundEnemyState.AwaitingPanel || _roundEnemyState.OpenedPanel.HasValue))
                     _roundEnemyState.PauseConfirmationClock(captureLost: diagnosticFrame is null || _pauseBanScreenDetection || _banScreenActive);
                 _purchaseShopOpen = shopOpenThisScan && !_pauseBanScreenDetection && IsCurrentCapture(connection, captureRevision);
                 UpdateScanInterval();
@@ -557,7 +563,7 @@ public partial class OcrScannerService : IDisposable
         if (after.Bought.Count <= previousCount) return;
         var names = string.Join("、", after.Bought.Skip(previousCount));
         var history = RecognitionDiagnostics.Samples;
-        var id = history.Begin("实况购入 · " + names, after.Round, includeRecent: true);
+        var id = history.Begin("实况购入 · " + names, after.Round, includeRecent: true, game: after.Observations.LastOrDefault()?.Game);
         history.Step(id, $"购入 {names} · 余额 {money}", screenshot);
     }
 
@@ -670,6 +676,8 @@ public partial class OcrScannerService : IDisposable
             _economy.Reset();
             _liveState?.Clear();
             _reviewBoard = null;
+            _fieldGame = Guid.NewGuid();
+            _fieldObservations = [];
             _roundEnemyState.Reset();
             _bufferedPanel = null;
             _purchases.Reset("economy-reset");
@@ -702,7 +710,11 @@ public partial class OcrScannerService : IDisposable
     private static (int Width, int Height) GetPngDimensions(byte[] image) => ImageBytes.GetDimensions(image);
 
     /// <summary>Successful manual recording also consumes this opening screen.</summary>
-    public void MarkInformationRecorded() => _informationState.MarkRecorded();
+    public void MarkInformationRecorded()
+    {
+        _startupOpportunityConsumed = true;
+        _informationState.MarkRecorded();
+    }
 
     public bool TryStartNewRun(bool bansChanged) => _informationState.TryStartNewRun(bansChanged);
 
@@ -716,6 +728,7 @@ public partial class OcrScannerService : IDisposable
 
         if (opening)
         {
+            _startupOpportunityConsumed = true;
             _banScreenActive = true;
             _banScreenAbsentTicks = 0;
         }

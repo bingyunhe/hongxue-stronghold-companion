@@ -11,6 +11,119 @@ namespace ASPAssistant.Tests.Services;
 public sealed class RoundEnemyTests
 {
     [Fact]
+    public async Task FourthRoundCapturedBountyPages()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_ENEMY_PAGES") is not { } directory) return;
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        using var ocr = new MaaOcrEngine(data);
+        var routes = await ASPAssistant.Core.Data.GarrisonRoundRouteStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory);
+        var reader = new RoundEnemyReader(ocr, routes, new HashSet<string> { "遮天面包机" });
+        var state = new RoundEnemyState();
+        state.Observe(4);
+        foreach (var page in new[] { "open", "changed", "top", "bottom" })
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(directory, page + ".png"));
+            using var stream = new MemoryStream(bytes);
+            using var frame = new Bitmap(stream);
+            var layout = RoundEnemyReader.Inspect(frame, true);
+            var read = await reader.ReadAsync(bytes, frame, layout, state.CoveredPage, "规程等级13", 4);
+            Assert.NotNull(read);
+            state.ApplyRead(read);
+            File.AppendAllText(Path.Combine(TestOutput.Directory, "round-enemy-pages.txt"),
+                $"{page} {layout} names={string.Join("、",read.Names)} bounty={string.Join("、",read.Bounties)} top={read.StartsAtTop} bottom={read.EndsAtBottom} unread={read.HasUnreadRows} anchor={read.UnreadTailAnchor} hint={state.Info!.Hint}\n");
+        }
+        Assert.Equal(["萨卡兹刀兵", "萨卡兹大剑手", "萨卡兹大剑组长"], state.Info!.Names);
+        Assert.Equal(["遮天面包机"], state.Info.Bounties);
+        Assert.True(state.Info.HasCompleteList);
+
+        byte[] Load(string name) => File.ReadAllBytes(Path.Combine(directory, name + ".png"));
+        var board = Load("board");
+        var top = Load("top");
+        var bottom = Load("bottom");
+        var live = Load("changed");
+        var hud = new ShopEconomy(4, 0, 0, false, "规程等级13", true);
+        using var connection = new GameConnectionService();
+        int clicks = 0, verifiedFrames = 0;
+        RoundEnemyState? request = null;
+        using var scanner = new OcrScannerService(() =>
+        {
+            if (ReferenceEquals(live, board)) verifiedFrames++;
+            return live;
+        }, new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+        {
+            RoundEnemyReader = reader, EconomyReader = new(ocr),
+            RoundEnemyScroll = (_, _, _, _) =>
+            {
+                Assert.True(request!.ExpireManual(DateTime.MaxValue));
+                live = bottom;
+                return true;
+            },
+            SendCapturedClick = (_, point, _, _) =>
+            {
+                Assert.Equal(new Point(945, 32), point);
+                if (++clicks == 2) live = board;
+                return ClickResult.Sent;
+            }
+        };
+        request = (RoundEnemyState)typeof(OcrScannerService).GetField("_roundEnemyState", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+        var economy = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+        economy.Observe(hud);
+        economy.Observe(hud);
+        Assert.Null(scanner.RequestRoundEnemyRead());
+        Task Observe(byte[] frame) => scanner.ObserveRoundEnemiesAsync(frame, hud, true, connection, scanner.RunRevision,
+            connection.CaptureRevision, Environment.TickCount64);
+        await Observe(board);
+        await Observe(Load("open"));
+        Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
+        live = top;
+        await Observe(top);
+        Assert.Same(bottom, live);
+        Assert.Equal(1, clicks);
+        await Observe(bottom);
+        await Observe(board);
+        Assert.True(scanner.CurrentRoundEnemies!.HasCompleteList);
+        Assert.Equal(state.Info.Names, scanner.CurrentRoundEnemies.Names);
+        Assert.Equal(["遮天面包机"], scanner.CurrentRoundEnemies.Bounties);
+        Assert.Equal(2, clicks);
+        Assert.Equal(1, verifiedFrames);
+        var confirmation = Assert.Single(RecognitionDiagnostics.Samples.Freeze(),
+            sample => sample.Frames.Any(f => ReferenceEquals(f.Image, board) && f.Step.EndsWith("已返回棋盘")));
+        File.AppendAllLines(Path.Combine(TestOutput.Directory, "round-enemy-pages.txt"), confirmation.Actions);
+
+    }
+
+    [Theory]
+    [InlineData(70, "upper")]
+    [InlineData(179, "lower")]
+    [InlineData(100, null)]
+    public void BountyLaneRequiresVisibleGatesAndClearProximity(int y, string? expected)
+    {
+        using var board = new Bitmap(358, 202);
+        using (var g = Graphics.FromImage(board))
+        {
+            g.FillRectangle(Brushes.Red, 65, 52, 14, 15);
+            g.FillRectangle(Brushes.Red, 50, 134, 14, 15);
+        }
+        var rim = Color.FromArgb(135,180,180);
+        board.SetPixel(65,y,Color.White);
+        board.SetPixel(58,y,rim);
+        board.SetPixel(72,y-2,rim);
+        board.SetPixel(62,y-6,rim);
+        Assert.Equal(expected, RoundEnemyReader.LocateBountyLanes(board, ["遮天面包机"]).GetValueOrDefault("遮天面包机"));
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_BOUNTY_REPLAY") is { } path)
+        {
+            using var actual = new Bitmap(path);
+            var layout = RoundEnemyReader.Inspect(actual, true);
+            Assert.False(layout.Title.IsEmpty);
+            Assert.InRange(layout.Button!.Value.X, 1025, 1090);
+            Assert.InRange(layout.Button.Value.Y, 20, 55);
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Equal("lower", RoundEnemyReader.LocateBountyLanes(actual, ["遮天面包机"])["遮天面包机"]);
+            File.WriteAllText(Path.Combine(TestOutput.Directory, "round-enemy-bounty-replay.txt"), $"遮天面包机 lower {timer.Elapsed.TotalMilliseconds:F2} ms");
+        }
+    }
+
+    [Fact]
     public void WindowsInputMatchesNativeLayout()
     {
         Assert.Equal(IntPtr.Size == 8 ? 40 : 28, Marshal.SizeOf<User32.MouseInput>());
@@ -190,7 +303,7 @@ public sealed class RoundEnemyTests
         if (scene is "open" or "manual")
         {
             Assert.Equal(["猎狗pro"], scanner.CurrentRoundEnemies!.Names);
-            Assert.Equal(new Point(640, 360), Assert.Single(clicks));
+            Assert.Equal(RoundEnemyReader.Inspect(panel, true).Button, Assert.Single(clicks));
         }
         else if (scene == "passive")
         {
@@ -216,6 +329,7 @@ public sealed class RoundEnemyTests
     [InlineData("manual-panel", 1600, "open")]
     [InlineData("automatic", 1920, "open")]
     [InlineData("passive", 1600, "open")]
+    [InlineData("manual-panel", 1280, "no-button")]
     [InlineData("manual-panel", 1600, "closed")]
     [InlineData("automatic", 1280, "next-round")]
     [InlineData("manual-panel", 1280, "partial")]
@@ -227,7 +341,8 @@ public sealed class RoundEnemyTests
         using var board = new Bitmap(1280, 720);
         DrawEnemyButton(board, 255);
         var boardBytes = ImageBytes.Encode(board);
-        using var panel = new Bitmap(1280, 720); // No magnifier is visible on this panel.
+        using var panel = new Bitmap(1280, 720);
+        if (lastScene != "no-button") DrawEnemyButton(panel, 255);
         using (var graphics = Graphics.FromImage(panel))
         {
             graphics.FillRectangle(Brushes.Gray, 742, 250, 20, 14);
@@ -250,6 +365,7 @@ public sealed class RoundEnemyTests
         List<Point> clicks = [];
         int captures = 0;
         bool returned = false;
+        bool observingPanel = false;
         using var scanner = new OcrScannerService(() => { captures++; return returned ? boardBytes : latestBytes; },
             new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
         {
@@ -258,7 +374,7 @@ public sealed class RoundEnemyTests
             SendCapturedClick = (_, point, size, _) =>
             {
                 clicks.Add(point);
-                returned = point == new Point(size.Width / 2, size.Height / 2);
+                returned = observingPanel && point == RoundEnemyReader.Inspect(latest, true).Button;
                 return ClickResult.Sent;
             }
         };
@@ -280,6 +396,7 @@ public sealed class RoundEnemyTests
         var layout = RoundEnemyReader.Inspect(panel, false) with { MoreBelow = lastScene is "partial" or "scroll-by-player" };
         Task ObservePanel() => scanner.ObserveRoundEnemiesAsync(panelBytes, hud, false, connection, scanner.RunRevision,
             connection.CaptureRevision, Environment.TickCount64, (panel, layout), buffered: entry == "automatic");
+        observingPanel = true;
         await ObservePanel();
         if (lastScene == "scroll-by-player")
         {
@@ -298,7 +415,7 @@ public sealed class RoundEnemyTests
         Assert.Equal(entry == "passive" ? 0 : (shouldClose ? 2 : 1) +
             (lastScene == "partial" ? 1 : lastScene == "scroll-by-player" ? 2 : 0), captures);
         if (shouldClose)
-            Assert.Equal(new Point(latest.Width / 2, latest.Height / 2), Assert.Single(clicks));
+            Assert.Equal(RoundEnemyReader.Inspect(latest, true).Button, Assert.Single(clicks));
         else Assert.Empty(clicks);
     }
 
@@ -646,11 +763,22 @@ public sealed class RoundEnemyTests
         state.ApplyRead(new(["源石虫"], [], false, true, false, "敌人", 0));
         Assert.True(state.Info!.IsPartial);
         Assert.Contains("源石虫", state.Info.Names);
-        state.ApplyRead(new(["宿主士兵", "步兵"], ["磨砻"], true, false, false, "敌人", 0));
         state.ApplyRead(new(["步兵", "源石虫"], [], false, true, false, "敌人", 0));
         Assert.True(state.Info!.HasCompleteList);
         Assert.Equal(new[] { "宿主士兵", "步兵", "源石虫" }, state.Info.Names);
         Assert.Equal("磨砻", Assert.Single(state.Info.Bounties));
+    }
+
+    [Fact]
+    public void FourthRoundEnemyPagePreservesBountyFromFirstPage()
+    {
+        var state = new RoundEnemyState();
+        state.Observe(4);
+        state.ApplyRead(new(["萨卡兹刀兵", "萨卡兹大剑手"], ["遮天面包机"], true, false, false, "敌人", 0));
+        state.ApplyRead(new(["萨卡兹刀兵", "萨卡兹大剑手", "萨卡兹大剑组长"], [], true, true, false, "敌人", 0));
+        Assert.True(state.Info!.HasCompleteList);
+        Assert.Equal(["遮天面包机"], state.Info.Bounties);
+        Assert.Equal(3, state.Info.RouteNames.Count);
     }
 
     [Fact]
@@ -676,12 +804,16 @@ public sealed class RoundEnemyTests
     [InlineData(true, false, true)]
     [InlineData(false, true, true)]
     [InlineData(false, false, false)]
-    public async Task ScrollsOwnedPanelsOnlyAndRequiresAnOverlappingStableBottom(bool adb, bool passive, bool moves)
+    [InlineData(false, false, true, "same-panel")]
+    [InlineData(true, false, true, "same-panel")]
+    [InlineData(false, false, true, "player-closed")]
+    [InlineData(false, false, true, "capture-lost")]
+    public async Task ScrollsOwnedPanelsOnlyAndRequiresAnOverlappingStableBottom(bool adb, bool passive, bool moves, string? expiry = null)
     {
         using var top = new Bitmap(1280, 720);
         using (var g = Graphics.FromImage(top))
         {
-            g.Clear(Color.Black);
+            DrawEnemyButton(top, 255);
             g.FillRectangle(Brushes.White, 795, 80, 40, 12);
             g.FillRectangle(Brushes.White, 862, 122, 46, 19);
             g.FillRectangle(Brushes.Gray, 742, 345, 20, 14);
@@ -704,8 +836,12 @@ public sealed class RoundEnemyTests
         {
             Source = adb ? ASPAssistant.Core.Models.GameCaptureSource.Adb : ASPAssistant.Core.Models.GameCaptureSource.Pc
         });
-        int scrolls = 0, closes = 0;
-        using var scanner = new OcrScannerService(() => live, new GarrisonOcrStrategy(), new ShopReader(ocr, []),
+        using var board = new Bitmap(1280, 720);
+        DrawEnemyButton(board, 255);
+        var boardBytes = ImageBytes.Encode(board);
+        RoundEnemyState? state = null;
+        int scrolls = 0, closes = 0, opens = 0, returnedFrames = 0;
+        using var scanner = new OcrScannerService(() => { if (live == boardBytes) returnedFrames++; return live; }, new GarrisonOcrStrategy(), new ShopReader(ocr, []),
             ocr, new(), [], getConnection: () => connection)
         {
             RoundEnemyReader = new(ocr), EconomyReader = new(ocr), AutomaticRoundEnemies = false,
@@ -715,18 +851,46 @@ public sealed class RoundEnemyTests
                 Assert.Equal(connection.CaptureRevision, revision);
                 Assert.True(RoundEnemyReader.Inspect(top, false).Names.Contains(point));
                 scrolls++;
+                if (expiry != null) Assert.True(state!.ExpireManual(DateTime.MaxValue));
                 if (moves) live = last;
                 return true;
             },
-            SendCapturedClick = (_, _, _, _) => { closes++; return ClickResult.Sent; }
+            SendCapturedClick = (_, point, _, _) =>
+            {
+                Assert.Equal(RoundEnemyReader.Inspect(board, true).Button, point);
+                if (expiry != null && opens == 0) opens++;
+                else { closes++; live = boardBytes; }
+                return ClickResult.Sent;
+            }
         };
         var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
         tracker.Observe(hud);
         tracker.Observe(hud);
         if (!passive) Assert.Null(scanner.RequestRoundEnemyRead());
+        long captureTick = Environment.TickCount64;
         Task Observe(byte[] bytes) => scanner.ObserveRoundEnemiesAsync(bytes, hud, true, connection, scanner.RunRevision,
-            connection.CaptureRevision, Environment.TickCount64);
+            connection.CaptureRevision, ++captureTick);
+        if (expiry != null)
+        {
+            state = (RoundEnemyState)typeof(OcrScannerService).GetField("_roundEnemyState", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+            await Observe(boardBytes);
+            Assert.Equal(1, opens);
+        }
         await Observe(first);
+        if (expiry != null)
+        {
+            Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
+            Assert.Equal(0, closes);
+            if (expiry == "player-closed") await Observe(boardBytes);
+            if (expiry == "capture-lost") state!.PauseConfirmationClock(captureLost: true);
+            await Observe(last);
+            await Observe(last);
+            Assert.Equal(expiry == "same-panel" ? 1 : 0, closes);
+            Assert.Equal(closes, returnedFrames);
+            Assert.True(scanner.CurrentRoundEnemies!.HasCompleteList);
+            Assert.Equal(1, scrolls);
+            return;
+        }
         if (passive)
         {
             Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
@@ -806,7 +970,10 @@ public sealed class RoundEnemyTests
         }
 
         public Task<IReadOnlyList<OcrTextResult>> RecognizeLineAsync(byte[] png, int x, int y, int w, int h)
-            => throw new NotSupportedException();
+        {
+            Reads++;
+            return Task.FromResult<IReadOnlyList<OcrTextResult>>(hasNames ? [new("猎狗pro", (x, y, w, h))] : []);
+        }
 
         public Task<string?> FindCandidateInRegionAsync(byte[] png, int x, int y, int w, int h, IReadOnlyList<string> candidates)
             => throw new NotSupportedException();

@@ -30,3 +30,4 @@ v1.4.0 及之后版本可直接自动更新；更早版本建议完整下载安�
 更新前请完全退出助手（包括托盘）。准备导入配置后，请完全退出并手动重开；下次启动时应用导入，并保留导入前备份。
 许可与第三方归属见 licenses 文件夹。
 "@ | Set-Content -LiteralPath (Join-Path $root '使用说明.txt') -Encoding utf8BOM
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../docs/问题排查指南.md') -Destination (Join-Path $root '问题排查指南.md')

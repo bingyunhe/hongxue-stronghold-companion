@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using ASPAssistant.Core.Data;
 
 namespace ASPAssistant.Core.Services;
@@ -262,19 +263,28 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
         using var names = frame.Clone(area, PixelFormat.Format24bppRgb);
         var bands = new List<(int Top, int Bottom)>();
         int firstColumns = (int)(160 * scale);
-        for (int y = 0; y < names.Height; y++)
+        var data = names.LockBits(new Rectangle(Point.Empty, names.Size), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+        try
         {
-            int count = 0;
-            for (int x = 0; x < names.Width; x++)
+            var row = new byte[names.Width * 3];
+            for (int y = 0; y < names.Height; y++)
             {
-                bool bright = Bright(names.GetPixel(x, y));
-                if (bright && x < firstColumns) count++;
-                names.SetPixel(x, y, bright ? Color.White : Color.Black);
+                var address = IntPtr.Add(data.Scan0, y * data.Stride);
+                Marshal.Copy(address, row, 0, row.Length);
+                int count = 0;
+                for (int i = 0; i < row.Length; i += 3)
+                {
+                    bool bright = row[i] >= 190 && row[i + 1] >= 190 && row[i + 2] >= 190;
+                    if (bright && i < firstColumns * 3) count++;
+                    row[i] = row[i + 1] = row[i + 2] = bright ? (byte)255 : (byte)0;
+                }
+                Marshal.Copy(row, 0, address, row.Length);
+                if (count < 11 * scale) continue;
+                if (bands.Count == 0 || y - bands[^1].Bottom > 6 * scale) bands.Add((y, y));
+                else bands[^1] = (bands[^1].Top, y);
             }
-            if (count < 11 * scale) continue;
-            if (bands.Count == 0 || y - bands[^1].Bottom > 6 * scale) bands.Add((y, y));
-            else bands[^1] = (bands[^1].Top, y);
         }
+        finally { names.UnlockBits(data); }
         bands.RemoveAll(b => b.Bottom - b.Top < 12 * scale);
         if (bands.Count == 0) return new([], [], !layout.Scrolled && !layout.BottomUnknown,
             !layout.MoreBelow && !layout.BottomUnknown, true, null, 0);
@@ -325,7 +335,7 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
             if (name.Length == 0 || !Known(name))
             {
                 retries++;
-                name = PanelName(Normalize(await ReadNameLineAsync(frame, area, top, bottom, scale)));
+                name = PanelName(Normalize(await ReadNameLineAsync(frame, area, names, top, bottom, scale)));
             }
             if (name.Length == 0 || !Known(name)) { unread = true; continue; }
             validAfterUnread |= unread;
@@ -337,8 +347,53 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
             !layout.MoreBelow && !layout.BottomUnknown,
             unread || sections.Any(s => s.Name == "敌人") && enemies.Count == 0,
             sections.Length > 0 ? sections[^1].Name : inherited, retries)
-        { Leaders = leaders.Distinct().ToArray(), UnreadTailAnchor = unread && !validAfterUnread && enemies.Count > 0
+        { BountyLanes = LocateBountyLanes(frame, bounties), Leaders = leaders.Distinct().ToArray(), UnreadTailAnchor = unread && !validAfterUnread && enemies.Count > 0
                 ? enemies[^1] : null };
+    }
+
+    // Work in the same centered game viewport as the panel reader. Only the enemy staging
+    // area is searched: the handbook portrait to its right depicts the same unit.
+    internal static Dictionary<string, string> LocateBountyLanes(Bitmap frame, IReadOnlyList<string> bounties)
+    {
+        var result = new Dictionary<string, string>();
+        if (!bounties.Contains("遮天面包机")) return result;
+        using var board = new Bitmap(358, 202);
+        using (var g = Graphics.FromImage(board))
+            g.DrawImage(frame, new Rectangle(0, 0, 358, 202), Area(frame.Size, 0, 0, 1920, 1080), GraphicsUnit.Pixel);
+        Point Gate(Rectangle area)
+        {
+            int count = 0, sx = 0, sy = 0;
+            for (int y = area.Top; y < area.Bottom; y++)
+            for (int x = area.Left; x < area.Right; x++)
+            {
+                var c = board.GetPixel(x, y);
+                if (c.R < 152 || c.R < c.G * 1.8 || c.R < c.B * 1.8) continue;
+                count++; sx += x; sy += y;
+            }
+            return count < 45 ? Point.Empty : new Point(sx / count, sy / count);
+        }
+        var upper = Gate(new Rectangle(55, 37, 45, 42));
+        var lower = Gate(new Rectangle(28, 117, 56, 48));
+        if (upper.IsEmpty || lower.IsEmpty) return result;
+        // The saucer has a pale central dome with a turquoise rim above and on both sides.
+        bool Rim(Color c) => c.G - c.R > 24 && Math.Abs(c.G - c.B) < 14 && c.G >= 120;
+        string? found = null;
+        for (int y = 48; y < 193; y++)
+        for (int x = 42; x < 202; x++)
+        {
+            var center = board.GetPixel(x, y);
+            if (Math.Min(center.R, Math.Min(center.G, center.B)) < 219 ||
+                !Rim(board.GetPixel(x - 7, y)) || !Rim(board.GetPixel(x + 7, y - 2)) ||
+                !Rim(board.GetPixel(x - 3, y - 6))) continue;
+            double Distance(Point gate) => Math.Sqrt(Math.Pow(x - gate.X, 2) + Math.Pow(y - gate.Y, 2));
+            double diff = Distance(upper) - Distance(lower);
+            if (Math.Abs(diff) < 12) return result;
+            var lane = diff > 0 ? "lower" : "upper";
+            if (found != null && found != lane) return result;
+            found = lane;
+        }
+        if (found != null) result["遮天面包机"] = found;
+        return result;
     }
 
     private static string Heading(string text)
@@ -358,16 +413,31 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
         var other => other
     };
 
-    private async Task<string> ReadNameLineAsync(Bitmap frame, Rectangle area, int top, int bottom, double scale)
+    private async Task<string> ReadNameLineAsync(Bitmap frame, Rectangle area, Bitmap mask, int top, int bottom, double scale)
     {
         int padding = (int)Math.Ceiling(6 * scale);
         var line = Rectangle.Intersect(area, new Rectangle(area.X, area.Y + top - padding, area.Width, bottom - top + 1 + padding * 2));
+        // The panel is wider than a name. Pass just the contiguous text to single-line OCR.
+        int left = -1, right = -1;
+        for (int x = 0; x < mask.Width; x++)
+        {
+            if (right >= 0 && x - right > 12 * scale) break;
+            for (int y = top; y <= bottom; y++)
+            {
+                if (mask.GetPixel(x, y).R == 0) continue;
+                if (left < 0) left = x;
+                right = x;
+                break;
+            }
+        }
+        int end = Math.Min(line.Right, area.Left + right + padding + 1);
+        line.X = Math.Max(line.X, area.Left + left - padding);
+        line.Width = end - line.X;
         using var crop = frame.Clone(line, PixelFormat.Format24bppRgb);
         double factor = Math.Max(1.5, 1 / scale);
         using var enlarged = new Bitmap(crop, new Size((int)Math.Round(crop.Width * factor), (int)Math.Round(crop.Height * factor)));
-        var words = await ocr.RecognizeRegionAsync(ImageBytes.Encode(enlarged), 0, 0, enlarged.Width, enlarged.Height);
-        return string.Concat(words.Where(t => t.Box.Y + t.Box.H / 2 >= (area.Y + top - line.Y) * factor
-            && t.Box.Y + t.Box.H / 2 <= (area.Y + bottom - line.Y) * factor).OrderBy(t => t.Box.X).Select(t => t.Text.Trim()));
+        var words = await ocr.RecognizeLineAsync(ImageBytes.Encode(enlarged), 0, 0, enlarged.Width, enlarged.Height);
+        return string.Concat(words.OrderBy(t => t.Box.X).Select(t => t.Text.Trim()));
     }
 
     private static bool Bright(Color p) => p.R >= 190 && p.G >= 190 && p.B >= 190;
@@ -387,6 +457,7 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
 internal sealed record RoundEnemyReadResult(string[] Names, string[] Bounties,
     bool StartsAtTop, bool EndsAtBottom, bool HasUnreadRows, string? LastSection, int Retries)
 {
+    internal IReadOnlyDictionary<string, string> BountyLanes { get; init; } = new Dictionary<string, string>();
     public string[] Leaders { get; init; } = [];
     public string? UnreadTailAnchor { get; init; }
     internal bool HasNames => Names.Length > 0 || Bounties.Length > 0 || Leaders.Length > 0;

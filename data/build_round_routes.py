@@ -212,7 +212,10 @@ def generate(bundle, gamedata, revision):
                                 groups.append(group_record(group["key"] if group else "", fixed + sum(selected, []) + side))
                 levels[level_id] = {"maps": board_data, "groups": groups}
         modes[definition["name"]] = {"maps": valid_maps, "inactive": definition["inactiveEnemyKey"] or [], "rounds": rounds}
-    return {"source": {"spawns": "https://www.lubiao.wiki/tools/garrison-spawn-preview",
+    motion = {e["Key"]: e["Value"][0]["enemyData"]["motion"]["m_value"] for e in enemy_db["enemies"]}
+    bounties = json.loads(Path(__file__).with_name("bounties.json").read_bytes())["entries"]
+    bounty_motion = {b["title"]: motion[Path(b["icon"]).stem] for b in bounties}
+    return {"bountyMotion": bounty_motion, "source": {"spawns": "https://www.lubiao.wiki/tools/garrison-spawn-preview",
                        "generated": source["meta"]["generated"], "bundle": bundle.name, "gameDataRevision": revision},
             "modes": modes, "levels": levels, "paths": shapes, "grids": grids}
 

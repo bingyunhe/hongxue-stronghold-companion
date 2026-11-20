@@ -118,6 +118,8 @@ public partial class GameConnectionWindow : Window
 
     private void SetStatus(Tone tone, string title, string text, BitmapSource? preview = null)
     {
+        if (tone == Tone.Error && IsAdb)
+            FeedbackReport.RecordConnectionFailure(title, text);
         var (fill, border, icon, glyph, titleBrush) = tone switch
         {
             Tone.Ok => ("SuccessTintBrush", "SuccessBorderBrush", "SuccessBrush", "✓", "SuccessTextBrush"),
@@ -245,9 +247,19 @@ public partial class GameConnectionWindow : Window
 
     private async void OnRefreshDisplays(object sender, RoutedEventArgs e) => await RefreshDisplaysAsync();
 
+    private bool HasAdbPath(string operation)
+    {
+        if (!string.IsNullOrWhiteSpace(AdbPathBox.Text)) return true;
+        ManualToggle.IsChecked = true;
+        SetStatus(Tone.Error, operation, "ADB 路径为空。请先点「发现设备」选择正在运行的模拟器，或点「浏览…」选择该模拟器的 adb.exe。");
+        ConnectionBody.ScrollToBottom();
+        return false;
+    }
+
     private async Task RefreshDisplaysAsync()
     {
         InvalidateTest();
+        if (!HasAdbPath("刷新屏幕失败")) return;
         var previous = DisplaySelector.SelectedItem as AdbGameDisplay;
         var settings = NewSettings(true, (WindowSelector.SelectedItem as WindowChoice)?.Window);
         SetBusy(true);
@@ -297,10 +309,11 @@ public partial class GameConnectionWindow : Window
             await ApplyAsync(_tested);
             return;
         }
+        if (!HasAdbPath("测试画面失败")) return;
         var window = (WindowSelector.SelectedItem as WindowChoice)?.Window;
         if (window is null)
         {
-            SetStatus(Tone.Error, "还没选游戏窗口", "打开所选模拟器里的明日方舟，刷新并选择对应窗口。");
+            SetStatus(Tone.Error, "还没选游戏窗口", "测试画面前，请打开所选模拟器里的明日方舟，刷新并选择对应窗口。");
             return;
         }
         if (DisplaySelector.SelectedItem is not AdbGameDisplay)

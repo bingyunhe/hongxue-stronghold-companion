@@ -710,7 +710,7 @@ internal static class ClearAndLineupSourceViewTests
             state.IsOwned("丁").Should().BeTrue();
             state.Extra.Should().Contain("丁");
             Descendants<TextBlock>((StackPanel)trackingView.DeployPage.FindName("PoolGroups")).Should().Contain(t => t.Text == "丁");
-            var candidates = (IEnumerable<PlacementCandidate>)typeof(DeployView).GetMethod("Candidates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            var candidates = (IEnumerable<PlacementCandidate>)typeof(DeployView).GetMethod("Candidates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null)!
                 .Invoke(trackingView.DeployPage, null)!;
             candidates.Should().Contain(c => c.Name == "丁", "the map planner receives the newly added owned operator");
             tracking.TrackedOperators.Should().NotContain(e => e.Name == "丁", "adding to the owned pool does not add a purchase target");
@@ -751,7 +751,7 @@ internal static class ClearAndLineupSourceViewTests
             tracking.TrackedOperators.Should().OnlyContain(e => !e.IsAcquired);
             panel.PlannerVm.CurrentTerminalLevel.Should().Be(0);
             trackingView.DeployPage.CurrentPlan.Should().BeNull();
-            ((IEnumerable<PlacementCandidate>)typeof(DeployView).GetMethod("Candidates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            ((IEnumerable<PlacementCandidate>)typeof(DeployView).GetMethod("Candidates", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null)!
                 .Invoke(trackingView.DeployPage, null)!).Should().BeEmpty();
             Await(settings.LoadDeployPoolAsync()).Owned.Should().BeEmpty();
             foreach (var theme in Enum.GetValues<GameShopTheme>())

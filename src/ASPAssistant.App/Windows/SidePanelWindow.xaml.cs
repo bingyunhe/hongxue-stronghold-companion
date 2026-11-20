@@ -433,7 +433,7 @@ public partial class SidePanelWindow : Window
         {
             UpdateBanner.Visibility = Visibility.Visible;
             UpdateStatusText.Text = _isDownloadReady
-                ? $"新版本 {_pendingUpdate.TagName} 已就绪，点击“立即重启”完成更新"
+                ? $"新版本 {_pendingUpdate.TagName} 已就绪，退出时安装并重新打开，也可点击“立即重启”"
                 : $"正在下载新版本 {_pendingUpdate.TagName}…";
             return;
         }
@@ -493,6 +493,8 @@ public partial class SidePanelWindow : Window
         UpdateBanner.Visibility = Visibility.Visible;
     }
 
+    private bool _installDownloadedUpdateOnExit;
+
     private void StartUpdateDownload()
     {
         if (_downloadTask is { IsCompleted: false } || _isDownloadReady) return;
@@ -500,6 +502,7 @@ public partial class SidePanelWindow : Window
         UpdateStatusText.Text = $"正在下载新版本 {_pendingUpdate.TagName}…";
         UpdateActionText.Text = "查看进度";
         UpdateBannerProgress.Visibility = Visibility.Visible;
+        _installDownloadedUpdateOnExit = true;
         _downloadTask = RunBackgroundDownloadAsync(_pendingUpdate);
     }
 
@@ -511,11 +514,18 @@ public partial class SidePanelWindow : Window
         UpdateBannerPercent.Text = "0%";
         UpdateBannerPercent.Visibility = Visibility.Visible;
         _openUpdateDialog?.ReportProgress(0);
+        bool showingTransferStatus = false;
         var progress = new Progress<double>(value =>
         {
             Dispatcher.Invoke(() =>
             {
                 if (_downloadError is not null) return;
+                if (showingTransferStatus && _updateService.TransferStatus is null && !_isDownloadReady)
+                {
+                    showingTransferStatus = false;
+                    UpdateBannerText.Text = $"正在下载 {info.TagName}";
+                    UpdateStatusText.Text = $"正在下载新版本 {info.TagName}…";
+                }
                 _lastUpdateProgress = value;
                 UpdateBannerProgress.Value = value * 100;
                 UpdateBannerPercent.Text = $"{(int)Math.Round(value * 100)}%";
@@ -534,7 +544,16 @@ public partial class SidePanelWindow : Window
                     MirrorChyanCdkStatus.Text = "无法读取已保存的 CDK，请重新填写。";
                 }
             }
-            await _updateService.DownloadAndApplyUpdateAsync(info, progress, mirrorCdk: cdk);
+            void ShowTransferStatus(string text) => Dispatcher.Invoke(() =>
+            {
+                showingTransferStatus = true;
+                UpdateStatusText.Text = text;
+                UpdateBannerText.Text = text;
+                _openUpdateDialog?.ShowTransferStatus(text);
+            });
+            _updateService.TransferStatusChanged += ShowTransferStatus;
+            try { await _updateService.DownloadAndApplyUpdateAsync(info, progress, mirrorCdk: cdk); }
+            finally { _updateService.TransferStatusChanged -= ShowTransferStatus; }
 
             _isDownloadReady = true;
             Dispatcher.Invoke(() =>
@@ -543,8 +562,9 @@ public partial class SidePanelWindow : Window
                 UpdateBannerPercent.Text = "100%";
                 UpdateBannerPercent.Visibility = Visibility.Visible;
                 UpdateActionIcon.Text = "↻ ";
+                UpdateBannerText.Text = $"新版本 {info.TagName} 已就绪";
                 UpdateActionText.Text = "立即重启";
-                UpdateStatusText.Text = $"新版本 {info.TagName} 已就绪，点击“立即重启”完成更新（会自动关闭并重新打开）";
+                UpdateStatusText.Text = $"新版本 {info.TagName} 已就绪，退出时安装并重新打开，也可点击“立即重启”";
                 if (_updateService.DownloadNotice is { } notice)
                     UpdateStatusText.Text += $"。{notice}，已使用 GitHub Releases 下载。";
                 _openUpdateDialog?.ReportProgress(1.0, _updateService.DownloadNotice);
@@ -553,6 +573,11 @@ public partial class SidePanelWindow : Window
         catch (Exception ex)
         {
             var reason = UpdateService.DescribeError(ex);
+            if (info.Delta is not null && ex is InvalidDataException or System.Text.Json.JsonException or UpdateIntegrityException or FileNotFoundException)
+            {
+                _pendingUpdate = info with { Delta = null };
+                reason += $"。重试将下载{_pendingUpdate.DownloadSizeText}";
+            }
             _downloadError = reason;
             AppLogger.Warn("Update", $"Download or apply failed: {reason}");
             Dispatcher.Invoke(() =>
@@ -561,11 +586,21 @@ public partial class SidePanelWindow : Window
                 UpdateBannerPercent.Visibility = Visibility.Collapsed;
                 UpdateBannerText.Text = "下载失败，查看详情";
                 UpdateActionIcon.Text = "↺ ";
-                UpdateActionText.Text = "重试";
+                UpdateActionText.Text = _updateService.HasSavedDownload ? "继续下载" : "重试";
                 UpdateStatusText.Text = $"下载失败：{reason}，可在更新横幅中重试";
-                _openUpdateDialog?.ReportFailure(reason);
+                _openUpdateDialog?.ReportFailure(reason, _updateService.HasSavedDownload);
             });
             _isDownloadReady = false;
+        }
+    }
+
+    internal void InstallPreparedUpdateOnExit()
+    {
+        if (!_installDownloadedUpdateOnExit || !_isDownloadReady || _updateService.PendingScriptPath is null) return;
+        try { _updateService.LaunchPendingUpdateScript(); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+        {
+            AppLogger.Warn("Update", $"退出时无法启动安装程序：{ex.Message}");
         }
     }
 
@@ -597,11 +632,18 @@ public partial class SidePanelWindow : Window
 
         if (_pendingUpdate is null) return;
 
+        if (_downloadError is not null && _updateService.HasSavedDownload)
+        {
+            StartUpdateDownload();
+            return;
+        }
         var dialog = new UpdateDialog(_pendingUpdate) { Owner = this };
         dialog.DownloadRequested += StartUpdateDownload;
-        if (_downloadError is not null) dialog.ReportFailure(_downloadError);
+        if (_downloadError is not null) dialog.ReportFailure(_downloadError, _updateService.HasSavedDownload);
         else if (_downloadTask is not null)
             dialog.ReportProgress(_isDownloadReady ? 1.0 : _lastUpdateProgress, _updateService.DownloadNotice);
+        if (_downloadTask is { IsCompleted: false } && _updateService.TransferStatus is { } transfer)
+            dialog.ShowTransferStatus(transfer);
         _openUpdateDialog = dialog;
         try
         {
@@ -616,6 +658,7 @@ public partial class SidePanelWindow : Window
     private async void OnSkipVersion(object sender, RoutedEventArgs e)
     {
         if (_pendingUpdate is null) return;
+        _installDownloadedUpdateOnExit = false;
         if (_settingsManager is not null)
             await _settingsManager.SaveSkippedVersionAsync(_pendingUpdate.TagName);
         UpdateBanner.Visibility = Visibility.Collapsed;
@@ -1225,6 +1268,22 @@ public partial class SidePanelWindow : Window
         await SavePreferenceAsync(() => _settingsManager.SaveAutomaticRoundEnemiesAsync(enabled), AutomaticRoundEnemiesToggle);
     }
 
+    public event Action<bool>? StartupInformationChanged;
+
+    public void InitStartupInformation(bool enabled)
+    {
+        StartupInformationToggle.IsChecked = enabled;
+        StartupInformationToggle.Checked += OnStartupInformationChanged;
+        StartupInformationToggle.Unchecked += OnStartupInformationChanged;
+    }
+
+    private async void OnStartupInformationChanged(object sender, RoutedEventArgs e)
+    {
+        bool enabled = StartupInformationToggle.IsChecked == true;
+        StartupInformationChanged?.Invoke(enabled);
+        await SavePreferenceAsync(() => _settingsManager.SaveStartupInformationAsync(enabled), StartupInformationToggle);
+    }
+
     public void InitPurchaseRecognitionSpeed(PurchaseRecognitionSpeed speed)
     {
         PurchaseSpeedSelector.SelectedIndex = speed switch { PurchaseRecognitionSpeed.Fast => 1, PurchaseRecognitionSpeed.Fastest => 2, _ => 0 };
@@ -1358,6 +1417,35 @@ public partial class SidePanelWindow : Window
             {
                 ShowToast($"删除失败：{ex.Message}");
             }
+        };
+
+        LineupView.DeleteSelectedRequested += async selected =>
+        {
+            if (!ConfirmDialog.Ask(this, "批量删除阵容", $"确定删除选中的 {selected.Count} 套阵容？此操作不可撤销。", "删除", danger: true))
+                return;
+            if (!selected.Select(l => l.Id).ToHashSet().SetEquals(LineupView.SelectedVisible().Select(l => l.Id)))
+            {
+                ShowToast("筛选结果已变化，请重新核对选中的阵容。");
+                return;
+            }
+            LineupView.IsEnabled = false;
+            int deleted = 0;
+            try
+            {
+                foreach (var lineup in selected)
+                {
+                    await LineupVm.DeleteAsync(lineup);
+                    deleted++;
+                }
+                LineupView.EndSelection();
+                ShowToast($"已删除 {deleted} 套阵容");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                LineupView.RefreshAllBadges();
+                ShowToast($"批量删除中断，已完成 {deleted} 套：{ex.Message}");
+            }
+            finally { LineupView.IsEnabled = true; }
         };
 
         LineupView.ShareLineupRequested += async lineup =>

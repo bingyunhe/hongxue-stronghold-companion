@@ -103,12 +103,12 @@ public sealed class BanScreenAnalyzer
     /// Runs the full ban-screen analysis asynchronously.
     /// Silently returns if another analysis is already in progress.
     /// </summary>
-    public async Task RunAnalysisAsync()
+    public async Task<bool> RunAnalysisAsync(bool showGameResult = true)
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
             AppLogger.Warn("BanAnalyzer", "Analysis already running, skipping");
-            return;
+            return false;
         }
 
         AnalysisBusyChanged?.Invoke(true);
@@ -128,7 +128,7 @@ public sealed class BanScreenAnalyzer
             {
                 AppLogger.Warn("BanAnalyzer", "Screenshot failed");
                 AnalysisFailed?.Invoke("未获取到可用的游戏画面，请将游戏置前并打开本局信息页后重试。");
-                return;
+                return false;
             }
 
             var (rawWidth, rawHeight) = GetPngDimensions(shot);
@@ -138,14 +138,14 @@ public sealed class BanScreenAnalyzer
                 AppLogger.Info("BanAnalyzer", "Identical screenshot, reusing the previous analysis");
                 if (PrepareNewRunAsync is { } cachedPrepare && await _informationDetector.IsOpeningScreenAsync(shot, rawWidth, rawHeight))
                 {
-                    if (captureRevision != CaptureRevisionProvider()) return;
+                    if (captureRevision != CaptureRevisionProvider()) return false;
                     await cachedPrepare(false);
                 }
-                if (captureRevision != CaptureRevisionProvider()) return;
+                if (captureRevision != CaptureRevisionProvider()) return false;
                 AutoBanListComputed?.Invoke(_lastAutoBans ?? []);
                 if (_lastEnemy is not null) EnemyDetected?.Invoke(_lastEnemy);
                 AnalysisCompleted?.Invoke(_lastResult);
-                return;
+                return _lastEnemy is not null;
             }
 
             diagnosticFrame = ImageBytes.ToPng(shot);
@@ -165,7 +165,7 @@ public sealed class BanScreenAnalyzer
             {
                 read = await BanCovenantReader.ReadAsync(_ocr, _ocrStrategy, shot, imgWidth, imgHeight,
                     _coreCovenantNames, _additionalCovenantNames);
-                if (captureRevision != CaptureRevisionProvider()) return;
+                if (captureRevision != CaptureRevisionProvider()) return false;
                 if (completeCore is null && read.SawCoreHeader && !read.HasIncompleteCoreRows
                     && read.UnnamedCore.Count == 0 && read.Core.Count >= 6
                     && (read.CoreSlots == 0 || read.Core.Count == read.CoreSlots)
@@ -178,7 +178,7 @@ public sealed class BanScreenAnalyzer
                     {
                         scrollMessage = null;
                         AnalysisFailed?.Invoke("滚动期间盟约选择发生变化，未替换现有结果；请保持选择不变后重新录入。");
-                        return;
+                        return false;
                     }
                     read = read with
                     {
@@ -198,15 +198,15 @@ public sealed class BanScreenAnalyzer
                 {
                     AppLogger.Warn("BanAnalyzer", scrollMessage);
                     AnalysisFailed?.Invoke(scrollMessage);
-                    return;
+                    return false;
                 }
                 var next = await scroll();
-                if (captureRevision != CaptureRevisionProvider()) return;
+                if (captureRevision != CaptureRevisionProvider()) return false;
                 if (next is null)
                 {
                     AppLogger.Warn("BanAnalyzer", "Information panel scroll or subsequent screenshot failed");
                     AnalysisFailed?.Invoke(scrollMessage);
-                    return;
+                    return false;
                 }
                 shotHash = HashShot(next);
                 var (nextWidth, nextHeight) = GetPngDimensions(next);
@@ -226,7 +226,7 @@ public sealed class BanScreenAnalyzer
                 AnalysisFailed?.Invoke(looksLikeInfo
                     ? "未找到完整的核心/附加盟约区域，请打开本局信息页并保持面板顶部可见。"
                     : "当前画面不是本局信息页，请切换到“确认本局信息”后重试。");
-                return;
+                return false;
             }
             // 两类盟约都可能只显示“本局阵容包含的条目”（标题会注明“部分盟约所含干员阵容
             // 不完整”），所以不能要求与数据文件里的总数相等；真正的完整性判据是：
@@ -246,10 +246,10 @@ public sealed class BanScreenAnalyzer
                 AnalysisFailed?.Invoke(clipped
                     ? $"面板存在未完整进入画面的盟约行（核心 {read.Core.Count}、附加 {read.Additional.Count}），未替换现有结果；请滚动到末行名称完整可见后重新扫描。"
                     : $"本次信息未完整读出（核心 {read.Core.Count}、附加 {read.Additional.Count}、未命名 {unnamed}），未替换现有结果；请保持页面完整可见后重试。");
-                return;
+                return false;
             }
             var enemy = await _enemyRecognizer.RecognizeAsync(shot, imgWidth, imgHeight);
-            if (captureRevision != CaptureRevisionProvider()) return;
+            if (captureRevision != CaptureRevisionProvider()) return false;
             var hasEnemy = enemy is not null && enemy.BossName.Length > 0 && enemy.EnemyTypes.Count > 0;
             var enemyFaction = hasEnemy ? enemy!.BossName : null;
 
@@ -263,11 +263,11 @@ public sealed class BanScreenAnalyzer
                         || !result.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name).ToHashSet(StringComparer.Ordinal)
                             .SetEquals(_lastResult.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name)));
                 var isOpening = bansChanged || await _informationDetector.IsOpeningScreenAsync(shot, imgWidth, imgHeight);
-                if (captureRevision != CaptureRevisionProvider()) return;
+                if (captureRevision != CaptureRevisionProvider()) return false;
                 if (isOpening)
                     await prepare(bansChanged);
             }
-            if (captureRevision != CaptureRevisionProvider()) return;
+            if (captureRevision != CaptureRevisionProvider()) return false;
             var autoBans = ComputeAutoBans(result);
             LogRecognitionSummary(result, autoBans);
             AutoBanListComputed?.Invoke(autoBans);
@@ -284,15 +284,18 @@ public sealed class BanScreenAnalyzer
             _lastEnemy = hasEnemy ? enemy : null;
             _scrollReminderShown = false;
             AnalysisCompleted?.Invoke(result);
-            await ShowTimedGameOverlayMessageAsync(hasEnemy
-                ? "识别成功！鸿雪·卫戍助手祝您卫戍愉快！"
-                : "盟约已录入，敌人信息可重新截屏录入", 2000);
+            if (showGameResult || !hasEnemy)
+                await ShowTimedGameOverlayMessageAsync(hasEnemy
+                    ? "识别成功！鸿雪·卫戍助手祝您卫戍愉快！"
+                    : "盟约已录入，敌人信息可重新截屏录入", 2000);
+            return hasEnemy;
         }
         catch (Exception ex)
         {
             diagnosticResult = new { Status = "本局信息识别异常", Error = ex.ToString() };
             AppLogger.Error("BanAnalyzer", "Analysis failed", ex);
             AnalysisFailed?.Invoke("本次录入失败，未替换现有结果；详细原因已记录到日志。");
+            return false;
         }
         finally
         {

@@ -115,6 +115,20 @@ internal static class FeedbackViewTests
             }
             screenshot.IsChecked = false;
             ((Image)dialog.FindName("ScreenshotPreview")).Source.Should().BeNull();
+            var group = report.Samples[0] with { IsGameReport = true, Cases =
+                [new("标记1 · A7",3,"空格",1,""),new("标记2 · C7",3,"点成B7",2,"")] };
+            choices.ItemsSource = new[] { group };
+            choices.SelectedIndex = 0;
+            var cases = (ComboBox)dialog.FindName("MarkChoice");
+            var expected = (TextBox)dialog.FindName("ExpectedBox");
+            screenshot.IsChecked.Should().BeTrue();
+            expected.Text = "应为折桠";
+            cases.SelectedIndex = 1;
+            expected.Text = "应选中暴躁铁皮";
+            cases.SelectedIndex = 0;
+            expected.Text.Should().Be("应为折桠");
+            ((TabControl)dialog.FindName("FeedbackTabs")).SelectedIndex = 1; Pump();
+            ((TextBox)dialog.FindName("PreviewBox")).Text.Should().Contain("应选中暴躁铁皮").And.Contain("应为折桠");
         }
         finally { dialog.Close(); owner.Close(); appearance.UiScale = 1; WindowUiScale.Refresh(appearance); }
         var empty = new FeedbackWindow(new("运行信息", "无日志", null), false) { Opacity = 0, ShowActivated = false, ShowInTaskbar = false };

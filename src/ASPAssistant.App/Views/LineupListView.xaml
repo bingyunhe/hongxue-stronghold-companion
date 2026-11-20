@@ -182,10 +182,14 @@
         </Style>
         <!-- One lineup card (我的阵容 and 本局推荐) -->
         <DataTemplate x:Key="LineupCardTemplate" DataType="{x:Type views:LineupCardItem}">
-            <Border Style="{StaticResource LineupCardStyle}" Padding="10" Margin="0,0,0,8" Tag="{Binding Lineup.Id}">
+            <Border x:Name="card" Style="{StaticResource LineupCardStyle}" Padding="10" Margin="0,0,0,8" Tag="{Binding Lineup.Id}">
                 <Grid>
                     <Border x:Name="rail" Width="3" HorizontalAlignment="Left" Margin="-10,-10,0,-10" Visibility="Collapsed"
                             CornerRadius="2,0,0,2" Background="{DynamicResource SuccessBrush}" />
+                    <DockPanel>
+                        <CheckBox x:Name="BulkCheck" DockPanel.Dock="Left" VerticalAlignment="Top" Margin="0,2,7,0"
+                                  AutomationProperties.Name="{Binding Name}" Visibility="{Binding ShowSelection, Converter={StaticResource BoolToVis}}"
+                                  IsChecked="{Binding IsSelected, Mode=OneWay}" Click="OnBulkCheck" />
                     <StackPanel>
                         <DockPanel>
                             <TextBlock DockPanel.Dock="Right" Text="{Binding SizeText}" FontSize="11" VerticalAlignment="Center"
@@ -262,9 +266,14 @@
                                         </StackPanel>
                         </WrapPanel>
                     </StackPanel>
+                    </DockPanel>
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
+                <Trigger SourceName="BulkCheck" Property="IsChecked" Value="True">
+                    <Setter TargetName="card" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                    <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource AccentStrongBorderBrush}" />
+                </Trigger>
                 <DataTrigger Binding="{Binding IsBest}" Value="True">
                     <Setter TargetName="rail" Property="Visibility" Value="Visible" />
                 </DataTrigger>
@@ -461,14 +470,23 @@
                                   Visibility="{Binding IsChecked, ElementName=RecommendDetailsToggle, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
 
-                <!-- Count · 导入 · 新建 -->
-                <DockPanel Margin="0,0,0,8">
-                    <Button DockPanel.Dock="Right" Content="新建" Style="{StaticResource LineupPrimaryButton}" Margin="6,0,0,0" Click="OnNewLineup" />
-                    <Button DockPanel.Dock="Right" Content="导入" Style="{StaticResource LineupTopButton}" Click="OnImportLineup"
-                            ToolTip="粘贴分享码或分享链接导入阵容" />
-                    <TextBlock x:Name="CountText" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
-                    <TextBlock x:Name="TotalText" FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
-                </DockPanel>
+                <Grid Margin="0,0,0,8">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel x:Name="CountGroup" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="CountText" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock x:Name="TotalText" FontSize="11" Margin="4,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </StackPanel>
+                    <WrapPanel x:Name="ListActions" Grid.Column="1" HorizontalAlignment="Right">
+                        <Button x:Name="BulkDelete" Visibility="Collapsed" Content="删除" Style="{StaticResource LineupTopButton}" Click="OnBulkDelete"
+                                Foreground="{DynamicResource DangerBrush}" Background="{DynamicResource DangerTintBrush}" BorderBrush="{DynamicResource DangerBorderBrush}" />
+                        <Button x:Name="BulkCancel" Visibility="Collapsed" Content="取消" Margin="4,0,0,0" Style="{StaticResource LineupTopButton}" Click="OnBulkMode" />
+                        <Button x:Name="BulkAll" Visibility="Collapsed" Content="全选" Margin="4,0,0,0" Style="{StaticResource LineupTopButton}" Click="OnBulkAll" />
+                        <Button x:Name="BulkMode" Content="多选" Style="{StaticResource LineupTopButton}" Margin="4,0,0,0" Click="OnBulkMode" />
+                        <Button Content="导入" Style="{StaticResource LineupTopButton}" Margin="4,0,0,0" Click="OnImportLineup" ToolTip="粘贴分享码或分享链接导入阵容" />
+                        <Button Content="新建" Style="{StaticResource LineupPrimaryButton}" Margin="4,0,0,0" Click="OnNewLineup" />
+                    </WrapPanel>
+                </Grid>
 
                 <controls:EmptyState x:Name="EmptyHint" Visibility="Collapsed" Margin="18,30,18,0" VerticalAlignment="Top"
                                      Icon="{StaticResource IconLineups}" Title="还没有阵容"

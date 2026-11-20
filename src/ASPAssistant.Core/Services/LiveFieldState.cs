@@ -14,6 +14,7 @@ public sealed record LiveUnit(FieldMark Mark, long Id, string? Name, string? Pur
 public sealed record LiveRoster(string? Map, int? Round, IReadOnlyList<LiveUnit> Units)
 {
     public IReadOnlyList<string> Bought { get; init; } = [];
+    public FieldObservation[] Observations { get; init; } = [];
 }
 internal sealed record FieldPurchase(string Name, double ShopX, bool Confirmed);
 
@@ -210,8 +211,14 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         foreach (var mark in marks.Where(m => m.StandaloneName != null))
         {
             var sources = old.Values.Where(u => u.Mark.Tier == mark.Tier && Identity(u) == mark.StandaloneName).ToArray();
-            if (sources.Length == 1 && sources[0].Mark.Slot != mark.Slot && marks.Count(m => m.StandaloneName == mark.StandaloneName) == 1)
-                moving.Add(mark.StandaloneName!, sources[0].Id);
+            if (sources.Length != 1 || sources[0].Mark.Slot == mark.Slot ||
+                marks.Count(m => m.StandaloneName == mark.StandaloneName) != 1) continue;
+            var source = sources[0];
+            // A newly deployed copy can be the only one whose name is readable.
+            // Keep the original identity if its still-occupied tile looks unchanged.
+            if (marks.Any(m => m.Slot == source.Mark.Slot && m.Tier == source.Mark.Tier &&
+                m.StandaloneName == null && Difference(source.Mark.Appearance, m.Appearance) < 5)) continue;
+            moving.Add(mark.StandaloneName!, source.Id);
         }
         foreach (var mark in marks)
         {
@@ -240,9 +247,12 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         var edges = new Dictionary<FieldSlot, long[]>();
         foreach (var mark in added)
         {
-            var candidates = _missing.Values.Select(v => v.Unit).Where(u => u.Mark.Tier == mark.Tier &&
-                (u.Mark.Slot != mark.Slot || _partialLoss.Contains(u.Id)) &&
-                !(mark.Slot.Bench && _pending.Any(p => tiers[p.Name] == mark.Tier))).ToArray();
+            var candidates = _missing.Values.Where(v => v.Unit.Mark.Tier == mark.Tier &&
+                (v.Unit.Mark.Slot != mark.Slot || _partialLoss.Contains(v.Unit.Id) ||
+                 !mark.Slot.Bench && now - v.At <= 1200 && mark.StandaloneName is string name &&
+                 Identity(v.Unit) == name && Difference(v.Unit.Mark.Appearance, mark.Appearance) < 5 &&
+                 next.Any(other => Identity(other) == name)) &&
+                !(mark.Slot.Bench && _pending.Any(p => tiers[p.Name] == mark.Tier))).Select(v => v.Unit).ToArray();
             var named = candidates.Where(u => mark.StandaloneName != null && Identity(u) == mark.StandaloneName).ToArray();
             edges[mark.Slot] = named.Length > 0 ? named.Select(u => u.Id).ToArray() :
                 candidates.Where(u => (mark.StandaloneName == null || Identity(u) == null) &&
