@@ -1,0 +1,311 @@
+[
+  {
+    "operator": "霜叶",
+    "skin": "破冰",
+    "model": "char_193_frostl_boc_4",
+    "source": "https://prts.wiki/w/霜叶/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/main/spine/char_193_frostl/char_193_frostl_boc_4",
+    "poses": {
+      "Front/Default": "9KI/Nkz8omJabQSiQztS5KpcWFjsqkA5T/SqZV9s/KrNycwEquPe3wyqNis27LKyra/0svPs7Pyy5t7fBLLy6ersulhLS/S61czP/Lp7Zm4Euq2FiOzCUEZP9MKIf4j8wvjn2QTC/e7fPMIxJjbsyoeEjfTKWEth/MpuXoEEyjIpMzzKPzFCRMo+MEH00kk/QfzSkYqEBNIhGSkM0jwyOBTSPTQ8NNJYVWQ80mlqekTSbnOD9NpnYmr82lJJTgTaKio47OKalIz04mlfcfziLi0/BOIyLkEM4iUkMOzqVlJb9Oo6OlAM6j0/VezyVUhN9PJCQkIU8jIsNuT6PTc8FPpQTlI=",
+      "Front/Idle-0.50s": "9KI8Mkj8olhRZQSiPDFH5KpCPz/sqkpEU/Sqa2Vy/Kq7t7kEqs7KzAyqKRkq5LIuHDDssrKtr/Sy8evq/LLt5eYEsujg4Oy6PzA69LrYz9H8uoFwcwS6oHuALLo8Lz/swk0/Q/TCo5ub/ML+7t8Ewvvt3jzCMiQ2RMI9L0HkypORl+zKXlpm9MppX278ynVgiATKPDQ9PMo7LT9EyjorPezSTERH9NI0Ky/80oN8dwTSKyIvDNJANT8U0lxTYTTSbXCAPNJtcYDU2jAjN/TaQD5K/NpdT04E2j42TezimJGH9OJsXID84jQ0RwTiLS8/DOIjIi3s6oaBh/TqQD5XDOo9PlXs8lZJTfTymJWY/PJQUFEE8jc3OBTyMyw15Po9NzwU+lBOUg==",
+      "Front/Idle-1.50s": "9KI/NUz8olFKXwSiPjRL5KpHREPsqkI7TfSqbWd0/KqyrrEEqsTAwgyqJRcn5LItGy/ssrKsr/Sy8+zs/LLt5eUEsujh4ey6Rjg+9Lrb0tT8unxrbgS6q4SKLLo8Lz/swkc5QPTCopqb/ML+7t8Ewvnq3DzCMiQ2RMI9L0HkyoeFjOzKXlpl9MppX278ynVgiATKOTI6PMo7LT9EyjorPezSTERH9NI0Ky/80oN8dwTSKyIvDNJANT8U0lxTYTTSbXCAPNJtcYDU2jEjN/TaPz1J/NpdT04E2j42TeTiYmFi7OKVjoT04mxcgPziNDRHBOItLz8M4iMiLezqVlNY9OpAPlYM6j0+VezyVUlNFPIzLDXk+j03PBT6UE5S",
+      "Back/Default": "9KJBOlD8omNebASiU09O5KqdmJfsqkM7UvSqQztS/KrW09QEqnRvbgyqPDg77LJDO1L0skM7UvyyQztSBLJDO1IMskI6Uey6PzJC9LpCOVD8ukM7UgS6QztSDLqGgYjswvHp6vTC8urq/MLx6eoEwuTd3izCOy8/7Mrb1df0yuPb3vzK7OXmBMrV0NM0yj0wQDzKPDFC7NJMRkn00qKfpvzSnJqgBNKEgIcM0kI6RRTSPDpLPNI/MUNE0j0wQvTa5+Dh/Nre2NgE2kA9UjTaWlZnPNpgXm9E2nF1hfTi8Ojp/OLVz9EE4lFDZQzibG507Oqhn6H06sjDxvzqm5mdDOpsV4Xs8mNhYfTyTk5P/PJGRkYU8jkvSeT6OzQ5FPovJSs=",
+      "Back/Idle-0.50s": "BJowLi70oj83Tfyii4aPBKJQTEvkqpyYmOyqQztS9KpDO1L8qvn29QSqdG9u7LJDO1L0skM7UvyyQztSBLJDO1IMskE6Tuy6OCtA9LpDO1P8ukM7UgS6QztS7MLx6er0wu/n6PzC6eLkBMLk3d7kytLMz+zK3tfa9Mrr4+T8yvHp6gTK29bYLMpCNEQ8yjcqPOzSpaOp9NKnpKr80ry3vATSrqmuDNIwLD8U0j08TDTSQDNFPNI+MUJE0jwtP9TaLiI09Nrd1tj82p+bngTaQDtQLNprbn402nF2hjzacHWFRNpvc4TU4i8mMfTi8Ojp/OKemp8E4j42TAzibW927OrJxMf06uni4/zqqaerDOpYSW7s8piVmPTyjImM/PJWVVYE8j8/PxTyalWE5Po7NDkU+i4lLQ==",
+      "Back/Idle-1.50s": "9KI/N038okQ8UwSimpeWDKI/PDvkqpOPj+yqQztS9KpDO1L8quXi4gSqdG9uDKpLSEfsskM7UvSyQztS/LJDO1IEskM7UgyyQDhO7Lo2KDz0ukM7Uvy6QztSBLpDO1LswvHp6vTC8Ojp/MLp4uMEwuXf3+TK0MvO7Mrc1tj0yurj5PzK8enqBMrY09UsykI0RDzKNyo87NKjoaf00qajqfzSvLe8BNKemZ8M0jAsPxTSPTxMNNJAM0U80j4xQkTSPC0/1NouIjX02vLq7PzaxcDCBNpAO1As2mtufjTacXaGPNpwdYVE2m9zhNTiLyYx5OJ4d3js4tvV1/Ti7OXm/OJZWWUE4j42TAzibW927Oqhn6L06qCeowzqWElu7PI/Pz8U8mpVhOT6OzQ5FPouJS0="
+    }
+  },
+  {
+    "operator": "折桠",
+    "model": "char_4207_branch",
+    "poses": {
+      "Front/Default": "9KKsY2P8oq4+OwSisD099Kq+vr78qr5MRgSquEM3DKqwTEHssmtjY/SyizAu/LKZMzMEsqo4NwyynzQzFLKbODccsmxsbPS6qj86/Lqqm7QEuv/w5Ay6ioqgFLpzKigcuoODg/TCUi4u/MJaODgEwpJeVwzCWR4YFMJtVlYcwmxoZSTCk4+P9Mrs4tf8yrySbQTKhj08DMpnXT4Uynx6eBzKm5iXJMosKirs0kE2NvTSqKOb/NJcSUEE0l9dWgzS0crDFNKhYmIc0puYl+TaUEQ97NpUNy702kQ8M/zaZ3yABNp8krMM2l1dTBTaT0I7HNovLiv84kNDQwTiQD4+DOL94+MU4iYeGRziUUM69Oo3NzoE6kpKSgzqR0JBFOpHOTEc6kI3LOzyRE1j9PJ0j7IM8naOshTydIujHPI3Lizs+ktcbgz6Oz5SFPpJQD0=",
+      "Front/Idle25": "9KKtOTn0qsDAwPyqvkxGBKq6RUAMqr9LRvSykTEu/LKtPDcEsq44OAyytEA/FLKnRUEcspmYl/S6VCAa/LqhZG0EuosuLgy6aj07FLqHLikcunh4ePTCXywp/MKXgYEEwv/y5gzCp6SkFMJ7RUUcwl5bWCTChYWF7MpNQz70yuji0fzKtpJwBMqAQEAMylQ2LRTKbGdnHMqbmJckyi0qKuTSOjIw7NJBNjb00rOjm/zSa2NOBNJwc3QM0uze1hTSoW1tHNKbmJfk2oCAgOzaUjcu9NpEPjP82mBZZgTafmZjDNo7OzsU2k9BOxzaOTEu/OJSUEkE4jQ+Pgzi8dfXFOIoHhQc4lFDOvzqTUE7BOpWT1IM6kpCQhTqPzMtHOo0NCzs8kJNY/TydI6yDPJ2jrIU8nKLoxzyNy4s7PpJVm0M+jtDVxT6RUA7",
+      "Front/Idle75": "9KKtOTn0qsDAwPyqvkxGBKq6RUAMqr9LRvSykTEu/LKtPDcEsq44OAyytEA/FLKnRUEcspmYl/S6VCAa/LqhZG0EuosuLgy6aj07FLqHLikcunh4ePTCXywp/MKXgYEEwv/y5gzCp6SkFMJ7RUUcwl5bWCTChYWF7MpNQz70yuji0fzKtpJwBMqAQEAMylQ2LRTKbGdnHMqbmJckyi0qKuTSOjIw7NJBNjb00rOjm/zSa2NOBNJwc3QM0uze1hTSoW1tHNKbmJfk2oCAgOzaUjcu9NpEPjP82mBZZgTafmZjDNo3ODYU2k9BOxzaOTEu/OJSUEkE4jQ+Pgzi8dfXFOIoHhQc4lFDOvzqTUE7BOpWT1IM6kpCQhTqPzMtHOo0NCzs8kJNY/TydI6yDPJ2jrIU8nKLoxzyNy4s7PpJVm0M+jtDVxT6RUA7",
+      "Back/Default": "9KK9SEL8or5KRQSivkpF9Kq3RkH8qr5KRQSq3pqGDKq+SkXsspU0MPSynzo2/LKuQT0EsrtIQwyyZGRkFLKUlJQcspuYl/S6jTEt/LqSMy8EulNTUwy6mJiYFLqzs7wcuv7+/iS6gYGB9MKILiv8wk4eFgTCMC0tDMKbmJcUwpqZnhzCnJycJMKHgoDsynspJfTKVh4X/MqjdFwEyiwqKgzKm5iXFMqSkpIcyo2GhSTKm5eX7NI+NjH00lBFPPzSTUI2BNIsKioM0pmWlRTSZGFeHNJYVFIk0puYl+TaTjs37Np/Lyv02kM7OPzaLichBNotKioM2oqHhxTakI2NHNqLiIgk2o2MjOzikjs7/OJFPDcE4jIsKgzieHZ2FOJ1cnIc4nh1dSTidXJy9OpDTFgM6m1raxTqNzMzHOo+NjMk6lpXV+zyR05j9PJyjbIM8jYwLRTyVE5LHPJUTkvs+kFBUQz6ODAsFPpVT0sc+l1XVA==",
+      "Back/Idle25": "9KKBMzD0qrlIQ/yq3mldBKrSbmQMqrtKSeyynDgz9LKkPTj8srZGQQSyvkpFDLJYWFgUspSUlByym5iX9LqRMzD8up86NgS6U1NTDLqLi4sUurOzvBy68fHzJLqBgYH0woouK/zCjDAsBMIsKioMwpuYlxTCmZmaHMLDw8Mkwn98fuzKiS4p9MqILir8yv//+gTKLSoqDMqbmJcUypWSjxzKfn5+JMqGg4Hk0kIhIezSQCko9NJPHBj80lFFQgTSLCoqDNKZlpUU0mRhXhzSVVJQJNKbmJjc2lhKQeTaPygo7NozLCz02kY9OPzaNi8tBNouKysM2omGhhTakI2NHNqLi4sk2o2MjOTijT849OI5MTD84kg+OATiLCoqDOJ4dnYU4nVychzid3R0JOJ1c3P06j4+SQzqbWtrFOo3MzMc6j42MyTqWldX7PJHTmP08nKNsAzyNjAtFPJUTksc8lROS+z6QUtgDPo4MCwU+lVPSxz6XVdU",
+      "Back/Idle75": "9KKBMzD0qrlIQ/yq3mldBKrSbmQMqrtKSeyynDgz9LKkPTj8srZGQQSyvkpFDLJYWFgUspSUlByym5iX9LqRMzD8up86NgS6U1NTDLqLi4sUurOzvBy68fHzJLqBgYH0woouK/zCjDAsBMIsKioMwpuYlxTCmZmaHMLDw8Mkwn98fuzKiS4p9MqILir8yv//+gTKLSoqDMqbmJcUypWSjxzKfn5+JMqGg4Hk0kIhIezSQCko9NJPHBj80lFFQgTSLCoqDNKZlpUU0mRhXhzSVVJQJNKbmJjc2lhKQeTaPygo7NozLCz02kY9OPzaNi8tBNouKysM2omGhhTakI2NHNqLi4sk2o2MjOTijT849OI5MTD84kg+OATiLCoqDOJ4dnYU4nVychzid3R0JOJ1c3P06j4+RgzqbWtrFOo3MzMc6j42MyTqWldX7PJHTmP08nKNsAzyNjAtFPJUTksc8lROS+z6QUtgDPo4MCwU+lVPSxz6XVdU"
+    },
+    "source": "https://prts.wiki/w/折桠/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_4207_branch/char_4207_branch"
+  },
+  {
+    "operator": "艾丝黛尔",
+    "model": "char_127_estell",
+    "poses": {
+      "Front/Default": "/KL39+UEov//8eSq8+va9KpAQGL8qrSjXwSq/f3UDKrby1YUqkBAYRyqPD9e7LI7O1T0sjs7TPyylVRQBLLRwEwMstTDTBSyd2xA7Lq2pT/0urOeRfy6jYNvBLr51KcMup1+QOzCmIgz9MKBeTf8wrq6qQTCzcerDMKhkDcUwq+iROzKlIMx9MrDvLv8yklJUwTKvbavDMqUgy700ktCM/zSq5GiBNJ3b2wM0qamlezax8eK9NpEQDH82oiCigTahISHFNonJz8M6n11fezyaWl17Po/P1AU+j8/UA==",
+      "Front/Idle25": "9Ko7QF/8qkREYwSq/f3lDKr25YsUqkhIcuyyOztU9LI7O1T8sqVYQASy2MdTDLLRwEwUstS/TByyOztX7Lq2pT/0usezSfy6w7OUBLr91KsMumFLLhS6o6JJ7MLx7dz0wqeWO/zCv7q5BML11KsMwquaO/TKp6en/MpLTl4EyuPXrwzKl4Yx7NLc3Ir00khAMPzSs5yNBNKjgV8M0ry8mOzaJyMi9No9Oi782oWCigTaXV1uFNo2NkoM4n11fez6X1pqFPo/P1A=",
+      "Front/Idle75": "9Ko7QF/8qkREYwSq/f3lDKr25YsUqkhIcuyyOztU9LI7O1T8sqVYQASy2MdTDLLRwEwUstS/TByyOztX7Lq2pT/0usezSfy6w7OUBLr91KsMumFLLhS6o6JJ7MLx7dz0wqeWO/zCv7q5BML11KsMwquaO/TKp6en/MpLTl4EyuPXrwzKl4Yx7NLc3Ir00khAMPzSs5yNBNKjgV8M0ry8mOzaJyMi9No9Oi782oWCigTaXV1uFNo2NkoM4n11fez6X1pqFPo/P1A=",
+      "Back/Default": "BKL9/fDkqkREZeyq3Mtb9Kr//9z8qv395QSq38tXDKr9/dsUqj4+VByqRERp7LLYx1D0stbETvyy2MVQBLLVxE8MstjHUBSy1cRQ7LrLt0f0usyzSPy6zLNIBLrKuUgMusy7SOzCwbBG9MK2pT/8wrqpQATCu6tCDMK7q0D0yrKhPvzKr547BMqvnjsMyrKeO/TSSEAv/NJiXjME0qWUOAzSdGMt7NpnZ0b02iYdHfzacnI4BNpcWC8U2qqZPvTqeXmCDOp9dX3s8m1qdez6X1xlFPo+Pks=",
+      "Back/Idle25": "5KpERGnsqtvKmvSq/f3f/Kr//+wEqv392wyq/f3cFKrRysTsstjHUPSy3MVQ/LL9/NgEstnHTwyy2MdQFLLYx1Dsusq0SPS6zLdI/LrPu0sEusy7SAy6z75L3MKOfSvswsGwRvTCtqVA/MK/r0QEwr+vRAzCwbBG9MqyoD38yrKhPgTKs6E+DMq2njzs0o6GVPTSXFQv/NKvnjsE0q2cOgzSr547FNJ6dkbk2kc+OuzaSEAv9NomHR382qycOgTaYVgvFNqpmToM4n11ffTqeXmC7PpPT1cU+kJCUw==",
+      "Back/Idle75": "5KpERGnsqtvKmvSq/f3f/Kr//+wEqv392wyq/f3cFKrRysTsstjHUPSy3MVQ/LL9/NgEstnHTwyy2MdQFLLYx1Dsusq0SPS6zLdI/LrPu0sEusy7SAy6z75L3MKOfSvswsGwRvTCtqVA/MK/r0QEwr+vRAzCwbBG9MqyoD38yrKhPgTKs6E+DMq2njzs0o6GVPTSXFQv/NKvnjsE0q2cOgzSr547FNJ6dkbk2kc+OuzaSEAv9NomHR382qycOgTaYVgvFNqpmToM4n11ffTqeXmC7PpPT1cU+kJCUw=="
+    },
+    "source": "https://prts.wiki/w/艾丝黛尔/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_127_estell/char_127_estell"
+  },
+  {
+    "operator": "幽灵鲨",
+    "model": "char_143_ghost",
+    "poses": {
+      "Front/Default": "9KIzKzP8oltVVQSiMysz5KoiGiLsqjMrM/SqMysz/KozKzMEqjMrMwyqMisy5LIfFx/ssi8nL/Sy/v7+/LLe3tYEsung2Ayy3tvR7LorIyv0ut7Wzvy642toBLrk5N0MuoFfWOzCJx8n9MKypaT8wmhoXQTCY2NjFMIuJi7kyiIaIuzKJBwk9MokJCz8yl9bYwTKW0ZMFMorIyvc0iAYIOTSIBgg7NIPDxj00mNja/zSGxkhBNIaGBkc0ikhKdzaHxYf7Nr99eX02i4qLvzaKSIpBNoaFhoM2v315eTiGhUg9OIaEhr84i8nLwTiIRohDOIjISMs4hwaGuTqFRUd9OopICn86icfJwTqGBIaDOoaFR0k6kQ7RCzqSEBA7PIrJCz08iMcI/zyIxojBPIvL4cM8isjKyzyFhYW7PorIysU+isjKyz6HBwc",
+      "Front/Idle25": "9KIzKzP8ojMrMwSiMysz7KonHyf0qjMrM/yqNjM2BKozKzMMqjMrM+SyHxcf7LIvJy/0snx8fPyy////BLL///8Msv7+/uy6LCQs9LrGxsb8uulubgS64N3YDLqgZV7swicfJ/TCsqmp/MJubl0Ewv3s2wzCr6WlFMIuJi7kyiEaIezKJBwk9MpjX2f8ykZGTwTKRUNGFMorIyvk0iAYIOzSIRkh9NJjY2v80ktGSwTSICAdHNIpISnc2h8XH+TaHxcf7Nr29eX02hgQGPzaGxcfBNomHSYM2v315RzaJx8n9OIaEhr84i8nLwTiLycvDOJrWlHk6jo6TPTqKSMp/OonHycE6hIRGgzqGhUdFOoaFR0c6icfJyTqRDtELOpEO0Ds8hkZJPTyJBwk/PIkHCQE8i4uggzyKyMrFPIfGR8s8h0cHez6KyMr9PohGSH8+oODgxT6KyMrLPoaGho=",
+      "Front/Idle75": "9KIzKzP8ojMrMwSiMysz7KonHyf0qjMrM/yqNjM2BKozKzMMqjMrM+SyHxcf7LIvJy/0snx8fPyy////BLL///8Msv7+/uy6LCQs9LrGxsb8uulubgS64N3YDLqgZV7swicfJ/TCsqmp/MJubl0Ewv3s2wzCr6WlFMIuJi7kyiEaIezKJBwk9MpjX2f8ykZGTwTKRUNGFMorIyvk0iAYIOzSIRkh9NJjY2v80ktGSwTSICAdHNIpISnc2h8XH+TaHxcf7Nr29eX02hgQGPzaGxcfBNomHSYM2v315RzaJx8n9OIaEhr84i8nLwTiLycvDOJrWlHk6jo6TPTqKSMp/OonHycE6hIRGgzqGhUdFOoaFR0c6icfJyTqRDtELOpEO0Ds8hkZJPTyJBwk/PIkHCQE8i4uggzyKyMrFPIfGR8s8h0cHez6KyMr9PohGSH8+oODgxT6KyMrLPoaGho=",
+      "Back/Default": "9KIzKzP8ojMrMwSiMysz7KonHyf0qi4mLvyqMCgwBKoxKTEMqjMrM+SyHxcf7LIkHCT0siohKvyyKyMrBLIuJS4MsjMrM+y6Qj499LolHSX8uiYdJAS6Jx8nDLozKzMUui8nL+zCtra29MK9vbf8wr+/vwTCv7+9FMIvJyfkyiIaIuzKo6Oj9Mqrq6v8yq+vrwTKfn5+FMorIyvk0iAYIOzSmZmZ9NKdnZ380p6engTSVU1VDNJmZm4U0isjKxzSKyMrLNIdHR3s2pGRkfTakpKS/NqJiYkE2lxcZRTa/fXlHNonHyck2kQ7RCzaPjY+7OJDQ0P04ouLi/zijIyMBOJTU1sM4k9PVyziHR0d7OokHCT06iQdJPzqgICABOqGhoYM6jo6OizqHBwc7PIjGiP08iMaI/zyIxojBPJdXV0M8lFRUez6NjY29PqDg4MU+isjKw==",
+      "Back/Idle25": "9KIzKzP8ojMrMwSiMysz7KonHyf0qi4mLvyqMSkxBKoxKTEMqjMrM+SyHxcf7LIkHCT0sisjK/yyKyMrBLIuJi4MsjMrM+y6IiEi9LolHSX8uiYdJAS6KSApDLozKzMUui8nL+zCt7e19MK/v7v8wr+/vwTCv7+9FMIvJyfkyiEaIezKqamp9MqsrKz8yq+vrwTKfn5+FMorIyvk0iAYIOzSmpqa9NKdnZ380qGhoQTSUFBhDNJmZm4U0iohKhzSKyMrLNIdHR3k2h8XH+zakpKS9NqSkpL82pWVlQTaXFxkFNr99eUc2icfJyTaRDtELNpIQED04ouLi/zijY2NBOJTU1sM4k9PVyziHBoc7OokHCT06iQcJPzqPz9FBOqIiIgM6k5OTuzyIxoj9PJYU1j88iMaIwTyg4ODDPJycnLs+nR0dPT6g4ODFPorIys=",
+      "Back/Idle75": "9KIzKzP8ojMrMwSiMysz7KolHSX0qiwkLPyqMCgwBKoxKTEMqjMrM+SyHxcf7LIkHCT0siohKvyyKyMrBLIuJi4MsjMrM+y6KyMr9LojGiP8uiYdJgS6KiEqDLozKzMUui8nL+zCtraz9MK9vbf8wr+/vwTCv7+/FMIvJyfkyiEZIezKpqam9Mqrq6v8yq+vrwTKfn5+FMorIyvk0iAYIOzSmZmZ9NKdnZ380qGhoQTSVVBhDNJmZm4U0isjKxzSKyMr3NofFh/s2pGRkfTakpKS/NqRkZEE2lxcZBTa/fXlHNonHyck2icfJyzaJBwk9OKLi4v84oyMjATijY2NDOJLS0ss4ikgKezqJBwk9OokHCT86kBARgTqiIiIDOpiXGIs6hsbG+zyIRkh9PJXV1f88iMaIwTyhYWFDPIjGiPs+isjK/T6g4OD/PqDg4MU+isjKw=="
+    },
+    "source": "https://prts.wiki/w/幽灵鲨/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_143_ghost/char_143_ghost"
+  },
+  {
+    "operator": "幽灵鲨",
+    "model": "char_143_ghost_winter_1",
+    "poses": {
+      "Front/Default": "9KIvKy/8oi8nLwSiVz5H7KohGSH0qiUfJfyqKyQrBKp8dXUMql5RUeyyIBgg9LIzKzP8ssO8tASyybS0DLLOzsfsumNjY/S65+Tc/LqDSkoEuv/w4gy60Gtl7MKooKD0wuXl4PzC+fntBMLy7dzkypORkezKLyov9MpMVV38yrW1rwTK+fns5NK7v8js0iYdJvTS7Ozl/NJ1dYUE0m9vc+zazc3N9Nrg4Nj82jEvNwTaGhUdDNooKCvk4hYWH+zixMTM9OIaEhr84jIqMgTiPDo8DOI3Nzcs4hsbG+zqMTFB9OozLDX86nt0iwTqGhIaDOo4NjsU6i4xNSTqRDtELOpIQEDs8isjKwTydXOGDPIrIyss8hkZGez6KSMrFPojICMs+hwcHA==",
+      "Front/Idle25": "9KIrKSv8oi8nLwSiTz5H7KovKS/0qicfJ/yqKyMrBKoxKTEMqkA6OuyyIBgg9LIzKzP8squjowSysKmjDLLezs7sujIqMvS64ODY/Lqtb2cEuvfz4gy6hlZW7MKooKD0wt/f3/zC+fntBML97dwMwlFlguzKT0tL9Mqpsbr8ypKSgQTK/f3s7NJCP0L00u3t5fzSY2NzBNJdS0fs2tHR0PTa3NzY/NomJi4E2lVUOwzaISEn5OKstLTs4sjMzPTiGBIa/OIyLDQE4jw7PAziPDo65OpWT2fs6iMjK/TqMzM7/OpWU2YE6hYSGgzqamVvFOofFhoc6icfJyTqRDtELOo+Nj7s8isjKwTyioaWDPKhmaMU8iAdIyzyHRwd7PopISkU+iEZISz6HBwc",
+      "Front/Idle75": "9KIrKSv8oi8nLwSiTz5H7KovKS/0qicfJ/yqKyMrBKoxKTEMqkA6OuyyIBgg9LIzKzP8squjowSysKmjDLLezs7sujIqMvS64ODY/Lqtb2cEuvfz4gy6hlZW7MKooKD0wt/f3/zC+fntBML97dwMwlFlguzKT0tL9Mqpsbr8ypKSgQTK/f3s7NJCP0L00u3t5fzSY2NzBNJdS0fs2tHR0PTa3NzY/NomJi4E2lVUOwzaISEn5OKstLTs4sjMzPTiGBIa/OIyLDQE4jw7PAziPDo65OpWT2fs6iMjK/TqMzM7/OpWU2YE6hYSGgzqamVvFOofFhoc6icfJyTqRDtELOo+Nj7s8isjKwTyioaWDPKhmaMU8iAdIyzyHRwd7PopISkU+iEZISz6HBwc",
+      "Back/Default": "9KJcREz8oi8nLwSiLycvDKIxKzH0qiAYIPyqJBwkBKorIysMqi8nLxSqLycv7LInHyf0siEaIfyyJx8nBLIuJy4MsiwkLPS6IyMj/LonHycEuicfJwy6Hxkf7MLq6un0wvDw7fzC8vDsBMLx8ewMwt3d3ezK39/f9Mri4uL8yufn5QTK1M3N7NLf39j00t/f3PzS39/cBNKTk6QM0p6eryzSHR0d5NogICjs2sjIxvTa0NDQ/Nqzs7ME2jo6QgzaHR0jFNr99eUc2icfJyTaRDtELNo+Nj7k4iAgKOziJyYu9OLIyMj84sTExATiOTFADOI6OUEU4js5QSziHR0d5OpTU2fs6jExOfTqNjY+/Oq7u7sE6j07RAzqPj5GFOpBQEks6hwcHOzyKyMrBPK7u7sM8ru7u+z6KyMrFPorIys=",
+      "Back/Idle25": "9KJYQEj8oi8nLwSiLycvDKIxKzH0qh8XH/yqJBwkBKosJCwMqi8nLxSqLycv7LInHyf0siEZIfyyIxojBLIpJikMsiskK/S6IyMj/LonHycEuicfJwy6Jx8n7MLs7Or0wvHw7fzC9PDtBMLw8OcMwvLt6uzK5eXl9Mrj4+P8yufn5QTK5tjY7NLg4Nj00tzc2fzS5eXeBNKpqa8M0peXqyzSHBwc5Nqztb3s2s7OzPTa0NDQ/NrMzMwE2jo6QgzaHRojFNr99eUc2icfJyTaRDtELNpIO0Dk4iAgKeziJiYu9OLKysr84sfHxwTiOTJBDOI5OUEU4j06QiziHBoc5OpUT2fs6jEvOfTqNjY+/OpycnIE6o2NjQzqPT1FFOpBQUns8ikjLgTyu7u7DPK7u7sU8khCSuz6KyMrFPpubm4=",
+      "Back/Idle75": "9KJfRk/8oi8nLwSiLycvDKIxKzH0qh8XH/yqIRkhBKorIysMqi8nLxSqLycv7LInHyf0siEZIfyyIRkhBLInHycMsi4pLhSyLiYu9LojHyP8uicfJwS6Jx8nDLorIyvswuzs6vTC8e3t/ML08OwEwvDw6wzC8u3q7Mrp6eX0yuLi4vzK5+flBMrm1dUMyr29v9zSs7vE5NK0u73s0uDg2PTS2dnZ/NLl5d4E0qmprwzSl5av7NrLy8b02s3NzfzazMzMBNo6OkIM2h0dIxTa/fXlHNonHyck2ikgKSzaIBwg7OIhISr04srKyvzixMTEBOJWVlYM4jk5QSziKSAp5OpUa8bs6ikpMvTqNjY+/Oo5OEEE6ru6ugzqPT1FFOpBQEgs6hwcHOzyJiMsBPK7u7sM8ru7uxTybm5u7PorIysU+ikjKQ=="
+    },
+    "source": "https://prts.wiki/w/幽灵鲨/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_143_ghost/char_143_ghost_winter_1"
+  },
+  {
+    "operator": "野鬃",
+    "model": "char_496_wildmn",
+    "poses": {
+      "Front/Default": "9JpnX1HsomVlXvSilYx0/KKUlJQEopOTkwyihn117Krtx5r0qoJ5dPyqqaieBKr35tAMqr2unOyyTEUy9LJwVDv8sqOViASyeF9ADLJqUkHsuk46LfS6dVxE/LrRpKQEuvnp2Ay6pWJN5MKznobswo6GdfTCc3Nz/MJ9XFYEwnFlVAzCdVQ75MqAZk/syllOS/TKzca9/MpfMyQEymk+LgzKnpqR7NKAfn700l5JRPzSXVA/BNI4LiTs2tzc1PTaqKGZ/NqBTj0E2oYzIezie0Ex9OIpJib84o12dgTixLeuDOJVVVLk6m0+Mezqinhp9OpLS0sM6i4uLuTyWEhA7PI2NjIU8ktLS+z6VlZFDPqgoJoU+k5OTg==",
+      "Front/Idle25": "9JKnlo70opWIdPyilJSUBKKVlZMMoomAeOyq0sSU9Kp6dGP8qpeXlASq9eXQDKqQiorssm1UQvSyc1tC/LKLe2oEsnhfTQyyfG1U7LpvTy70um9cRPy6xKmhBLr35tUMuq5hRezChoN19MJjVDT8wl1MOwTCdmhoDMJxVDnkyo5wVOzKZ2ZV9MrW1Mf8yotbQgTKhzwxDMqlmZDs0oJhVPTSXlZT/NJdUD8E0kAzKeza3tzU9Nqsq6P82nxOPQTahjMj7OJ9d3D04jo5MfzieDsyBOLIpZQM4lJOTuTqbWNa7OqCYVH06kZGRvzqZTUuBOqGOirk8lxcW+zyMjIy9PIwMDAU8kZGRuz6ZVZUDPqgoJoU+k5OTg==",
+      "Front/Idle75": "9JKnlo70opWIdPyilJSUBKKVlZMMoomAeOyq0sSU9Kp6dGP8qpeXlASq9eXQDKqQiorssm1UQvSyc1tC/LKzoIcEsnhfTQyyfW9a7LpvTy70um9cRPy67dzEBLr56dgMunhsZOzChoN19MJjVDT8wl1MOwTCdmhoDMJxVDnkyo5wVOzKZ2ZV9MrW1Mf8yotbQgTKhzwxDMqlmZDs0oJhVPTSXlZT/NJdUD8E0kAzKeza3tzU9Nqsq6P82nxOPQTahjMj7OJ9d3D04jo5MfzieDsyBOLIpZQM4lJOTuTqbWNa7OqCYVH06kZGRvzqZTUuBOqGOirk8lxcW+zyMjIy9PIwMDAU8kZGRuz6ZVZUDPqgoJoU+k5OTg==",
+      "Back/Default": "9JKUhHP0mo18Y+yiYmJb9KK3o4r8olBQUASilJKQDKK1pJLsqoF2a/SqcWhg/KpQUFAEqrejmQyqOjo67LLUxLP0so6Lf/yyTUpEBLK/r5YMsrurkuy6+enQ9LrEs6P8unRzZwS6Q0A4DLpLQjbkwohzWuzChnVc9MKMe2L8woh4YgTCYUY+DMJvd3PkynFUO+zKdVQ39Mp8Ykr8ynRTOQTK7encDMrU083s0nFQL/TSgHVl/NJ1VDkE0lRGROzaaF9V9NrLuqn82s29rATahjEg7OKVhGz04qSUgvzicmtmBOJfLiIM4khIQOTqtKyk7OqCcVj06otzXAzqT05G5PJXRz7s8lpNQhTyMTEx7Pp1dXX0+m5ubgz6b2VeFPp8fHc=",
+      "Back/Idle25": "9JKSgnH8knkzIvSagnpj7KKFfGz0orOjivyiUVFRBKKUkpAMoq6dkOyqlZWK9Kp1cGT8qlBQUASqnJuUDKo2NjbsstTEsvSymI2A/LJNSUIEsr+vlgyyu6uS7Lr56dD0usi3p/y6eXNrBLpDQDgMukxCNuTCiHNb7MKKeWH0wox8Y/zCinppBMJTST4MwlFdWOTKc1Q77Mp1VDf0yn1cRPzKeFc9BMrJyckMytXUzuzSXFE69NKGe3H80nVUQwTSdUJC7Np2dm302sy7qvzazb2sBNqGMSDs4paGdfTiqJeH/OKDfHcE4lUsJAziSEhA5Oq0rKTs6oZtWvTqjXVc/OpRRkAM6kNDN+TyV0c+7PJbT0EU8jExMez6dXV19Ppubm4M+m9lXhT6fHx3",
+      "Back/Idle75": "9JKSgnH8knw7KvSabWBc/JqvpZbsooV8bPSis6OK/KJRUVEEopSSkAyirp6Q7KqVlYr0qnVwZPyqUFBQBKqcm5QMqjY2Nuyy1MSy9LKYjYD8sk1KQwSyv6+WDLK7q5Lsuvnp0PS6xLOi/Lp2cmoEukNAOAy6TUU27MKOe2X0wop5YfzChnRcBMJTST4MwlFdWOTKeVg77Mp5WDv0yn1jUvzKdVQ2BMrJyckMytXUzuzScVAv9NJ3Z1z80nFRMATSdUJC7NpHQTn02sq5qPzazb2sBNqGMSDs4paGc/TiqJeH/OKEd3cE4lUsJAziQ0ND5Oq1raTs6otyXPTqjXVc/OpUVFQM6kNDN+TyW05A7PJaSz708lhKQBTyMTEx7PpdXV30+m5ubgz6b2VeFPp8fHc="
+    },
+    "source": "https://prts.wiki/w/野鬃/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_496_wildmn/char_496_wildmn"
+  },
+  {
+    "operator": "慕斯",
+    "model": "char_185_frncat",
+    "poses": {
+      "Front/Default": "9KJLRVP8oklHVBSipYRm9Kr81av8qv3UqwSq/NOhDKqERT3ssv3Uo/Sy/dSj/LLmqJQEsvjOoAyy+tGg9Lr51r/8usLCoAS6/e3UDLp6cmb8wpaNlATC/e3U/MpGRlQEyklETezS2NjY/NI7O0wM0kREVPTaOztM/No7O0wE2js7TAzaOztMFNqpmJQc2kpAUPTicGhU/OL39/UE4r2yrAziuqmp9OpeVFwM6lRMVOzyODdH7PovLjAU+iwrMw==",
+      "Front/Idle25": "9KJLRVP8oklHVBSipYRm9Kr81av8qv3UqwSq/NOhDKqERT3ssv3Uo/Sy/dSj/LLmqJQEsvjOoAyy+tGg9Lr51r/8usLCoAS6/e3UDLp6cmb8wpaNlATC/e3U/MpGRlQEyklETezS2NjY/NI7O0wM0kREVPTaOztM/No7O0wE2js7TAzaOztMFNqpmJQc2kpAUPTicGhU/OL39/UE4r2yrAziuqmp9OpeVFwM6lRMVOzyODdH7PovLjAU+iwrMw==",
+      "Front/Idle75": "9KJLRVP8oklHVBSipYRm9Kr81av8qv3UqwSq/NOhDKqERT3ssv3Uo/Sy/dSj/LLmqJQEsvjOoAyy+tGg9Lr51r/8usLCoAS6/e3UDLp6cmb8wpaNlATC/e3U/MpGRlQEyklETezS2NjY/NI7O0wM0kREVPTaOztM/No7O0wE2js7TAzaOztMFNqpmJQc2kpAUPTicGhU/OL39/UE4r2yrAziuqmp9OpeVFwM6lRMVOzyODdH7PovLjAU+iwrMw==",
+      "Back/Default": "9KL926j8ov3UqwSi/dSrFKKDPz30qv3bsvyq+tGjBKr92KsMqoNEPRSqf0U99LL60aD8svrRoASy/NOhDLL6z6D0uv/57Py6//nxBLr/0KkMuvnNpPzKRkZXBMpERFT80jo2Quza5OTT9NpfX2/82js7TATaOztMDNpeXl4U2mJXX/TixJ6XDOpQSFDs8js3SOz6MzM7FPouLDM=",
+      "Back/Idle25": "9KL926j8ov3UqwSi/dSrFKKDPz30qv3bsvyq+tGjBKr92KsMqoNEPRSqf0U99LL60aD8svrRoASy/NOhDLL6z6D0uv/57Py6//nxBLr/0KkMuvnNpPzKRkZXBMpERFT80jo2Quza5OTT9NpfX2/82js7TATaOztMDNpeXl4U2mJXX/TixJ6XDOpQSFDs8js3SOz6MzM7FPouLDM=",
+      "Back/Idle75": "9KL926j8ov3UqwSi/dSrFKKDPz30qv3bsvyq+tGjBKr92KsMqoNEPRSqf0U99LL60aD8svrRoASy/NOhDLL6z6D0uv/57Py6//nxBLr/0KkMuvnNpPzKRkZXBMpERFT80jo2Quza5OTT9NpfX2/82js7TATaOztMDNpeXl4U2mJXX/TixJ6XDOpQSFDs8js3SOz6MzM7FPouLDM="
+    },
+    "source": "https://prts.wiki/w/慕斯/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_185_frncat/char_185_frncat"
+  },
+  {
+    "operator": "角峰",
+    "model": "char_199_yak",
+    "poses": {
+      "Front/Default": "9KrKubn8ql5QUASqcmNjDKpwZVzcshMTE+SyExMT7LJQSEj8slpSSQSy8b+nDLLxv6fcuhISEuS6ExMT7LpIQED0ujMrK/y6bF5bBLqeiXkMusu/p9zCGRkZ5MITExPswjszM/TCa19b/MIxKSkEwvG/pwzCzbyn3ModHR3kyhYWFuzKHRYW9Mo8NDT8yickJATKPjY23NIaGhrk0hoaGuzSFhYW9NIzKyv80iEhIQTSOjg65NosLCzs2hMTE/TaLysr/NorJycE2jo5OQzaLSkt5OIpJibs4iknJ/TiOjEz/OI/OzsE4hYWFgziQjo65OoTExPs6hMTE/TqEhISDOofHx8U6ioqKuzyExMTFPIcGBjs+hoZGhT6EhIS",
+      "Front/Idle25": "9KrKubn8ql5QUASqcmNjDKpwZVzcshMTE+SyExMT7LJQSEj8slpSSQSy8b+nDLLxv6fcuhISEuS6ExMT7LpIQED0ujMrK/y6bF5bBLqeiXkMusu/p9zCGRkZ5MITExPswjszM/TCa19b/MIxKSkEwvG/pwzCzbyn3ModHR3kyhYWFuzKHRYW9Mo8NDT8yickJATKPjY23NIaGhrk0hoaGuzSFhYW9NIzKyv80iEhIQTSOjg65NosLCzs2hMTE/TaLysr/NorJycE2jo5OQzaLSkt5OIpJibs4iknJ/TiOjEz/OI/OzsE4hYWFgziQjo65OoTExPs6hMTE/TqEhISDOofHx8U6ioqKuzyExMTFPIcGBjs+hoZGhT6EhIS",
+      "Front/Idle75": "9KrKubn8ql5QUASqcmNjDKpwZVzcshMTE+SyExMT7LJQSEj8slpSSQSy8b+nDLLxv6fcuhISEuS6ExMT7LpIQED0ujMrK/y6bF5bBLqeiXkMusu/p9zCGRkZ5MITExPswjszM/TCa19b/MIxKSkEwvG/pwzCzbyn3ModHR3kyhYWFuzKHRYW9Mo8NDT8yickJATKPjY23NIaGhrk0hoaGuzSFhYW9NIzKyv80iEhIQTSOjg65NosLCzs2hMTE/TaLysr/NorJycE2jo5OQzaLSkt5OIpJibs4iknJ/TiOjEz/OI/OzsE4hYWFgziQjo65OoTExPs6hMTE/TqEhISDOofHx8U6ioqKuzyExMTFPIcGBjs+hoZGhT6EhIS",
+      "Back/Default": "5KoTExPsqgkJCfyqbl5cBKpuXl0MqlVJRdyyOzMz5LITExPssgYGBvSyU0tL/LJsXFsEsm1cXAyyV0pK3Lo2Li7kuhMTE+y6EhIS9LozKyv8ujkwMAS6MikpDLouJibcwjQsLOTCExMT7MISEhL0wjszM/zCOzMzBMI7MzMMwjszM9zKNC4u5MoTExPsyhMTE/TKPjc3/Mo6MTEEyionJtzSNi4u5NIWFhXs0icmJvTSLCQk/NI2MjIE0kQ7O9zaOTEx5Nqph3bs2hUVFfTaBgYG/NoZGRkE2isnKQzaKyQm3OJGPj7k4hMTE+ziEhIS9OIZGRn84hUVFQTiFhYWDOIqKioU4jc3N+zqEhIS9OoYGBgE6iAgIAzqICAgFOogICDs8hMTExTyGhoa7PoaFRoU+hISEg==",
+      "Back/Idle25": "5KoTExPsqgkJCfyqbl5cBKpuXl0MqlVJRdyyOzMz5LITExPssgYGBvSyU0tL/LJsXFsEsm1cXAyyV0pK3Lo2Li7kuhMTE+y6EhIS9LozKyv8ujkwMAS6MikpDLouJibcwjQsLOTCExMT7MISEhL0wjszM/zCOzMzBMI7MzMMwjszM9zKNC4u5MoTExPsyhMTE/TKPjc3/Mo6MTEEyionJtzSNi4u5NIWFhXs0icmJvTSLCQk/NI2MjIE0kQ7O9zaOTEx5Nqph3bs2hUVFfTaBgYG/NoZGRkE2isnKQzaKyQm3OJGPj7k4hMTE+ziEhIS9OIZGRn84hUVFQTiFhYWDOIqKioU4jc3N+zqEhIS9OoYGBgE6iAgIAzqICAgFOogICDs8hMTExTyGhoa7PoaFRoU+hISEg==",
+      "Back/Idle75": "5KoTExPsqgkJCfyqbl5cBKpuXl0MqlVJRdyyOzMz5LITExPssgYGBvSyU0tL/LJsXFsEsm1cXAyyV0pK3Lo2Li7kuhMTE+y6EhIS9LozKyv8ujkwMAS6MikpDLouJibcwjQsLOTCExMT7MISEhL0wjszM/zCOzMzBMI7MzMMwjszM9zKNC4u5MoTExPsyhMTE/TKPjc3/Mo6MTEEyionJtzSNi4u5NIWFhXs0icmJvTSLCQk/NI2MjIE0kQ7O9zaOTEx5Nqph3bs2hUVFfTaBgYG/NoZGRkE2isnKQzaKyQm3OJGPj7k4hMTE+ziEhIS9OIZGRn84hUVFQTiFhYWDOIqKioU4jc3N+zqEhIS9OoYGBgE6iAgIAzqICAgFOogICDs8hMTExTyGhoa7PoaFRoU+hISEg=="
+    },
+    "source": "https://prts.wiki/w/角峰/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_199_yak/char_199_yak"
+  },
+  {
+    "operator": "灰喉",
+    "model": "char_367_swllow",
+    "poses": {
+      "Front/Default": "9KJqamr8oqynpwSiq6en7Kpycmn0qnZ2dvyqpKKiBKqspaUMqvr6+uyylY2N9LKCfYL8soqAgASyko6SDLKakpLsujMzM/S6bm5u/LqKkHwEuoyFhQy6VFRU5MIYGBjswiAgIPTCMjMz/MLh0NAEwvbi4uTKTL7f7MorKyv0ykR2dvzKKysrBMo1NTXk0icnJ+zSfJWu9NIpKSn80jIyNQTSR0dPDNIzMzPk2hIaGuzaLy8v9NolJSX82jExMgTaUkpTDNpBRUnc4qVyQOTiXk1C7OJCQkL04s6dmwTiMTExDOJZWVPc6rZ9RPTq+engBOpFRUsM6i4uKhTqIztI7PI1NTYM8jIyOuz6NTU1DPo1NTUU+jI1NQ==",
+      "Front/Idle25": "/KKro6MEooSEhOyqW1NM9KpvbW38qqijowSqq6OjDKq+vr7ssmJiYvSyfX19/LKKiooEspeSkgyympWV7LozMzP0um1tbfy6TmNTBLqAfX0MumFhYeTCHR0d7MIzMzP0wjs7O/zC9uLgBML64uIMwk1TU+TKTL7f7MonJyf0yjxDQ/zKKysrBMovLy/k0p2dv+zSKioq9NIrKyv80jExMQTSR0dPDNIeHh7k2kdFRezaLy8v9NolJSX82jMzMwTaNTY5DNpFRU3k4khCQOziQkJC9OJFNTX84isuNQTiKicnDOIyMjPc6o9rQuTqt31E9Or56eAE6kNDSwzqhYV4FOozQEjs8jw8PAzyLi4yFPIgLjvs+jU1NQz6NDU1FPoyNTU=",
+      "Front/Idle75": "/KKro6MEooSEhOyqW1NM9KpvbW38qqijowSqq6OjDKq+vr7ssmJiYvSyfX19/LKKiooEspeSkgyympWV7LozMzP0um1tbfy6TmNTBLqAfX0MumFhYeTCHR0d7MIzMzP0wjs7O/zC9uLgBML64uIMwk1TU+TKTL7f7MonJyf0yjxDQ/zKKysrBMovLy/k0p2dv+zSKioq9NIrKyv80jExMQTSR0dPDNIeHh7k2kdFRezaLy8v9NolJSX82jMzMwTaNTY5DNpFRU3k4khCQOziQkJC9OJFNTX84isuNQTiKicnDOIyMjPc6o9rQuTqt31E9Or56eAE6kNDSwzqhYV4FOozQEjs8jw8PAzyLi4yFPIgLjvs+jU1NQz6NDU1FPoyNTU=",
+      "Back/Default": "9KKrq6v8oquoqASiq6ur7KpdXV30qqujo/yqraWlBKqvp6cMquHh4eyyU1NT9LKPj4/8so6OjgSyko6ODLK7u7vsulNTU/S6XFxc/LpoaGgEumhoaAy6UlJQ7MI7NTX0wldXV/zCWFhYBMJYWFjkyjU1NezKNTU19MpbW1v8yisrKwTKKzMr5NI1MzPs0js3N/TSNTU1/NJcVFQE0ltTUwzSJycn5NpCQkLs2jY1NfTaPTU1/No1NTUE2icnJwzaKCgo3OKte0Hk4kZGRuziNTU19OI1NTX84jY1NQTiSUZGDOJGRETc6rR8QuTqt31E9Oo7NTUM6rd9RBTqZk017PI8PDwM8oNaORTyX0Qw7Po1NTUM+h0dIxT6MjU1",
+      "Back/Idle25": "/KKrqakEoqurq+yqTU1N9KrVzMz8qq+npwSqr6enDKqvp6fsskxMTPSykpKS/LKSkpIEspaSkgyykpGR7LpPT0/0ulxcXPy6hoaGBLqGhoYMumlpaezCOTU19MJUVFT8wlhYWATCWFhYDMJWVlbkyjc0NOzKNTU19Mo9Nzf8ylFKSgTKKysr5NI1MzPs0jk3NfTSNTU1/NJcVFQE0ltTUwzSPz8/5No6Ojrs2jU1NfTaV09P/No1NTUE2icnJwzaJycn5OJGRkbs4jU1NfTiNTU1/OIzMzME4lFRUQziR0ZG3Oqlc0Dk6rd9RPTqNTQ0BOqzeUEM6pdmNxTqSUk47PI8PDwM8rV8RBTybkku7Po1NTUM+h0dIRT6MTUx",
+      "Back/Idle75": "/KKrqakEoqurq+yqTU1N9KrVzMz8qq+npwSqr6enDKqvp6fsskxMTPSykpKS/LKSkpIEspaSkgyykpGR7LpPT0/0ulxcXPy6hoaGBLqGhoYMumlpaezCOTU19MJUVFT8wlhYWATCWFhYDMJWVlbkyjc0NOzKNTU19Mo9Nzf8ylFKSgTKKysr5NI1MzPs0jk3NfTSNTU1/NJcVFQE0ltTUwzSPz8/5No6Ojrs2jU1NfTaV09P/No1NTUE2icnJwzaJycn5OJGRkbs4jU1NfTiNTU1/OIzMzME4lFRUQziR0ZG3Oqlc0Dk6rd9RPTqNTQ0BOqzeUEM6pdmNxTqSUk47PI8PDwM8rV8RBTybkku7Po1NTUM+h0dIRT6MTUx"
+    },
+    "source": "https://prts.wiki/w/灰喉/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_367_swllow/char_367_swllow"
+  },
+  {
+    "operator": "深靛",
+    "model": "char_469_indigo",
+    "poses": {
+      "Front/Default": "9KKLgXf8ouXUxASi5dTEDKLh1MTsqquWiPSq5dTE/Krl1MQEquXUxAyq5dTE5LKXhXvsspV9ZfSyl31l/LJQQ0gEssq5oQyykW9e5Lrl1MTsuraomvS6ln1l/Lrt2MgEuvHg2Ay6j3deJLqIaprkwuXUxOzC5dTE9MLcy7v8wkVFRQTCf3RpFMLSw7bsytjIt/TKi5Oa/Mqurq4EykxHcxTKcWhf7NLKuaf00jU3N/zSRT1WBNLW1s0M0i0tKuTas6qR7No9NDT02i8nJ/zaRD0/BNpNQz4M2mdYY/zilH55DOKEjJ0M6lxldfzyNzo3/PocHh4E+iAgIA==",
+      "Front/Idle25": "9KKHfXT8ouXUxASi5dTEDKLXzr7sqq6dgvSq5dTE/Krl1MQEquXUxAyq5dTE5LKWfWXsspSCafSyl31l/LJ5b18Essq5oQyyk4mDLLKxh9PkuuXUxOy6loBn9Lq9sab8uu3UywS68eDYDLqWfYAkuqt+w+zC5dTE9MLcy778wjg4OATCW1tbDMJdTEkUwpKHfBzCMSox7MrYyLf0ypqUofzKlId+BMpLRGDs0si3pfTSRkZG/NJEP0wE0uLi2QzSLy4u5Nq6qpbs2j01NfTaMioq/NpNTWIE2k1DPgzaQ0JDBOJ8a3YM4oWMnQzqXGV1/PI4ODf8+hwcHAT6ICAg",
+      "Front/Idle75": "9KJQUFD8ouXUxASi5dTEDKLY1MTkqrOikfSq5dTE/Krl1MQEquXUxAyq5dTE5LKYgG/sspZ9ZfSyl31l/LJ2Z2QEssq5pQyygm9mLLJ7VJvkuuXUxOy61cSz9LqWfWX8uu3YygS68eDYDLqWf3IkuoNdjezC5dTE9MLg1MT8wkVFRQTCWVlbDMLMu6ccwjQrNOzK18a29Mqak5r8ypSHhATKV1tyDMqBfXbs0se2pfTSRkZG/NJEP0wE0ujo3wzSODA43Nqrmork2q6ejuzaSjk19No3Nzf82jU1OgTaTUM+DNpQUFrs4renlgTifGt2DOKEjJ0E6mJoeQzqXGV1/PI4ODcE8iomK/z6HBwcBPogICA=",
+      "Back/Default": "9KLl1MT8ouHQwASixrepDKIBAQHsquLRwPSq5dTE/Krl1MQEquXUxAyq5dTELKqLWp7ksuXUxOyy5dTD9LLl1MT8suXUxASy5dTEDLLh0cDkuuXUxOy64tHA9Lrl1MT8uuXUxAS65dTEDLrg0MDkwuXUxOzC38699MLi0cD8wuXUwwTC4tHADMLOvawUwtjHtuzK2Mi39MrYx7b8ytvKuQTK28q5DMrVxrYUyhwcHOzSx7al9NLHtqX80sq5qATSyrmoDNLHtqXk2nhtauzavayb9NrBsKD82mBzegTaGxsbDNrczLv84qGstAzizL+vDOqGhp788kA4MwTyIyMl/PogICAE+iAgIA==",
+      "Back/Idle25": "9KLl1MT8ouXUxASi5dTEDKICAgLsquXUwPSq5dTE/Krl1MQEquXUxAyq5dTELKp3UprksuXUxOyy5dTD9LLl1MT8suXUxASy5dTEDLLi1MTkuuXUxOy649PC9Lrl1MT8uuXUxAS65dTEDLrf0L/swt/OvfTC4tHA/MLl1MMEwuLRwAzC2c69FMLYx7bsytjIt/TK28q5/MrbyrkEytvKuQzK1ca2FMrIt6fs0se2pfTSx7al/NLKuagE0sq5qAzSx7al5NrDu6rs2sCvnvzat6+aBNoWFhYM2tzMuwTijo6LDOLHxLMM6oaGnvzyJiIkBPIiIiL8+iAgIAT6ICAg",
+      "Back/Idle75": "9KLl1MT8oionJASi5dTEDKJYUUrkquXUxPSq5dTE/Krl1MQEquXUxAyq5dTELKpzUJrksuXUxOyy5dTD9LLl1MT8suXUxASy5dTEDLLl1MTkuuXUxOy64tHA9Lrl1MT8uuXUxAS65dTEDLrg0L/swt/OvfTC4tHA/MLl1MMEwuXUwwzC28q9HMIqJSXsytjIt/TK28q5/MrbyrkEytvKuQzK1ca27NLHtqX00se2pfzSyrmoBNLKuagM0se2peTa3My77Nq9rJ702sCvnvzaw7KhBNprYWMM2tzMu+zi2Mi3BOKHhJEM4szEswTq7+DWDOqGhp788iYiJATyIiIm/PogICAE+iAgIA=="
+    },
+    "source": "https://prts.wiki/w/深靛/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_469_indigo/char_469_indigo"
+  },
+  {
+    "operator": "卡达",
+    "model": "char_328_cammou",
+    "poses": {
+      "Front/Default": "9KIyMjL8ojExMQSiMzMzDKJAQEDsqi4uLvSqfWx//KozMzMEqjExMQyqMzMz7LLCwsr0ssnJ0fyywbEkBLLy6iQMspaWkPy6eJufBLrEnJz0wnd3d/zCYlFG7MomJib0ykAiFvzKQDgtBMo6Oibs0i0tKfTSkEFL/NJBQRIE0kZGDOzaRkZD9No7Ozv82svLywTaODg4DNpFRUUE4ruzxPTyRERE9PpnYkAM+oGBMg==",
+      "Front/Idle25": "9KKwqbL8ojExMQSiMzMzDKJCQED0qjU1NfyqMTExBKoxMTEMqjMzM+yyyMjQ9LKhoaT8su/lJQSy8uokDLLt6TL0usTEzPy6WFppBLrCl5YMupCQmPzCwr3ABML/8/P0yi0sLPzKSEhABMrEwC7s0o+PM/TSkERU/NI+NDME0qiXAvTaRERE/No7OzsE2jo6OPzit6auBOKHh4306nt7e/TyREREDPI2Tl/0+mdiQAz6gYEy",
+      "Front/Idle75": "9KKdanv8ojExMQSiMTExDKJAQEDsqi4uLvSqfmuE/KpOTjMEqjExMQyqMzMz7LLCwsr0stHR1vyywZklBLLy6SQMsquaLfy6e7LEBLrnxcsMunt7hPTCj4+P/MJQS0sEwomHeOzKISEh9Mo9NDb8yj09KgTKVlYj7NI3Nx300pBAUPzSOzQYBNJ+cgbs2khIR/zaOzs7BNo4ODgM2kREQfTyREREDPI2Tl/0+mdiQAz6gYEy",
+      "Back/Default": "7JrW1t7sojMzM/SiMTEx/KIxMTEEojExMQyixMTM7Ko3Nzf0qlBQUPyqUFBQBKoxMTEMqlBQUOyyysrS9LK7u7v8sjMzMwSyUFBQDLKXl5nsusLCyvS6xMTM/LrExMwEusjI0Ay6wsLH9MLU1NX8woaGiwTCioqR7Mqrq6v0yjs7O/zKIyMeBMo0NC7s0jU1NfTSOjo6/NIzMyIE0isrKezaPDw89No7Ojv82icnJwTaMTExDNpEREQE4ruzwvTyRERE9PqRkZEE+hkZGQz6urq6",
+      "Back/Idle25": "9KIxMTH8ojExMQSiMTExDKLExMzsqjMzM/SqMzMz/KoxMTEEqjExMQyqMTEx7LLKytL0skxMTPyySkpKBLJQUFAMsk5OTuy6xMTM9LrGxs/8usjI0AS6yMjQDLrIyND0wtTU1PzC0dHRBMK/v8jsyj8/O/TKPz8//Mo5OTkEyjo6OuzSICAf9NI5OSn80isrJATSKyso7No7Oyn02i4qKvzaGhoaBNo7OyEM2kRERPziiIiQBOI1NTX06kJCQvTyRERE9PqRkZEE+hkZGQz6urq6",
+      "Back/Idle75": "9KIxMTH8ojExMQSiMTExDKLExMzsqi8vL/SqUFBQ/KpQUFAEqjMzMwyqNTU17LLIyND0ss3N1vyylZWVBLJ8fHwMspaWl/S6xMTM/LrExMwEusTEzAy6xsbO9MLU1Nn8wtHR0wTCioqQ7Mo/Pzv0yjk5OfzKKSkpBMo1NTXs0jU1MvTSOTk5/NIzMxoE0jgrKezaPz88/NogICAE2jg4OAzaREREBOJeXl708kRERPT6kZGRBPoZGRkM+rq6ug=="
+    },
+    "source": "https://prts.wiki/w/卡达/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_328_cammou/char_328_cammou"
+  },
+  {
+    "operator": "摆渡人",
+    "model": "char_4166_varkis",
+    "poses": {
+      "Front/Default": "7JojJST8oiozNwSiOU5aDKI5Tlr8qkRNOgSqOU5aDKo5TloUqjJGUhyqtrKaJKpdXkX0sl1fRfyyN1NeBLJ0dCoMstTUyBSyoaGh9Lo2Qzb8uk5fRgS6q6uqDLqhoaEUulpdS/TCOTlB/MI3QTcEwjROXgzCJz1OFMJbX170yi43O/zKc3NzBMpNTDMMyiAiIuTSPXSC7NIkZ2f00gswLfzSREREBNI6QDEM0mdnZxTSrKqZHNIjIyPk2jI2NuzaKSsv9NorKyv82jU1NgTaKSkpDNqioqIU2muNduTiLUQ37OJTYWH04jQ0JPziQz0uBOJsbGwM4ohtXBTiNjY2HOI2NjYk4j09PSziMzQ27OpAdX/06iIkJPzqiJGcBOpUqLUM6j9ERBTqJycnHOpEREQk6j5DQuzyIiIi/PJ5hI4U8hkgGuz6QkI3FPo8QTg=",
+      "Front/Idle25": "7JojJST8oiozNwSiOU5aDKI5Tlr8qkRNOgSqOU5aDKo5TloUqjJGUhyqtrKaJKpdXkX0sl1fRfyyN1NeBLJ0dCoMstTUyBSyoaGh9Lo2Qzb8uk5fRgS6q6uqDLqhoaEUulpdS/TCOTlB/MI3QTcEwjROXgzCJz1OFMJbX170yi43O/zKc3NzBMpNTDMMyiAiIuTSPXSC7NIkZ2f00gswLfzSREREBNI6QDEM0mdnZxTSrKqZHNIjIyPk2jI2NuzaKSsv9NorKyv82jU1NgTaKSkpDNqioqIU2muNduTiLUQ37OJTYWH04jQ0JPziQz0uBOJsbGwM4ohtXBTiNjY2HOI2NjYk4j09PSziMzQ27OpAdX/06iIkJPzqiJGcBOpUqLUM6j9ERBTqLCwsHOpEREQk6j5DQuzyIiIi/PJ5hI4U8hkgGuz6QkI3FPo8QTg=",
+      "Front/Idle75": "7JojJST8oiozNwSiOU5aDKI5Tlr8qkRNOgSqOU5aDKo5TloUqjJGUhyqtrKaJKpdXkX0sl1fRfyyN1NeBLJ0dCoMstTUyBSyoaGh9Lo2Qzb8uk5fRgS6q6uqDLqhoaEUulpdS/TCOTlB/MI3QTcEwjROXgzCJz1OFMJbX170yi43O/zKc3NzBMpNTDMMyiAiIuTSPXSC7NIkZ2f00gswLfzSREREBNI6QDEM0mdnZxTSrKqZHNIjIyPk2jI2NuzaKSsv9NorKyv82jU1NgTaKSkpDNqioqIU2muNduTiLUQ37OJTYWH04jQ0JPziQz0uBOJsbGwM4ohtXBTiNjY2HOI2NjYk4j09PSziMzQ27OpAdX/06iIkJPzqiJGcBOpUqLUM6j9ERBTqLCwsHOpEREQk6j5DQuzyIiIi/PJ5hI4U8hkgGuz6QkI3FPo8QTg=",
+      "Back/Default": "/KI8VWUEoj1XZgyiPVdm9KoYJjH8qjVKVwSqN05bDKo4T10UqsfCrxyq19LBJKogICD0siY3Q/yyLUFMBLIuQk0Msi9DThSyGyo39LoZIy/8uhgjLwS6HSg0DLotQEsUuhgkL/TCHCgy/MIqOkYEwio5RgzCHCcyFMIcKDP0yhcgJ/zKHicvBMohLTcMyhAXHuzSGiQq9NIgKjL80h0lLQTSISw3DNIRGSAU0hYdJRzSMDY45NoUHCLs2hYdI/TaHigw/NohLTYE2hEZHwzaHCUsFNogKzTk4hAXHuziGCEn9OIYIin84ic1QATiERkgDOIbJCwU4h4oMBziGSIpJOIzMzUs4jM0NtzqFh4k5OoPFRvs6hUeJPTqDhQb/OoVHCQE6hMbIQzqFh0kFOoUGyAc6hQbISTqHCUu7PIOExr08g0OEfzyHBwlFPIQFhvs+jtAMxT6ODwx",
+      "Back/Idle25": "/KI8VWUEoj1XZgyiPVdm9KoYJjH8qjVKVwSqN05bDKo4T10UqsfCrxyq19LBJKogICD0siY3Q/yyLUFMBLIuQk0Msi9DThSyGyo39LoZIy/8uhgjLwS6HSg0DLotQEsUuhgkL/TCHCgy/MIqOkYEwio5RgzCHCcyFMIcKDP0yhcgJ/zKHicvBMohLTcMyhAXHuzSGiQq9NIgKjL80h0lLQTSISw3DNIRGSAU0hYdJRzSMDY45NoUHCLs2hYdI/TaHigw/NohLTYE2hEZHwzaHCUsFNogKzTk4hAXHuziGCEn9OIYIin84ic1QATiERkgDOIbJCwU4h4oMBziGSIpJOIzMzUs4jM0NtzqFh4k5OoPFRvs6hUeJPTqDhQb/OoVHCQE6hMbIQzqFh0kFOoUGyAc6hQbISTqHCUu7PIOExr08g0OEfzyHBwlFPIQFhvs+jtAMxT6ODwx",
+      "Back/Idle75": "/KI8VWUEoj1XZgyiPVdm9KoYJjH8qjVKVwSqN05bDKo4T10UqsfCrxyq19LBJKogICD0siY3Q/yyLUFMBLIuQk0Msi9DThSyGyo39LoZIy/8uhgjLwS6HSg0DLotQEsUuhgkL/TCHCgy/MIqOkYEwio5RgzCHCcyFMIcKDP0yhcgJ/zKHicvBMohLTcMyhAXHuzSGiQq9NIgKjL80h0lLQTSISw3DNIRGSAU0hYdJRzSMDY45NoUHCLs2hYdI/TaHigw/NohLTYE2hEZHwzaHCUsFNogKzTk4hAXHuziGCEn9OIYIin84ic1QATiERkgDOIbJCwU4h4oMBziGSIpJOIzMzUs4jM0NtzqFh4k5OoPFRvs6hUeJPTqDhQb/OoVHCQE6hMbIQzqFh0kFOoUGyAc6hQbISTqHCUu7PIOExr08g0OEfzyHBwlFPIQFhvs+jtAMxT6ODwx"
+    },
+    "source": "https://prts.wiki/w/摆渡人/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_4166_varkis/char_4166_varkis"
+  },
+  {
+    "operator": "夏栎",
+    "model": "char_492_quercu",
+    "poses": {
+      "Front/Default": "9JKoezv0mldMQPyaz8SiBJpaUU0MmiwxPfSigXhl/KJaUTcEovHgvwyi7Nu97Ko2Lhj0qqKSSvyq7NvCBKrEoH8MqvHgvxSq2ci17LIyKhT0srqaSASy79/XDLKumU/0uodNDgS67dzUDLq7p3kUuoNkMfTCop2L/MJ0bU8Ewnx2WwzCXEER5MpdXV3syt/czvTKY2NS/MpFNiEEyjouIfzST0UvBNJfSDX02uXcu/zaaWFIBNo9LRAM2mxsbOzibW099OI2Lh384l9XPgTi4dy7DOJ0Y0zk6isrGuzqdm5N9OooIxj86jEpGATqLycYDOpCQTAU6uXcu+TyPDgn7PJ1bU308ichFgTyTj09DPIQEAgU8oBvVvT6IyMaBPojIxo=",
+      "Front/Idle25": "9JKrfzr0mlRMPvyasaGBBJphYFwMmiwxPfSieHhn/KJbUzkEovHgvwyi7Nu97Ko9NB30qqWHS/yq7NvCBKrEnn0MqvHgvxSqu6Vr7LIxKRj0sruaSPyygHNjBLLv39YMsrKZT/S6uJRKBLrt3NQMur+rhxS6g1wY9MKuqY38wm1gSwTCjGxYDMJcRBIUwoZMEuTKXV1d7Mrf3870youDcvzKPi4dBMo6Kh380lBJLwTSTj0p9Nrl3Lv82mlhSATaOCwQDNpdXVzU4kQrCOzibV1c9OI2Lh384l9XQATi3NS7DOKBcFHk6isrGezqbmhJ9OotJh386jYuIATqLycWDOpBQTAU6uXcu+TyLigd7PJ2bk308icfFvzyGRcSBPImIx0M8hAQCRTyeHBW9PojIxoE+iMjGg==",
+      "Front/Idle75": "/JKvjUP0mlRMPvyax7+pBJqqpIYMmjA1PfSieHhn/KJbUzcEoufXvwyi69q99Kq3mUv8quzbwgSqyaGADKrx4L/ssjEpEvSyt5pK/LKIe2MEsu/f1wyysphM9LqHUhD8usizowS67dzUDLq6p3UUuoNSKvTCrqmN/MJtbUsEwnxWNwzCWzsNFMK2mkjkymNjYuzK39/O9MplZFP8yj0tHQTKOiwc/NJQSS8E0lFGLfTa5dy7/NppYUgE2kY3EAzac21j7OJtaEz04jYuHfziX1dABOK5sI8M4oR5UezqnJR79OouJh386jYuIATqLycWDOpBQTDk8icfFuzydW1N9PInHxYE8iYjHQzyEBAIFPLf3Lb0+iMjGgT6IyMa",
+      "Back/Default": "9JI7JAL0mlpJBfyaWkkFBJpaSQUMmlpFBeyiPy0F9KJaSQX8olpJBQSiWkkFDKJaSQXsqp53KvSqt55M/Kqzm1EEqu/evQyq7dy8FKrQroTsspJiEvSyt55M/LK3nkwEsreeTAyyt55M9LpALx38uoVMGAS639y7DLq3nkwUureeTPzC5dy7BMLk3LsMwlxFNOzKRDsm/MphSDcEyqmFfPTStq6N/NLl3LsE0jsyI/TaRDsj/NpEOyME2kQ7IwzaRDsj7OI7Mxr04jsxGvziMSkWBOJNTRgM4kA3HxTiJx8O7OonHg706iskCfzqHR0MBOojIhEM6iAgDxTqJx8O5PLU1LLs8uXcu/Ty5Ny7BPKRkW8M8uXcuxTy5dy79PojIxoE+iMjGg==",
+      "Back/Idle25": "9JI7JAL0mlpJBfyaWkkFBJpaSQXsokIvAvSiWkkF/KJaSQUEolpJBQyiWkkF7KqhfzT0qreeTPyqsZRGBKrv3r0Mqu/evxSq2ciV7LKWZRb0sreeTPyyt55MBLK3nkwMsreeTPS6TTsj/LqGTA0EutTUuwy6t55MFLq3nkz0wq6efvzC4Nu7BMLl3LsMwlxFQ+zKRDsm/Mp4cEYEyrCTcvTSpJx7/NLj3LsE0j82J/TaRDsj/NpEOyME2kQ7IwzaRDsj1OJMOwjs4jszH/TiOTEc/OIxKRYE4nA9GAziQDcf7OowLxL06iskD/zqHR0MBOojIxIM6iMjEhTqJx8O5PLj27rs8uXcu/Ty5dy7/PLf17YE8t/Ytwzy5dy7FPLl3Lv0+iYjGgT6IyMa",
+      "Back/Idle75": "/JI7JAL0mlpJBfyaWkkFBJpaSQUMmlpJBeyiOywF9KJaSQX8olpJBQSiWkkFDKJaSQXsqqR7LPSqt55M/Kqzl0YEqu3cuwyq79699LK3nkz8sreeTASyt55MDLK3nkz0ukArCPy6hkwSBLrU1LsMureeTBS6t55M9MKunn78wuDbuwTC49y7DMKclHPsykQ7JvzKeXFGBMqkZVb00qSce/zS49y7BNJEOyn02kQ7I/zaRDsjBNpEOyMM2kM7I+ziOzMd9OI5MRz84i8pFgTimmcYDOJANyDs6iUhEfTqKyAM/OodHQwE6nZtHwzqIB8OFOonHw7k8uTcu+zy5dy79PLf3LsE8oR8VQzy5dy7FPLf3Lv0+iYjGgT6IyMa"
+    },
+    "source": "https://prts.wiki/w/夏栎/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_492_quercu/char_492_quercu"
+  },
+  {
+    "operator": "杰克",
+    "model": "char_347_jaksel",
+    "poses": {
+      "Front/Default": "9KJISE/8olhTWwSiW1RbDKJcTU3sqjs7RPSqPT1K/KpJSVIEqkhIUAyqQEBE7LIzMzv0skEzOPyy5MvCBLI3Nz4MsjMzO/S6NDM7/LrPln0EuryZdwy6OzQ1/MKdfnX0yk9HVvzKsYx59NIdMDf80icjKQTSPjhH9No7MDD82q6YYgTauqyM9PL92Mjs+isrPAz6Kys5",
+      "Front/Idle25": "/KJQT1MEoltTWwyiUEhQ9Ko7OUH8qj4+SgSqRERQDKpEREz0sjMzO/yy/eDSBLI2Nj4Msjw6PvS6Mycp/LrVrowEur6snwy6X05O9MpLSFH8yk9HVwTKTT9H9NI+PUX80nNzcwTSGhYfDNJDQ0r02js7QfzadHyDBNogICf84l9WTwzic3NzDOr/5NT08v3YyAzyTEhX7PosLDwM+isnLA==",
+      "Front/Idle75": "/KJPSE8EolxcXPSqOztE/Ko9PUoEqkhIUAyqSEhQ9LIzMzv8skxIRASyUkJEDLI7O0QUskRESfS6IyMp/LqSfW8EuuPg0Ay6ODY+BML95dT8yk1HUwTKTERU/NKHc0kE0h8fJ/TaPjpE/NpKTUgE2qGhhwzaknxb/OI2Mjb86m9vgAzq/+DU9PL91MQM8lBIWPT6LCw2DPorLDs=",
+      "Back/Default": "/KJaWFwEolxUXPSqPT1F/KpEREwEqkRETAyqRERM9LI3N0D8sjs7RASyOztEDLI9PUX0ujMzO/y6NjY+BLo3N0AMujw8RPTCSEhQ/MJBQEr8ykxLWwzKKCgx/NL95dQE0h8fJ/TaODhJ/No7O0QE2hkZH/Tq/+DY9PL92Mjs+i4uPQT6Kys8DPoqKjs=",
+      "Back/Idle25": "/KJTUlgEolpaWvSqNzdA/KpAQEgEqkVFTQyqRERMFKpAQEj0sjc3QPyyOztEBLI7O0QMsj09RRSyPT1F9LouLjb8ujY2PgS6NzdADLo3N0AUuj4+RvTCSEhQ/MJIQFAEwjY2PvzKMTE5BMpOTFz80jU1QQTSpoRjDNIfHyf82js6RATaOztEDNo7O0T08v3YyOz6Li469PorKzIM+isrOw==",
+      "Back/Idle75": "BKJcXFz8qkBASASqSkpSDKpISFAUqkhITvSyMzM7/LI7O0QEsjs7RAyyPj5HFLI9PUX0uisrM/y6NjY+BLo3N0AMujc3QBS6Pj5H9MJISFD8wkhAUATCNDQ9DMI2Nj78ykA+SATKTExc/NI4OEQE0lBMVwzSKysrFNJWVi702jg4SfzaOztEBNo7O0QM2js7SPziMy0z9PL91MQM8lBIV/T6Li4+DPorLDw="
+    },
+    "source": "https://prts.wiki/w/杰克/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_347_jaksel/char_347_jaksel"
+  },
+  {
+    "operator": "霜叶",
+    "model": "char_193_frostl",
+    "poses": {
+      "Front/Default": "7JKZipH0ksS7u+SaZ1Zn7Jo7JzP0mrCnqASabVRc7KI0JCz0oouDi/yiKBggBKIqGCQMoi8fJ+yqGBAa9Ko2ISn8quTc3QSq/PPzDKr/8/PssiATHPSyUx0d/LLv4OAEsung4Ayy6eDg9LpvR0f8uubY0AS6/e3cDLq3Y2DswpqSkvTCMysz/MJvXmQEwjIoKvTKTCoq/MpQSEgEyntqc/TSKyMr/NKmLy8E0o8vMuzaNBw09No3Izf82ssvLwTapC8zDNrPLy/s4jUhMvTiNigrDOIqGibs6jszRPTqhFtjDOqAVFzs+i4dKhT6Lh0u",
+      "Front/Idle25": "7JKkk5z0ksS7vOSaNCMr7Jo0ICz0mq+npwSabVRc7KI0HCz0onNqc/yiKxojBKIpGCPsqhMLGvSqMSEp/KqPfoMEqv3z8wyqyL+/7LIeCxr0sp4iKvyy7OXlBLLp4OAMsung4PS6c0FJ/Lrn39wEuv3t3Ay6wre79MIqGir8wnNibwTChXJ7DMKmoqL0ykw7RPzKkYCJBMp/bn/00jojKfzSoCYpBNJwMTLs2jQcNPTaLh8o/NrGLy8E2tYvL+ziNSAx9OJOLy8M4i4dKuzqRDdI9OqEW2MM6n9XXez6Lh0rFPouHS4=",
+      "Front/Idle75": "7JKkk5z0ksS7vOSaNCMr7Jo0ICz0mq+npwSabVRc7KI0HCz0onNqc/yiKxojBKIpGCPsqhMLGvSqMSEp/KqPfoMEqv3z8wyqyL+/7LIeCxr0sp4iKvyy7OXlBLLp4OAMsung4PS6c0FJ/Lrn39wEuv3t3Ay6wre79MIqGir8wnNibwTChXJ7DMKmoqL0ykw7RPzKkYCJBMp/bn/00jojKfzSoCYpBNJwMTLs2jQcNPTaLh8o/NrGLy8E2tYvL+ziNSAx9OJOLy8M4i4dKuzqRDdI9OqEW2MM6n9XXez6Lh0rFPouHS4=",
+      "Back/Default": "5JKgmJjskpaNkPSSxLe75JpMO13smmFQWPSaaVNbBJozHCvsomlQWPSiLh0u/KIuHS4Eoi4dLOyqLh0u9KouHS78qi4dLgSqLh0pDKouHSfssi4fK/SyLh0u/LIuHS4Esi4dLgyyTRUg7LpCNj70ui4dLvy6Lh0uBLouHScMuiUSHOzCnpaW9MJGQ0P8wjIkLATCpJyc7MpGPkb0ypqSlvzKs6urBMq3q6/80kU9RQTSRioy7NoxIDH02moyPvzarnJ6BNqsKy4M2uUvL+ziMyMz9OKUe4MM4qUfJ+zqQDVIDOpnRk/s8i4dLuz6Lh0uFPouHSw=",
+      "Back/Idle25": "5JLCs7PskrCoqPSSv7e75JpjUFj0mqujowSaLxYn7KJpUFj0oi4dLvyiLh0uBKI7JzPsqi4dLvSqLh0u/KouHS4Eqi4dLgyqMiEy7LIuHS70si4dLvyyLh0uBLIuHS4MslEaI+y6LyEu9LouHS78ui4dLgS6Lh0pDLpAIyPswpaOjvTCMSQs/MIxISkEwqqcowzCraWl7MpWTU30yqOamvzKu7KzBMq+trb00jouM/zSRT1FBNI1KjLs2jEgMfzahTIzBNrlLy/s4jUjM/TinH2GBOLRLy/s6kQ3SPTqXExcDOqEUlvs8jEhOuz6Lh0uFPouHSw=",
+      "Back/Idle75": "5JLCs7PskrCoqPSSv7e75JpjUFj0mqujowSaLxYn7KJpUFj0oi4dLvyiLh0uBKI7JzPsqi4dLvSqLh0u/KouHS4Eqi4dLgyqMiEy7LIuHS70si4dLvyyLh0uBLIuHS4MslEaI+y6LyEu9LouHS78ui4dLgS6Lh0pDLpAIyPswpaOjvTCMSQs/MIxISkEwqqcowzCraWl7MpWTU30yqOamvzKu7KzBMq+trb00jouM/zSRT1FBNI1KjLs2jEgMfzahTIzBNrlLy/s4jUjM/TinH2GBOLRLy/s6kQ3SPTqXExcDOqEUlvs8jEhOuz6Lh0uFPouHSw="
+    },
+    "source": "https://prts.wiki/w/霜叶/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_193_frostl/char_193_frostl"
+  },
+  {
+    "operator": "拜松",
+    "model": "char_325_bison",
+    "poses": {
+      "Front/Default": "9KpaUUn8quXFpASq4L+bDKriwJ4UqisjGuyyblVF9LKzknH8ssOhfwSyx6iGDLLKqIbsum9WRvS6eVhJ/LppYVMEup2RkQy6kYh+7MJmREP0wnRZVPzC2Me3BML53NDcyjUYH+TKLycu7Mri2cn0ysi+tvzKjVFcBMqeYCvU0hoSEtzSbWll5NJ4dXHs0oaCffTSj4mG/NJzXUwE0k5BIdTaSS4w3NppZWHk2nVtbezagHx59NqHf3/82n12cgTaLCwhDNrDw8PU4jskK9ziX1dX5OJtaWXs4nV1bfTiLi4uDOJCOTfU6mEOJ9zqLi0t5OphW1js6i8vL/TqiR09DOo6Mi/k8m0SL+zyTExM7PojIyMU+nR0dA==",
+      "Front/Idle25": "9KpaUUn8quXFpASq4L+bDKriwJ4UqisjGuyyblVF9LKzknH8ssOhfwSyx6iGDLLKqIbsum9WRvS6eVhJ/LppYVMEup2RkQy6kYh+7MJmREP0wnRZVPzC2Me3BML53NDcyjUYH+TKLycu7Mri2cn0ysi+tvzKjVFcBMqeYCvU0hoSEtzSbWll5NJ4dXHs0oaCffTSj4mG/NJzXUwE0k5BIdTaSS4w3NppZWHk2nVtbezagHx59NqHf3/82n12cgTaLCwhDNrDw8PU4jskK9ziX1dX5OJtaWXs4nV1bfTiLi4uDOJCOTfU6mEOJ9zqLi0t5OphW1js6i8vL/TqiR09DOo6Mi/k8m0SL+zyTExM7PojIyMU+nR0dA==",
+      "Front/Idle75": "9KpaUUn8quXFpASq4L+bDKriwJ4UqisjGuyyblVF9LKzknH8ssOhfwSyx6iGDLLKqIbsum9WRvS6eVhJ/LppYVMEup2RkQy6kYh+7MJmREP0wnRZVPzC2Me3BML53NDcyjUYH+TKLycu7Mri2cn0ysi+tvzKjVFcBMqeYCvU0hoSEtzSbWll5NJ4dXHs0oaCffTSj4mG/NJzXUwE0k5BIdTaSS4w3NppZWHk2nVtbezagHx59NqHf3/82n12cgTaLCwhDNrDw8PU4jskK9ziX1dX5OJtaWXs4nV1bfTiLi4uDOJCOTfU6mEOJ9zqLi0t5OphW1js6i8vL/TqiR09DOo6Mi/k8m0SL+zyTExM7PojIyMU+nR0dA==",
+      "Back/Default": "/KLpx6X0qtSzkvyq5cOhBKrfvZsMquLAnhSqKx8X9LKwj3H8sr2beQSyw6F/DLLDoX/kutjQ0Oy6SkJC9LqWdVz8upRzWwS6l3ZeDLqgf2bkwoucnOzCMzMz9MKjg5T8wkE0LQTCjGhSFMJaQTbkyoaGfuzKHR0d9MoWFhb8yhkZGQTK8PDw3NJUTE/k0kwvS+zSbm5u9NJwcHD80isrKwTS8O7s3NpNSEzk2lEeKuzabGxs9NoYGBj82lErKwTa8PDwDNq0rKzc4lJKSuTiNS8v7OJUKS704hMTE/zikIiIDOLx6enk6lhPT+zqNSoq9Oo2Li7s8isjI+z6ExMTFPoTExM=",
+      "Back/Idle25": "9KrUs5L8qt6+nQSq372bDKriwJ4UqisjGvSyr45u/LLAnnwEssWjgQyyxKKA5LrY0NDsukFAPPS6mXhf/LqWdVwEupd2Xgy6oH9m5MKlp67swjQ0NPTCbm5u/MIrIygEwotqUhTCYUk43MpLQkvkyoaGgezKIiIi9MoTExP8yhoZGgTK8PDw3NJRSUzk0lYpSuzSWlpa9NJwcHD80isrKwTS8PDw3NpNRUzk2lEeKuzabGxs9NoYGBj82jgnKQTa8PDwDNrh4eHc4lNKSuTiLi4u7OJUICr04hYWFvzibGJiDOLr6+vk6lE5NezqSzIz9Oo2Li7s8ikjIxTyKyMj7PoTExMU+hMTEw==",
+      "Back/Idle75": "9KrUs5L8qt6+nQSq372bDKriwJ4UqisjGvSysI9u/LLAnnwEssWjgQyyxKKA5LrY0NDsukFAQPS6lnVc/LqUc1sEupd2Xgy6oH9n5MKlp67swjQ0NPTCbm5u/MIrIygEwoppUuTKhoaB7MoiIiL0yhMTE/zKGhkaBMru7u7c0k1HTeTSVilK7NJaWlr00nBwcPzSKysrBNLw8PDc2kpCSuTaUR4q7NpsbGz02hgYGPzaOCcpBNrw5eHc4kxFTOTiUUtN7OJVKi704hYWFvziamJiDOLw7+vk6lhQUOzqNCoq9Oo2Li7s8icfHxTyKyMj7PoTExMU+hMTEw=="
+    },
+    "source": "https://prts.wiki/w/拜松/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_325_bison/char_325_bison"
+  },
+  {
+    "operator": "褐果",
+    "model": "char_4041_chnut",
+    "poses": {
+      "Front/Default": "/Kq9u6wEqre3qfSys7On/LKvr6UEssK7sgyyhHh49LqSkon8umpgVwS6k5KKFLplZWL0wnBnX/zC1KN7BMLUo4IUypqSivTSpJ2d/NIwLi4E0lVUOvzaKysgBNp3d2H04lZWO/ziT0MzBOJaS0Ic4vXYRhzqioNz9PInN0AU8reWO/T6loZtDPqEdFs=",
+      "Front/Idle25": "/Kq7uqsEqq+vnvSys7On/LK1r6cEssS7swyyhHR49Lqelo78upR/dwS6nZaODLpjU1sUunuAe/TChoJ4/MK/o3sEwtSjghTKmpKK/NI0MzAE0llUPxTSgXBw/NovLy8E2lhYTvziVEs5BOJTTEIc4v/fRvTqzaRyHOqKg3f08ic3QPT6loZtDPqEdFs=",
+      "Front/Idle75": "/Kq7uqsEqq+vnvSys7On/LK1r6cEssS7swyyhHR49Lqelo78upR/dwS6nZaODLpjU1sUunuAe/TChoJ4/MK/o3sEwtSjghTKmpKK/NI0MzAE0llUPxTSgXBw/NovLy8E2lhYTvziVEs5BOJTTEIc4v/fRvTqzaRyHOqKg3f08ic3QPT6loZtDPqEdFs=",
+      "Back/Default": "/Kq2tqkEqrq3rPSyu7ur/LK7u6sEsru7rwyyu7ur9Lq0tKf8urOzpwS6s7OlDLqzs6UUumljXvTCnp6R/MKeno4EwqGekQzCmpKC/MqpiCsUyry0m/TS6tUy/NKQZUQE0pqIbfTa+9gv/NpzYlEE2oyCcvzicF9DBOJtYU8c4vrbRhzqioJr9PInN0AU8reWO/T6oI5tDPqVhGw=",
+      "Back/Idle25": "/Kq2tqn0sr29rPyyu7urBLLJwbgMsr26rvS6t7en/Lq0tKgEurW1pwy6tbWnFLpsZWP0wqGhkfzCo6OSBMKjo5IMwqGahvzKlogrFMqakpL80llQPgTSloNiFNK/t6702vvYL/zaPCsxBNpjWFf84ltKQgTia2FQHOL/30Yc6oiCe/TyJzdADPIqNz70+qCObQz6lYRs",
+      "Back/Idle75": "/Kq2tqn0sr29rPyyu7urBLLJwbgMsr26rvS6t7en/Lq0tKgEurW1pwy6tbWnFLpsZWP0wqGhkfzCo6OSBMKjo5IMwqGahvzKlogrFMqakpL80llQPgTSloNiFNK/t6702vvYL/zaPCsxBNpjWFf84ltKQgTia2FQHOL/30Yc6oiCe/TyJzdADPIqNz70+qCObQz6lYRs"
+    },
+    "source": "https://prts.wiki/w/褐果/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_4041_chnut/char_4041_chnut"
+  },
+  {
+    "operator": "褐果",
+    "model": "char_4041_chnut_summer_12",
+    "poses": {
+      "Front/Default": "FKJ2ZWP0qsy9ivyqzr2KFKqinZ3ssoxrR/Sy5tze/LK5uagEsrCwoAyyY2JS7Lq4t6j0uq+onvy6lYRzBLqjmooMuop5ZOzCgnF79MKoo5D8wq6HUQTCoZqC/Mp6YUX80uTCgQzSmIeDFNKeiHD02supQPzaVE8w/OKOfVQE4pKJavTynI9RFPLfz8b0+r2cYwz6x6Nv",
+      "Front/Idle25": "FKJ2ZWP8qs69ihSqop2d9LL68/P8srm5qASyra2dDLJjY0vsurm5qfS6tLSj/Lqro5YEuqaelAy6dW1d7MJ+cWH0wqmklfzCjFguBMKciHP0ylxUQPzKgGE9BMrPo4L80uTDoBTSnohw9NrUqUn82lJKOfTiz6OC/OKOfVQE4o19WvTynI9RFPLfz8b0+sKhbgz6xKFv",
+      "Front/Idle75": "FKJ2ZWP8qs69ihSqop2d9LL68/P8srm5qASyra2dDLJjY0vsurm5qfS6tLSj/Lqro5YEuqaelAy6dW1d7MJ+cWH0wqmklfzCjFguBMKciHP0ylxUQPzKgGE9BMrPo4L80uTDoBTSnohw9NrUqUn82lJKOfTiz6OC/OKOfVQE4o19WvTynI9RFPLfz8b0+sKhbgz6xKFv",
+      "Back/Default": "FKJvXl70qtS7kvyq1MSWFKqfkY/0sti/lvyy2MSaBLKefFoMsp6ajey6imhA9LqKaUD8up58WgS6nn1cDLqelooUup58cuzCzr2K9MLOvYr8ws69igTCzr2K/MrOu4n80vTjOhTS1KOC9NqjkyL82nJpT/zid2hUBOKHfFT08oiHT/T6spiADPqulGE=",
+      "Back/Idle25": "FKJvXlX8qtTElhSqpKKT9LLYv5b8stjIngSynnxaDLKYkXPsuoppQPS6imlA/LqefFoEup58Wgy6np6NFLqJeF7sws69ivTCzr2K/MLOvYoEws69ivTKzr2K/MrOvYr80vXt4ATS1KaCFNLUo4L02qWlIfzaaWk/9OKIcFD84oN6VATijn1U9PKYiHD0+rKZgAz6rpRh",
+      "Back/Idle75": "FKJvXlX8qtTElhSqpKKT9LLYv5b8stjIngSynnxaDLKYkXPsuoppQPS6imlA/LqefFoEup58Wgy6np6NFLqJeF7sws69ivTCzr2K/MLOvYoEws69ivTKzr2K/MrOvYr80vXt4ATS1KaCFNLUo4L02qWlIfzaaWk/9OKIcFD84oN6VATijn1U9PKYiHD0+rKZgAz6rpRh"
+    },
+    "source": "https://prts.wiki/w/褐果/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_4041_chnut/char_4041_chnut_summer_12"
+  },
+  {
+    "operator": "烈夏",
+    "model": "char_194_leto",
+    "poses": {
+      "Front/Default": "9KI+LzD8omJEQgSiaVFODKJnUU4UoiceHvSqLSMi/KpCKioEqmhRTgyqjHNs9LLp3dH8siwhIQSy37SlDLI2KSr0ukMuLvy6rYp9BLr56dcMutuqkvTCbUkk/MIvHyAEwmYqKgzClkE/9MpOSh/8yoV0RgTKZkZF5NJ0YmHs0pJ3bfTSxrGa/NLfsT0E0iwsLAzSTUQuFNIpKSkc0jAsLOTaSz4+7NooHh302iIfHfzas5M+BNooJDsM2jMoKhTaICAgHNptbW3k4l1NTeziKyUl9OIiGyL84k80KgTiaGIyDOI3FhYU4lFQNRzic1RU9OorJyb86nk9NQTqIRsbDOo6Ghok6nFnVPTyMCwn/PLYysEE8puMhwzyGRkYLPJEQUH0+iggIAz6LSgmFPouKCg=",
+      "Front/Idle25": "9KI/MDD8omg1NQSiaVFODKJoUU4UojAlJPSqRzk1/KpCKioEqmhRTgyqlHly9LLp3dH8siohIASyqJyMDLI3KSr0uigeH/y689K2BLr56dgMut2ajPTCYwsL/MItGiAEwo8xMQzClkE/9MpcSiT8yoV0NwTKZkVF7NKUem/00saxmvzS+cU9BNImJSwM0k4+LhTSKSkpHNIxLS3k2lxMTOzaKCAd9NoYGBj82rSUPgTaKCQ7DNozKCoU2kU0Mxzabm5m5OJdTU3s4igkI/TiNDEy/OIjEhIE4mFOMgziOhYWFOIzKCoc4iwhIfTqKycm/OqINTIE6h0aGgzqSxMTJOp1aFT08rCknfzyxbuxBPKzo50M8hkZGCzyPTs69PooICAE+mpaVQz6LSgmFPouKCg=",
+      "Front/Idle75": "9KJAMTH8omg+OwSiaVFPDKJnUU0UojAlJPSqMi0p/KpAKioEqmhRTgyqiW5q9LLp3dH8siogIASyTUlDDLI4Kiv8uigeIAS6+enYDLrRs6b0wmMqHvzCLRodBMKTPj70yltRLPzKhXQtBMpmTUkMytKcTezSsZOF9NLGsZr80kREPATSJiUsDNJNQS4U0ikoKBzSKCUl5NpcTEzs2igkJPTaIx8d/No8MjME2iAeKgzaMykzFNonJycc2klJSeTiXU1N7OIpIyP04jUpKfziKhkaBOJoUykM4iYVFBTiXUxMHOJ0U1P06isnJvzqXy4uBOohGxsM6hsaGiTqcWdU9PInJCT88tjKwQTykoJ7DPIaGRgs8j04N/T6KCAgDPotKCYU+i4lJQ==",
+      "Back/Default": "9JppUk/0omVPTPyiaVJPBKJpUk8MomlSTxSiaVJP9KpmT038qmhRTgSqeWFcDKpoUU70slA9PfyyUj8+BLJaRkQMsmFLSfy6PC0tBLozJicMukk8O+TCGRYY9MIkFhz8wrCVhwTCoYR/DMJDHSD0yiMbHfzK/85LBMr/0VUMyoxBNOTSbVlZ7NJlU1P00mpXV/zSbFpZBNJtWVoM0mxZWRTSbVpa5NpdTU3s2l1NTfTaXU1N/NpdTU0E2l1NTQzaXU1NFNpdTU0c2i0nKeTiXUxM7OJdTU304l1MTPziXU1NBOJcTU0M4l1NTRTiXU1NHOItJyn06r17MgTqhl8zDOp+MTAU6mlaVSTqR0E69PIkHh4M8mEsLCzyIRwc9PowJiYM+iMfHxT6MwEC",
+      "Back/Idle25": "9KJlT0z8omlSTwSiaVJPDKJpUk8UomlST/SqZk9N/KpoUU4Eqm9XVAyqaFFO9LJSPz78slI/PgSyWUVDDLJgS0n0uiUbHfy6PS4uBLo0JygMul5MSfTCJBYc/MKqjYYEwqGEfwzCZiEh9MpNQjf8yv/PSwTK/9GCDMqWQUHk0m1ZWezSZlRU9NIiIiL80m1aWgTSbVlaDNJsWVkU0mtYWOTaXU1N7NpdTU302l1NTfzaXU1NBNpdTU0M2l1NTRTaXU1NHNotJynk4l1MTOziXExN9OJdTEz84l1NTQTiXE1NDOJdTU0U4l1NTRziLScp9OpYTSME6pBmMwzqfjEwFOppWjMk6kdBOvTyJB4eDPJ0Li4s8iQcHPT6MCYmDPojHx8=",
+      "Back/Idle75": "9KJlT0z8omlSTwSiaVJPDKJpUk8UomlST/SqZ1BO/KpoUU4EqnphXQyqaVJP9LJQPT38slI/PgSyW0ZEDLJhS0n8ujotLQS6NykqDLpMQkH0wisWHPzCZkpDBMKhhH8MwmYoKPTKIx0d/Mr/z0sEyv/RtgzKlkFB7NJkUlD00m1ZV/zSd2FYBNIoICAM0kxCQhTSdGRb5NpdTU3s2l1NTfTaXU1N/NpdTU0E2l1NTQzaXU1NFNpdTU0c2i0nKeTiXExM7OJdTE304l1MTPziXU1NBOJdTU0M4l1NTRTiXU1NHOItJyn06saCMgTqvYIxDOp+MTAU6mlOSSTqR0E69PIkHh4M8nkwLyzyHRgY9PowJiYM+iMfHw=="
+    },
+    "source": "https://prts.wiki/w/烈夏/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_194_leto/char_194_leto"
+  },
+  {
+    "operator": "陨星",
+    "model": "char_219_meteo",
+    "poses": {
+      "Front/Default": "9KJWVkX8ormWbASiv5ZtDKJzamL0qiAYGPyqg2ZKBKq/lm0Mqs67gBSqIBgY9LK/lm38sr6WbQSyuphtDLK/lm3sumFIL/S6v5Zt/LrTy7YEuv3lwwy6tpRh9MK7kmn8wjwzJOzKIx4e/MqTk4gEyjg4OAzKMDAvFMpCQjzc0m5UPuTSblQ99NJkQjX80iohIQTSHxYW3NpaRDf02kJCSPzaKycjBNowLif04iYdHfziOjMf9Oo7MyoM6jcvJwzyKycj7PogGBgM+hoWFg==",
+      "Front/Idle25": "9KIgHBoEor+WbfSqIBgY/KogGBgEqr+WbQyq///5FKogGBj0sreWbPyyvZVtBLKyiW8Msr+Wbey6YUgv9Lq/lm38ur2ecwS6wbSNDLrErYQUuldKNuzCW0Ev9MK7kmn8wjMrHBTCe1pA5Mp0VT/8ymViUQTKPDw8DMotLS0UykRERCTKLy8v3NJoTzv00mFhb/zSKiEhBNIfFhYM0h0dGBTSDw8P3NpQPy7s2isrK/TaQEBI/NoxKyME2jAuJvTiIRwc/OJCOiYM4j42KwzqNy8n9PIvKiMM8icnH+z6IBgYDPoaFhY=",
+      "Front/Idle75": "9KIgHBoEor+WbfSqIBgY/KogGBgEqr+WbQyq///5FKogGBj0sreWbPyyvZVtBLKyiW8Msr+Wbey6YUgv9Lq/lm38ur2ecwS6wbSNDLrErYQUuldKNuzCW0Ev9MK7kmn8wjMrHBTCe1pA5Mp0VT/8ymViUQTKPDw8DMotLS0UykRERCTKLy8v3NJoTzv00mFhb/zSKiEhBNIfFhYM0h0dGBTSDw8P3NpQPy7s2isrK/TaQEBI/NoxKyME2jAuJvTiIRwc/OJCOiYM4j42KwzqNy8n9PIvKiMM8icnH+z6IBgYDPoaFhY=",
+      "Back/Default": "9KJcQzL8or+WbQSiv5ZtDKIgGBj0qsKZaPyqv5ZtBKr//+YMqr+WbRSqHxYW9LK/lm38sr+WbQSyv5ZtDLK/lm3sumdOPvS6v5Zt/Lq/lm0Eur+WbQy6u5ZtFLpeXkb0wp58WvzCnXtZ/MpiUi4Eyi8vLwzKPz8/FMo8Ozokyi8vL9zSblI+5NJuUT300iEZGfzSLisrBNIgGRn02iggIPzaKSEhBNohGRn04iQcHPziJBwcBOIfFhb06jcvJwzqNy8nDPIpKCHs+hwYGAz6GRYV",
+      "Back/Idle25": "/KK/lm30qsKXbPyqv5ZtBKr//+oMqiAYGBSqHxYW7LJ4X0b0sr+Wbfyyv5ZtBLK/lm0Msr+Wbey6knRV9Lq/lm38ur+WbQS6v5ZtDLq3lW3swlxEM/TCu5Zo/MK/lm0Ewp18YxTCv5Zt5MpyV0H8yjo4LwTKLy8u3NJuTz300isjI/zSLikpBNIgGhoM0iclIRTSHxYWJNIaGhrc2lRDM/TaIBgY/NopISEE2iEbGvTiJBwc/OIkHBwM4jYuJgzqNy8n9PIwKSEM8ikoIOz6GRAQDPoWEBA=",
+      "Back/Idle75": "/KK/lm30qsKXbPyqv5ZtBKr//+oMqiAYGBSqHxYW7LJ4X0b0sr+Wbfyyv5ZtBLK/lm0Msr+Wbey6knRV9Lq/lm38ur+WbQS6v5ZtDLq3lW3swlxEM/TCu5Zo/MK/lm0Ewp18YxTCv5Zt5MpyV0H8yjo4LwTKLy8u3NJuTz300isjI/zSLikpBNIgGhoM0iclIRTSHxYWJNIaGhrc2lRDM/TaIBgY/NopISEE2iEbGvTiJBwc/OIkHBwM4jYuJgzqNy8n9PIwKSEM8ikoIOz6GRAQDPoWEBA="
+    },
+    "source": "https://prts.wiki/w/陨星/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_219_meteo/char_219_meteo"
+  },
+  {
+    "operator": "拉普兰德",
+    "model": "char_140_whitew",
+    "poses": {
+      "Front/Default": "7KJpaWn0ov39/fyi/f39BKL9/f0UokRERPSq+vr6/Kr6+voEqvr6+gyq+vr67LKzs7P0svr59vyy4L+3BLL6+vkMsti7s+y6b3R09Lq3t7f8us7LxQS69e3tDLqYh4fkwo6WluzCtL299MIzNjb8wjMzMwTCKysrDMKjq6vkynV9fezKnqev9MoxLy/8yi4uLgTKZmZmDMqKkpLs0jY5OfTSMC4u/NIrKysE0q21teza+vr69NopKSn82h0dHQTal5ui7OJ5eXn04k5NTfTqTExMDOrx6eD08llRSQzyPj4+7PogICD0+nNzcwz6MzMzFPo1NTU=",
+      "Front/Idle25": "7KJqamr0ov39/fyi/f39BKL9/f0UokJCQvSq+vr6/Kr6+voEqvr6+gyq+vr67LLR0dH0svf39/yy4L+3BLL6+vkMsuC/t+y6eoGB9Lq3t7P8us7GxQS69OzsDLqYjIzkwo6WluzCsrq99MJ0eXn8wjExMQTCKSkpDMKjq6vkynmBgezKnaWr9MovLy/8yi4uLgTKQ0NDDMqKkpPs0jU4OPTSLy4u/NIrKysE0qits+za+vj49NomJib82h0dHQTal5un5OKKlpr04mpqavTqNDIxDOrx6eD08klJSQzyNDQ07PogICD0+nNzcwz6MzMzFPozMzM=",
+      "Front/Idle75": "7KJpaWn0ov39/fyi/f39BKL9/f0UomNjY/Sq+vr6/Kr6+voEqvr6+gyq+vr67LLHx8f0svr5+fyy4L+3BLL6+vkMstu7s+y6YWFh9Lq3t7P8usa+vgS69OzsDLq7u7vkwo+Xl+zCsrq69MJ3fHz8wjExMQTCKSkpDMKgp6fkynV9fezKoaqv9MovLy/8yi4uLgTKVlZWDMqHj5Lk0o+UmuzSMTEt9NIvLy780isrKwTSQ0ND7Nr/+Pj02iIiIvzaHR0dBNodHR3s4nB1cPTifm1t7OqKkpr06qulpQzq8eng9PJZUUkM8iwsLOz6ICAg9Ppzc3MM+jMzMxT6ODg4",
+      "Back/Default": "7KLf39/0ovX19fyi+vr6BKL6+voUot/f3/Sq8/Pz/Kr29vYEqvr6+gyq+vr67LLQ0ND0subm5vyy9fX1BLLz8/MMsvn5+ey6xMTE9LrOzs78utjY2AS64uLiDLr////cwmVtc+TClpqa7MKsrKz0wrm5ufzCv7+/BMLHx8cMwszMzOTKipGS7MqXmpr0yqGjo/zKqKioBMqvr7Pk0nyDhOzSho6O9NKMlJT80peXlwTSnZ2d7NptaGj02oKKivzabW1tBNofHx/s4mRkZPTiVFRQ/OLz8fHk6o6WmgzqmZmZ9PJeVlYM8ra2tvT6MTExDPoxMTEU+jExMQ==",
+      "Back/Idle25": "7KLf39/0ovX19fyi+vr6BKL6+voMovr6+hSi4ODg9Krw8PD8qvb29gSq+vr6DKr6+vrsstDQ0PSy6enp/LLv7+8EsvPz8wyy+fn57LrExMT0utDQ0Py62NjYBLrf398Muvr6+uTClpae7MKysrL0wre3t/zCvb29BMLExMQMwsrKyuTKjpGV7Mqanp70yp6jo/zKqKioBMqsrK3k0nyEhOzSho6O9NKNlZX80pGXlwTSm5ub7Np5eXn02oCAgPzaZWVlBNofHx/s4mRkZPzi8/Hx/Oq5t7cM6paUlPTyXlZWDPK8vLz0+jExMQz6MTExFPoxMTE=",
+      "Back/Idle75": "7KLf39/0ovX19fyi+vr6BKL6+voUotzc3PSq8/Pz/Kr29vYEqvr6+gyq+vr67LLQ0ND0subm5vyy8/PzBLLz8/MMsvn5+eS6lZqa7LrExMT0us7Ozvy62NjYBLri4uIMuv///+TClpqe7MKsrKz0wrm5ufzCwMDABMLIyMgMws7OzuTKipKS7MqXmpr0yqGjo/zKq6ysBMqzs7Pk0nyDhOzSho6O9NKOlpb80peXlwTSnp6e7NpbW1T02oKKivzaipCQBNofHx/k4n2Dg+ziYmJi/OLz8fEE4jIvLvTq4d/QDOq1ra308l5WVgzymJiV9PoxMTEM+jExMRT6MTEx"
+    },
+    "source": "https://prts.wiki/w/拉普兰德/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_140_whitew/char_140_whitew"
+  },
+  {
+    "operator": "地灵",
+    "model": "char_183_skgoat",
+    "poses": {
+      "Front/Default": "9KL97eX8ourHwASi/fLqDKL15NzkqvDOveyqzpqK9Kr128z8qtSaigSq/e/qDKrgwrHksvC/r+yyyIp59LLevaz8sv317QSy9eDUDLKzsav0uu6/r/y6/fXtBLr99e38wklASATCLC8z/MpLS1MEyisrO+zSSEhM/NKcRlME0kFBTAzSQkJIFNLc3Nz02kFBSfzamDpIBNo+OUXs4isrO/TiKys7/OJ2JDEE4hoaKwziKys69OodHSsM6hkZH+zycW9vDPJubm7s+hUSGgz6EREg",
+      "Front/Idle25": "9KL97eX8ourHwASi/fLqDKL15NzkqvDOveyqzpqK9Kr128z8qtSaigSq/e/qDKrgwrHksvC/r+yyyIp59LLevaz8sv317QSy9eDUDLKzsav0uu6/r/y6/fXtBLr99e38wklASATCLC8z/MpLS1MEyisrO+zSSEhM/NKcRlME0kFBTAzSQkJIFNLc3Nz02kFBSfzamDpIBNo+OUXs4isrO/TiKys7/OJ2JDEE4hoaKwziKys69OodHSsM6hkZH+zycW9vDPJubm7s+hUSGgz6EREg",
+      "Front/Idle75": "9KL97eX8ourHwASi/fLqDKL15NzkqvDOveyqzpqK9Kr128z8qtSaigSq/e/qDKrgwrHksvC/r+yyyIp59LLevaz8sv317QSy9eDUDLKzsav0uu6/r/y6/fXtBLr99e38wklASATCLC8z/MpLS1MEyisrO+zSSEhM/NKcRlME0kFBTAzSQkJIFNLc3Nz02kFBSfzamDpIBNo+OUXs4isrO/TiKys7/OJ2JDEE4hoaKwziKys69OodHSsM6hkZH+zycW9vDPJubm7s+hUSGgz6EREg",
+      "Back/Default": "9KL0ysL8ov3t5QSi/e3lDKL97+fkquzKueyq8djI9Kr/8ur8qvjw5wSq+PDnDKr98uXksua5qOyytnxr9LLRl4f8svnw5wSy+PDnDLL48Of8utGWhgS62JaG/MJUTFwEwlRMXPzKNjZGBMpCPkbs0lZUYPzSjTNEBNI/P1D02j09SvzamD9QBNo/P1D04jMzO/ziayk6BOI1NUQM4jMzRPzqaigwBOouLjwM6i4uP+zyeXl5FPJ6dXTs+nFwbRT6cnJy",
+      "Back/Idle25": "9KL0ysL8ov3t5QSi/e3lDKL97+fkquzKueyq8djI9Kr/8ur8qvjw5wSq+PDnDKr98uXksua5qOyytnxr9LLRl4f8svnw5wSy+PDnDLL48Of8utGWhgS62JaG/MJUTFwEwlRMXPzKNjZGBMpCPkbs0lZUYPzSjTNEBNI/P1D02j09SvzamD9QBNo/P1D04jMzO/ziayk6BOI1NUQM4jMzRPzqaigwBOouLjwM6i4uP+zyeXl5FPJ6dXTs+nFwbRT6cnJy",
+      "Back/Idle75": "9KL0ysL8ov3t5QSi/e3lDKL97+fkquzKueyq8djI9Kr/8ur8qvjw5wSq+PDnDKr98uXksua5qOyytnxr9LLRl4f8svnw5wSy+PDnDLL48Of8utGWhgS62JaG/MJUTFwEwlRMXPzKNjZGBMpCPkbs0lZUYPzSjTNEBNI/P1D02j09SvzamD9QBNo/P1D04jMzO/ziayk6BOI1NUQM4jMzRPzqaigwBOouLjwM6i4uP+zyeXl5FPJ6dXTs+nFwbRT6cnJy"
+    },
+    "source": "https://prts.wiki/w/地灵/spine",
+    "mirror": "https://github.com/fexli/ArknightsResource/tree/53d2ac251329a54d714dec3b0b6fbdbedef1df17/spine/char_183_skgoat/char_183_skgoat"
+  }
+]

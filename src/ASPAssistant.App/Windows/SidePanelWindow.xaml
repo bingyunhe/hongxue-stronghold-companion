@@ -200,12 +200,12 @@
             <!-- Tab content + visible resize grip overlay -->
             <Grid>
                 <TabControl x:Name="MainTabs" Style="{StaticResource DarkTabControl}" SelectionChanged="OnMainTabChanged">
-                    <!-- 图鉴: operators and equipment behind one segment -->
+                    <!-- 图鉴 -->
                     <TabItem x:Name="CodexTab" Header="图鉴" Tag="{StaticResource IconCodex}" HorizontalContentAlignment="Stretch">
                         <DockPanel Background="{DynamicResource PanelBackgroundBrush}">
                             <Border DockPanel.Dock="Top" Padding="10,10,10,0">
                                 <ListBox x:Name="CodexSegment" Style="{StaticResource SegmentedListBox}" HorizontalAlignment="Stretch"
-                                         SelectedIndex="0" SelectionChanged="OnCodexSegmentChanged">
+                                         SelectedIndex="0" SelectionChanged="OnCodexSegmentChanged" SizeChanged="OnCodexWidthChanged">
                                     <ListBox.ItemsPanel>
                                         <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
                                     </ListBox.ItemsPanel>
@@ -213,15 +213,42 @@
                                         <Style TargetType="ListBoxItem" BasedOn="{StaticResource SegmentedItem}">
                                             <Setter Property="MinHeight" Value="26" />
                                             <Setter Property="FontSize" Value="12" />
+                                            <Setter Property="Padding" Value="2,3" />
+                                            <Setter Property="ContentTemplate">
+                                                <Setter.Value>
+                                                    <DataTemplate>
+                                                        <StackPanel HorizontalAlignment="Center">
+                                                            <StackPanel.Style>
+                                                                <Style TargetType="StackPanel">
+                                                                    <Setter Property="Orientation" Value="Horizontal" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBox}}" Value="True">
+                                                                            <Setter Property="Orientation" Value="Vertical" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </StackPanel.Style>
+                                                            <TextBlock Text="{Binding}" HorizontalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Tag, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="2,0" FontSize="10"
+                                                                       FontFamily="{DynamicResource NumberFontFamily}" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </Setter.Value>
+                                            </Setter>
                                         </Style>
                                     </ListBox.ItemContainerStyle>
                                     <ListBoxItem Content="干员" />
                                     <ListBoxItem Content="装备" />
+                                    <ListBoxItem Content="策略" />
+                                    <ListBoxItem Content="首领" />
+                                    <ListBoxItem Content="悬赏" />
                                 </ListBox>
                             </Border>
                             <Grid>
                                 <views:OperatorBrowseView x:Name="OperatorView" />
                                 <views:EquipmentBrowseView x:Name="EquipmentView" Visibility="Collapsed" />
+                                <ContentControl x:Name="ReferenceHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Visibility="Collapsed" />
                             </Grid>
                         </DockPanel>
                     </TabItem>
@@ -453,6 +480,16 @@
                                 <Border Style="{StaticResource SettingsCard}">
                                     <StackPanel>
                                         <DockPanel>
+                                            <CheckBox x:Name="AutomaticCurrentRunFiltersToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      AutomationProperties.Name="只看本局" />
+                                            <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                                <TextBlock Text="只看本局" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="开启后，新局或重新识别成功时，自动勾选图鉴和规划页的「只看本局」。"
+                                                           FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
                                             <CheckBox x:Name="MultiLineupTrackingToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
                                                       AutomationProperties.Name="同时追踪多个队伍" />
                                             <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
@@ -482,6 +519,15 @@
                                             <TextBlock x:Name="PurchaseSpeedHint" Text="商店展开时生效；速度越快，处理器占用可能越高。" FontSize="11" TextWrapping="Wrap"
                                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0" />
                                         </StackPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
+                                            <CheckBox x:Name="AutomaticRoundEnemiesToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                                      AutomationProperties.Name="每回合自动识别小怪" />
+                                            <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                                <TextBlock Text="每回合自动识别小怪" FontSize="12" FontWeight="Bold" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="备战时自动打开敌人面板读取名单。关闭后仍可手动识别。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
                                         <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" Visibility="Collapsed" />
                                         <DockPanel Visibility="Collapsed">
                                             <CheckBox x:Name="BoardOverlayToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
@@ -672,6 +718,27 @@
                                         </StackPanel>
                                     </DockPanel>
                                 </Border>
+                                <Border Style="{StaticResource SettingsCard}" Margin="0,6,0,0">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right" FontSize="11">
+                                                <Hyperlink NavigateUri="https://mirrorchyan.com/?source=hongxue_stronghold_companion_settings"
+                                                           RequestNavigate="OnOpenMirrorChyan" Foreground="{DynamicResource AccentBrush}">官网</Hyperlink>
+                                            </TextBlock>
+                                            <TextBlock Text="MirrorChyan CDK" FontSize="12" FontWeight="Bold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,6,0,4">
+                                            <Button x:Name="SaveMirrorChyanCdkButton" DockPanel.Dock="Right" Content="保存" Click="OnSaveMirrorChyanCdk"
+                                                    Style="{StaticResource SmallActionButton}" Margin="6,0,0,0" VerticalAlignment="Center" />
+                                            <PasswordBox x:Name="MirrorChyanCdkBox" AutomationProperties.Name="MirrorChyan CDK"
+                                                         Foreground="{DynamicResource TextPrimaryBrush}" Background="{DynamicResource InputBackgroundBrush}"
+                                                         BorderBrush="{DynamicResource BorderBrush}" Padding="6,4" MinHeight="28" />
+                                        </DockPanel>
+                                        <TextBlock x:Name="MirrorChyanCdkStatus" FontSize="11" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </StackPanel>
+                                </Border>
                                 <Button x:Name="UpdateHistoryButton" Content="更新日志" Click="OnOpenUpdateHistory" Style="{StaticResource SmallActionButton}" HorizontalAlignment="Left" Margin="0,8,0,10" />
                                 <TextBlock Text="数据" Style="{StaticResource SettingsCaption}" />
                                 <Border Style="{StaticResource SettingsCard}">
@@ -704,6 +771,10 @@
                                 <TextBlock x:Name="ProjectAddressText" HorizontalAlignment="Center" Margin="0,10,0,8" FontSize="12">
                                     <Hyperlink x:Name="ProjectAddressLink" NavigateUri="https://github.com/bingyunhe/hongxue-stronghold-companion"
                                                Foreground="{DynamicResource AccentBrush}" RequestNavigate="OnProjectAddressNavigate">项目地址，欢迎star</Hyperlink>
+                                </TextBlock>
+                                <TextBlock HorizontalAlignment="Center" Margin="0,0,0,8" FontSize="12">
+                                    <Hyperlink x:Name="QqGroupLink" NavigateUri="mqqapi://card/show_pslcard?src_type=internal&amp;version=1&amp;uin=1104531618&amp;card_type=group&amp;source=qrcode"
+                                               Foreground="{DynamicResource AccentBrush}" RequestNavigate="OnProjectAddressNavigate">QQ 交流群：1104531618</Hyperlink>
                                 </TextBlock>
                                 </StackPanel>
                             </StackPanel>

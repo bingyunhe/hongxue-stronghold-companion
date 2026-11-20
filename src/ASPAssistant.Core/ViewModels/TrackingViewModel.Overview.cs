@@ -26,6 +26,10 @@ public partial class TrackingViewModel
             return item;
         }).ToList() : TrackedOperators.Where(e => e.IsStageActive).ToList();
 
+    public List<TrackingEntry> ShopTrackingEntries => ShowAllStages
+        ? [.. DisplayOperators, .. TrackedEquipment.Where(e => e.IsStageActive && !e.IsExpired)]
+        : [.. ActiveEntries];
+
     public IReadOnlyList<TrackingEntry> DisplayEquipment
     {
         get

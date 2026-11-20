@@ -50,6 +50,7 @@ internal static class RunInfoViewTests
             var tab = (TabItem)panel.FindName("RunInfoTab");
             ((TabControl)panel.FindName("MainTabs")).SelectedItem = tab;
             var enemyView = (EnemyView)panel.FindName("EnemyView");
+            var health = (BossHealthView)enemyView.FindName("HealthView");
             var scan = (Button)run.FindName("ManualScanButton");
             var pills = (ItemsControl)run.FindName("BanCovenantPills");
             var portraits = (ItemsControl)run.FindName("BannedOperators");
@@ -91,8 +92,8 @@ internal static class RunInfoViewTests
                         Bounds(avatar, run).Right.Should().BeLessThanOrEqualTo(run.ActualWidth + 1);
                 }
                 run.ActualHeight.Should().BeLessThan(400, "many bans must leave space for the boss information");
-                ((TextBlock)enemyView.FindName("CurrentBossHpText")).Text.Should().Be(BossHpCell.From(boss.Hp.Single(hp => hp.Mode == "mode_single_7")).Hp);
-                ((Expander)enemyView.FindName("OtherBossHpExpander")).IsExpanded.Should().BeFalse();
+                ((TextBlock)health.FindName("CurrentBossHpText")).Text.Should().Be(BossHpCell.From(boss.Hp.Single(hp => hp.Mode == "mode_single_7")).Hp);
+                ((Expander)health.FindName("OtherBossHpExpander")).IsExpanded.Should().BeFalse();
                 Save((FrameworkElement)tab.Content, $"{theme}-{night}-{width}-{count}");
                 detailsToggle.IsChecked = false; Pump();
                 details.Visibility.Should().Be(Visibility.Collapsed);
@@ -104,6 +105,45 @@ internal static class RunInfoViewTests
                 detailsToggle.IsChecked.Should().BeFalse("publishing updated bans must preserve the collapsed state");
                 Save(run, $"{theme}-{night}-{width}-collapsed");
             }
+
+            var hpExpander = (Expander)health.FindName("OtherBossHpExpander");
+            var singleHp = (StackPanel)health.FindName("SingleBossHpSection");
+            var multiHp = (ItemsControl)health.FindName("MultiBossHpItems");
+            panel.Width = 360;
+            foreach (var mode in new[] { "标准模拟", "险境模拟", "绝境模拟", "终极模拟" })
+            {
+                enemy.CurrentMode = mode;
+                Pump();
+                singleHp.Visibility.Should().Be(Visibility.Collapsed);
+                multiHp.IsVisible.Should().BeTrue();
+                multiHp.Items.Cast<BossHpCell>().Single(item => item.IsCurrent).Name.Should().Be(mode);
+                hpExpander.Header.Should().Be("多人难度血量");
+            }
+            var viewTransform = enemyView.LayoutTransform;
+            foreach (var scale in new[] { 1d, 1.25 })
+            {
+                enemyView.LayoutTransform = new ScaleTransform(scale, scale);
+                hpExpander.BringIntoView();
+                Pump();
+                singleHp.ActualHeight.Should().Be(0);
+                multiHp.Items.Count.Should().Be(4);
+                var hiddenHp = Descendants<TextBlock>(multiHp).Where(text => text.IsVisible && text.Text.StartsWith("隐藏 ")).ToArray();
+                hiddenHp.Should().HaveCount(4);
+                if (scale > 1)
+                    hiddenHp.Should().Contain(text => text.ActualHeight >= text.FontSize * 2, "long hidden HP must wrap in a narrow panel");
+                Save((FrameworkElement)tab.Content, $"{theme}-{night}-multiplayer-{scale}");
+            }
+            enemyView.LayoutTransform = viewTransform;
+            enemy.CurrentMode = null;
+            Pump();
+            singleHp.IsVisible.Should().BeTrue();
+            hpExpander.Header.Should().Be("全部难度血量");
+            enemy.RegulationLevel = 7;
+            Pump();
+            hpExpander.IsExpanded.Should().BeFalse();
+            hpExpander.IsExpanded = true;
+            Pump();
+            singleHp.IsVisible.Should().BeTrue();
 
             var manualScans = 0;
             panel.ManualScanRequested += () => manualScans++;
@@ -123,13 +163,17 @@ internal static class RunInfoViewTests
             operatorsVm.SetAvailableCovenants(["乌萨斯", "奥术"]);
             run.FindName("RunMenuButton").Should().BeNull();
             var onlyCurrent = (CheckBox)((OperatorBrowseView)panel.FindName("OperatorView")).FindName("OnlyCurrentRunToggle");
-            panel.EnableCurrentRunFilters(); Pump();
+            panel.ApplyAutomaticCurrentRunFilters(); Pump();
+            onlyCurrent.IsChecked.Should().BeFalse();
+            panel.PlannerVm.OnlyCurrentRun.Should().BeFalse();
+            panel.InitAutomaticCurrentRunFilters(true);
+            panel.ApplyAutomaticCurrentRunFilters(); Pump();
             onlyCurrent.IsChecked.Should().BeTrue();
             panel.PlannerVm.OnlyCurrentRun.Should().BeTrue();
             onlyCurrent.IsChecked = false;
             operatorsVm.OnlyCurrentRun.Should().BeFalse();
             panel.PlannerVm.OnlyCurrentRun.Should().BeTrue("the two controls remain independent when changed manually");
-            panel.EnableCurrentRunFilters(); Pump();
+            panel.ApplyAutomaticCurrentRunFilters(); Pump();
             operatorsVm.OnlyCurrentRun.Should().BeTrue();
             ((Button)run.FindName("ClearHighlightsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Pump();

@@ -50,6 +50,12 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         => ui.RunAsync(() => UpdateHistoryViewTests.Verify(theme, night), $"UpdateHistory-{theme}-{night}");
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RecognizedAndCorrectedUnitsReachAllThreePlans(bool night)
+        => ui.RunAsync(() => RoundRoutesViewTests.VerifyLiveRecommendations(night), $"LiveRecommendations-{night}");
+
+    [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
     [InlineData(GameShopTheme.Terminal, true)]
     [InlineData(GameShopTheme.Closure, false)]
@@ -264,10 +270,11 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         var vm = new EnemyViewModel();
         vm.Update(new(boss.Name, ["特训敌人·元素"], []), boss, [new() { TypeName = "元素" }]);
         var view = new EnemyView { DataContext = vm };
-        var current = (Border)view.FindName("CurrentBossHpCard");
-        var currentText = (TextBlock)view.FindName("CurrentBossHpText");
-        var other = (Expander)view.FindName("OtherBossHpExpander");
-        var items = (ItemsControl)view.FindName("SingleBossHpItems");
+        var health = (BossHealthView)view.FindName("HealthView");
+        var current = (Border)health.FindName("CurrentBossHpCard");
+        var currentText = (TextBlock)health.FindName("CurrentBossHpText");
+        var other = (Expander)health.FindName("OtherBossHpExpander");
+        var items = (ItemsControl)health.FindName("SingleBossHpItems");
         foreach (var theme in Enum.GetValues<GameShopTheme>())
         foreach (var night in new[] { false, true })
         foreach (var width in new[] { 280, 360 })
@@ -310,6 +317,30 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
 
     [Fact]
     public Task OperatorPicker_PreservesSelectionWhileScrolling() => ui.RunAsync(OperatorPickerTests.VerifySelection, nameof(OperatorPicker_PreservesSelectionWhileScrolling));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task LiveFieldPicker_SelectsFromRightEdge(bool night)
+        => ui.RunAsync(() => OperatorPickerTests.VerifyLiveCorrection(night), $"{nameof(LiveFieldPicker_SelectsFromRightEdge)}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RoundRoutes_MapPreview(bool night)
+        => ui.RunAsync(() => RoundRoutesViewTests.Verify(night), $"{nameof(RoundRoutes_MapPreview)}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RoundRoutes_GatePlayback(bool night)
+        => ui.RunAsync(() => RoundRoutesViewTests.VerifyPlayback(night), $"{nameof(RoundRoutes_GatePlayback)}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RoundEnemyCards_MapAndRunInfoShareRecognition(bool night)
+        => ui.RunAsync(() => RoundRoutesViewTests.VerifyRecognitionCards(night), $"{nameof(RoundEnemyCards_MapAndRunInfoShareRecognition)}-{night}");
 
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
@@ -522,6 +553,10 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     [Fact]
     public Task UpdateSettings_TrayAndHotkeys() => ui.RunAsync(UpdateAndTrayTests.Verify, nameof(UpdateSettings_TrayAndHotkeys));
 
+    [Fact]
+    public Task MirrorChyanSettings_MasksAndSavesAtBothScales() =>
+        ui.RunAsync(UpdateAndTrayTests.VerifyMirrorChyanSettings, nameof(MirrorChyanSettings_MasksAndSavesAtBothScales));
+
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
     [InlineData(GameShopTheme.Closure, false)]
@@ -592,6 +627,11 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     public Task Codex_PreservesFiltersAndNavigation() => ui.RunAsync(ClearAndLineupSourceViewTests.VerifyCodex, nameof(Codex_PreservesFiltersAndNavigation));
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Codex_ReferencePages(bool night) => ui.RunAsync(() => ClearAndLineupSourceViewTests.VerifyReferenceCodex(night), $"{nameof(Codex_ReferencePages)}-{night}");
+
+    [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
     [InlineData(GameShopTheme.Terminal, true)]
     [InlineData(GameShopTheme.Ursus, false)]
@@ -611,7 +651,7 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     public Task UpdateDialog_ReportsDownloadProgress() => ui.RunAsync(() =>
     {
         var info = new ASPAssistant.Core.Services.UpdateInfo(
-            "v9.9.9", "9.9.9", "- 测试更新说明", "https://example.test/a.zip", "a.zip", null);
+            "v99.9.9", "99.9.9", "- 测试更新说明", "https://example.test/a.zip", "a.zip", null);
         // 不 Show()：在测试宿主里显示窗口会拉起到前台并可能拖垮 testhost。
         var dialog = new UpdateDialog(info);
         dialog.ReportProgress(0.42);
@@ -622,10 +662,23 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         percent.Text.Should().Be("42%");
         hint.Text.Should().StartWith("正在下载安装包");
 
-        dialog.ReportProgress(1.0);
+        dialog.ReportProgress(1.0, "MirrorChyan CDK 已过期");
         bar.Value.Should().Be(100);
         percent.Text.Should().Be("100%");
-        hint.Text.Should().Contain("立即重启");
+        hint.Text.Should().Contain("立即重启").And.Contain("CDK 已过期").And.Contain("GitHub Releases");
+        var body = (FrameworkElement)dialog.Content;
+        dialog.Content = null;
+        var surface = new Border { Width = 320, Child = body };
+        surface.SetResourceReference(Border.BackgroundProperty, "PanelBackgroundBrush");
+        foreach (var night in new[] { false, true })
+        {
+            ThemeManager.Apply(GameShopTheme.Closure, night);
+            surface.Measure(new Size(320, double.PositiveInfinity));
+            surface.Arrange(new Rect(surface.DesiredSize));
+            surface.UpdateLayout();
+            hint.TransformToAncestor(surface).TransformBounds(new Rect(hint.RenderSize)).Bottom.Should().BeLessThan(surface.ActualHeight);
+            Save(surface, Path.Combine(TestOutput.Directory, $"mirrorchyan-fallback-Closure-{night}.png"));
+        }
         dialog.ReportFailure("更新源返回 HTTP 503");
         hint.Text.Should().Contain("下载失败").And.Contain("503").And.Contain("重试");
         bar.Visibility.Should().Be(Visibility.Collapsed);
@@ -765,6 +818,12 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     [InlineData(GameShopTheme.Closure, true)]
     public Task GameStartSettingsAndScaleRestore(GameShopTheme theme, bool night)
         => ui.RunAsync(() => GameStartSettingsViewTests.Verify(theme, night), $"GameStartSettings-{theme}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task AutomaticCurrentRunFilterSetting_PersistsAndAppliesOnlyOnRecognition(bool night)
+        => ui.RunAsync(() => GameStartSettingsViewTests.VerifyCurrentRunFilterPreference(night), $"CurrentRunFilterSetting-{night}");
 
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]

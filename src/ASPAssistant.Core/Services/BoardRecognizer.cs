@@ -57,11 +57,36 @@ public sealed class BoardRecognizer
         // The full mean tells the maps apart (they differ on a few cells only); the trimmed mean decides whether
         // the frame is a board at all, so operators standing on cells do not make a correct match fail.
         var best = scored.MinBy(s => s.Score);
-        var others = scored.Where(s => s.Map.Id != best.Map.Id).Select(s => s.Score).DefaultIfEmpty(double.MaxValue).Min();
-        double margin = others - best.Score;
-        return best.Trimmed <= MaxScore && margin >= MinMargin
-            ? new BoardMatch(best.Map, best.Camera, best.Trimmed, margin)
-            : null;
+        if (best.Trimmed > MaxScore) return null;
+        var rivals = scored.Where(s => s.Map.Id != best.Map.Id);
+        double margin = rivals.Select(s => s.Score - best.Score).DefaultIfEmpty(double.MaxValue).Min();
+        if (margin < MinMargin)
+        {
+            // A crowded board obscures the common floor. Compare terrain cells that distinguish the two maps.
+            if (margin < MinMargin * .6 || !_data.Fingerprints[best.Map.Id].TryGetValue(best.Camera, out var reference))
+                return null;
+            var observed = samples[best.Camera];
+            foreach (var rival in rivals.Where(s => s.Score - best.Score < MinMargin))
+            {
+                if (rival.Camera != best.Camera || !_data.Fingerprints[rival.Map.Id].TryGetValue(best.Camera, out var other))
+                    return null;
+                int supporting = 0, opposing = 0;
+                for (int cell = 0; cell < observed.Length; cell += SamplePoints.Length)
+                {
+                    int nearer = 0;
+                    for (int i = cell; i < cell + SamplePoints.Length; i++)
+                    {
+                        double first = ColorDistance(observed[i], reference[i]), second = ColorDistance(observed[i], other[i]);
+                        if (Math.Min(first, second) <= 20 && Math.Abs(first - second) >= 25)
+                            nearer += Math.Sign(second - first);
+                    }
+                    if (nearer > 0) supporting++;
+                    if (nearer < 0) opposing++;
+                }
+                if (supporting < 4 || supporting < 2 * opposing) return null;
+            }
+        }
+        return new BoardMatch(best.Map, best.Camera, best.Trimmed, margin);
     }
 
     private static byte[][] Sample(BmpPixels px, BoardProjection projection)
@@ -81,7 +106,7 @@ public sealed class BoardRecognizer
 
     /// <summary>
     /// Mean distance over all samples, and over the closest <see cref="KeptShare"/> of them. Deployed operators cover whole
-    /// cells (8–9 of the 45 sampled ones in a normal lineup), so the worst samples are dropped instead of letting
+    /// cells and their badges and effects extend into adjacent samples, so the worst samples are dropped instead of letting
     /// them push a correct match over <see cref="MaxScore"/>; a wrong map still differs on most cells.
     /// </summary>
     private static (double Full, double Trimmed) Distance(byte[][] a, byte[][] b)
@@ -91,8 +116,7 @@ public sealed class BoardRecognizer
         var d = new double[n];
         for (int i = 0; i < n; i++)
         {
-            double d0 = a[i][0] - b[i][0], d1 = a[i][1] - b[i][1], d2 = a[i][2] - b[i][2];
-            d[i] = Math.Min(Math.Sqrt(d0 * d0 + d1 * d1 + d2 * d2), DistanceCap);
+            d[i] = Math.Min(ColorDistance(a[i], b[i]), DistanceCap);
         }
         double total = d.Sum();
         Array.Sort(d);
@@ -102,8 +126,14 @@ public sealed class BoardRecognizer
         return (total / n, sum / keep);
     }
 
+    private static double ColorDistance(byte[] a, byte[] b)
+    {
+        int r = a[0] - b[0], g = a[1] - b[1], blue = a[2] - b[2];
+        return Math.Sqrt(r * r + g * g + blue * blue);
+    }
+
     /// <summary>Share of samples kept by <see cref="Distance"/>.</summary>
-    private const double KeptShare = 0.7;
+    private const double KeptShare = 0.6;
 }
 
 /// <summary>
@@ -181,6 +211,18 @@ public sealed class BmpPixels
         int height = Math.Abs(rawHeight);
         if (offset + (long)stride * height > data.Length) return null;
         return new BmpPixels(data, offset, width, height, stride, bpp, rawHeight > 0);
+    }
+
+    internal int Color(int x, int y)
+    {
+        int i = _offset + (_bottomUp ? Height - 1 - y : y) * _stride + x * _bytesPerPixel;
+        return _data[i+2] << 16 | _data[i+1] << 8 | _data[i];
+    }
+
+    internal int Gray(int x, int y)
+    {
+        int i = _offset + (_bottomUp ? Height - 1 - y : y) * _stride + x * _bytesPerPixel;
+        return (_data[i]*29 + _data[i+1]*150 + _data[i+2]*77) >> 8;
     }
 
     /// <summary>Mean RGB of the square patch around (x, y), clipped to the image.</summary>

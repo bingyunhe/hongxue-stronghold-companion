@@ -6,6 +6,7 @@
   "strategies": [
     {
       "id": "band_amiya",
+      "bandType": "GENERAL",
       "name": "众志合一",
       "initiator": "阿米娅",
       "iconPath": "icons/strategies/band_amiya.png",
@@ -16,6 +17,7 @@
     },
     {
       "id": "band_sarkazb",
+      "bandType": "GENERAL",
       "name": "坚不可摧",
       "initiator": "歌利亚",
       "iconPath": "icons/strategies/band_sarkazb.png",
@@ -26,6 +28,7 @@
     },
     {
       "id": "band_emperor",
+      "bandType": "GENERAL",
       "name": "加急调派",
       "initiator": "大帝",
       "iconPath": "icons/strategies/band_emperor.png",
@@ -36,6 +39,7 @@
     },
     {
       "id": "band_qalaisa",
+      "bandType": "GENERAL",
       "name": "食腐之蝶",
       "initiator": "卡莱莎",
       "iconPath": "icons/strategies/band_qalaisa.png",
@@ -46,6 +50,7 @@
     },
     {
       "id": "band_ioleta",
+      "bandType": "GENERAL",
       "name": "统御号令",
       "initiator": "伊奥莱塔·罗素",
       "iconPath": "icons/strategies/band_ioleta.png",
@@ -56,6 +61,7 @@
     },
     {
       "id": "band_survive",
+      "bandType": "GENERAL",
       "name": "意志鼓舞",
       "initiator": "百炼嘉维尔",
       "iconPath": "icons/strategies/band_survive.png",
@@ -66,6 +72,7 @@
     },
     {
       "id": "band_price",
+      "bandType": "GENERAL",
       "name": "内部货源",
       "initiator": "天空盒",
       "iconPath": "icons/strategies/band_price.png",
@@ -76,6 +83,7 @@
     },
     {
       "id": "band_transfer",
+      "bandType": "GENERAL",
       "name": "纸片替身",
       "initiator": "风丸",
       "iconPath": "icons/strategies/band_transfer.png",
@@ -86,6 +94,7 @@
     },
     {
       "id": "band_dance",
+      "bandType": "GENERAL",
       "name": "溃心领域",
       "initiator": "妮芙",
       "iconPath": "icons/strategies/band_dance.png",
@@ -98,6 +107,7 @@
     },
     {
       "id": "band_copy",
+      "bandType": "GENERAL",
       "name": "幻画为真",
       "initiator": "夕",
       "iconPath": "icons/strategies/band_copy.png",
@@ -108,6 +118,7 @@
     },
     {
       "id": "band_jenga",
+      "bandType": "GENERAL",
       "name": "条文修正",
       "initiator": "但书",
       "iconPath": "icons/strategies/band_jenga.png",
@@ -120,6 +131,7 @@
     },
     {
       "id": "band_evolve",
+      "bandType": "GENERAL",
       "name": "全场聚焦",
       "initiator": "大嘴莫布",
       "iconPath": "icons/strategies/band_evolve.png",
@@ -130,6 +142,7 @@
     },
     {
       "id": "band_jesica",
+      "bandType": "GENERAL",
       "name": "集结指示",
       "initiator": "杰西卡",
       "iconPath": "icons/strategies/band_jesica.png",
@@ -142,6 +155,7 @@
     },
     {
       "id": "band_takecare",
+      "bandType": "GENERAL",
       "name": "重点监护",
       "initiator": "华法琳",
       "iconPath": "icons/strategies/band_takecare.png",
@@ -152,6 +166,7 @@
     },
     {
       "id": "band_shield",
+      "bandType": "GENERAL",
       "name": "药枚实验",
       "initiator": "桑葚",
       "iconPath": "icons/strategies/band_shield.png",
@@ -162,6 +177,7 @@
     },
     {
       "id": "band_smith",
+      "bandType": "GENERAL",
       "name": "全力熔铸",
       "initiator": "奥达",
       "iconPath": "icons/strategies/band_smith.png",
@@ -174,6 +190,7 @@
     },
     {
       "id": "band_weakness",
+      "bandType": "GENERAL",
       "name": "以己之长",
       "initiator": "陈",
       "iconPath": "icons/strategies/band_weakness.png",
@@ -184,6 +201,7 @@
     },
     {
       "id": "band_lmlee",
+      "bandType": "GENERAL",
       "name": "得闲饮茶",
       "initiator": "老鲤",
       "iconPath": "icons/strategies/band_lmlee.png",
@@ -194,6 +212,7 @@
     },
     {
       "id": "band_fang",
+      "bandType": "GENERAL",
       "name": "协力共进",
       "initiator": "芬",
       "iconPath": "icons/strategies/band_fang.png",
@@ -206,6 +225,7 @@
     },
     {
       "id": "band_amedic",
+      "bandType": "GENERAL",
       "name": "外勤医疗",
       "initiator": "Touch",
       "iconPath": "icons/strategies/band_amedic.png",
@@ -216,6 +236,7 @@
     },
     {
       "id": "band_mech",
+      "bandType": "GENERAL",
       "name": "暴躁铁皮",
       "initiator": "森蚺",
       "iconPath": "icons/strategies/band_mech.png",
@@ -228,6 +249,7 @@
     },
     {
       "id": "band_treasure",
+      "bandType": "GENERAL",
       "name": "宝藏探机",
       "initiator": "寻宝人",
       "iconPath": "icons/strategies/band_treasure.png",
@@ -240,6 +262,7 @@
     },
     {
       "id": "band_upgrade",
+      "bandType": "GENERAL",
       "name": "至纯凝结",
       "initiator": "缪尔赛思",
       "iconPath": "icons/strategies/band_upgrade.png",
@@ -250,6 +273,7 @@
     },
     {
       "id": "band_breakaway",
+      "bandType": "GENERAL",
       "name": "消解空间",
       "initiator": "Misery",
       "iconPath": "icons/strategies/band_breakaway.png",
@@ -262,6 +286,7 @@
     },
     {
       "id": "band_damaztic",
+      "bandType": "GENERAL",
       "name": "变形同构",
       "initiator": "“变形者集群”",
       "iconPath": "icons/strategies/band_damaztic.png",
@@ -274,6 +299,7 @@
     },
     {
       "id": "band_fund",
+      "bandType": "GENERAL",
       "name": "私募基金",
       "initiator": "小贾斯汀",
       "iconPath": "icons/strategies/band_fund.png",
@@ -284,6 +310,7 @@
     },
     {
       "id": "band_gain",
+      "bandType": "GENERAL",
       "name": "御守之力",
       "initiator": "铃兰",
       "iconPath": "icons/strategies/band_gain.png",
@@ -294,6 +321,7 @@
     },
     {
       "id": "band_prepfin",
+      "bandType": "GENERAL",
       "name": "强制休整",
       "initiator": "苏苏洛",
       "iconPath": "icons/strategies/band_prepfin.png",
@@ -304,6 +332,7 @@
     },
     {
       "id": "band_mess",
+      "bandType": "GENERAL",
       "name": "不稳定要素",
       "initiator": "昆图斯",
       "iconPath": "icons/strategies/band_mess.png",
@@ -316,6 +345,7 @@
     },
     {
       "id": "band_protect",
+      "bandType": "GENERAL",
       "name": "献身护卫",
       "initiator": "信仰搅拌机",
       "iconPath": "icons/strategies/band_protect.png",
@@ -348,6 +378,7 @@
     },
     {
       "id": "band_random",
+      "bandType": "GENERAL",
       "name": "好多委托！",
       "initiator": "“追随者们”",
       "iconPath": "icons/strategies/band_random.png",
@@ -360,6 +391,7 @@
     },
     {
       "id": "band_cannot",
+      "bandType": "GENERAL",
       "name": "利滚利",
       "initiator": "坎诺特",
       "iconPath": "icons/strategies/band_cannot.png",
@@ -370,6 +402,7 @@
     },
     {
       "id": "band_ducklord",
+      "bandType": "GENERAL",
       "name": "“神秘顾客”",
       "initiator": "鸭爵",
       "iconPath": "icons/strategies/band_ducklord.png",
@@ -382,6 +415,7 @@
     },
     {
       "id": "band_rich",
+      "bandType": "GENERAL",
       "name": "最佳品味",
       "initiator": "琳琅诗怀雅",
       "iconPath": "icons/strategies/band_rich.png",
@@ -394,6 +428,7 @@
     },
     {
       "id": "band_substitute",
+      "bandType": "GENERAL",
       "name": "替身娃娃",
       "initiator": "巫恋",
       "iconPath": "icons/strategies/band_substitute.png",
@@ -406,6 +441,7 @@
     },
     {
       "id": "band_sell",
+      "bandType": "GENERAL",
       "name": "东之极道",
       "initiator": "三船光平",
       "iconPath": "icons/strategies/band_sell.png",
@@ -418,6 +454,7 @@
     },
     {
       "id": "band_support",
+      "bandType": "GENERAL",
       "name": "人才锁定",
       "initiator": "雅拉",
       "iconPath": "icons/strategies/band_support.png",
@@ -430,6 +467,7 @@
     },
     {
       "id": "band_high",
+      "bandType": "GENERAL",
       "name": "专享情报",
       "initiator": "渡桥",
       "iconPath": "icons/strategies/band_high.png",
@@ -442,6 +480,7 @@
     },
     {
       "id": "band_equipment",
+      "bandType": "GENERAL",
       "name": "精巧设计",
       "initiator": "Mechanist",
       "iconPath": "icons/strategies/band_equipment.png",
@@ -454,6 +493,7 @@
     },
     {
       "id": "band_pudd",
+      "bandType": "GENERAL",
       "name": "电气化！",
       "initiator": "布丁",
       "iconPath": "icons/strategies/band_pudd.png",
@@ -466,6 +506,7 @@
     },
     {
       "id": "band_closeout",
+      "bandType": "GENERAL",
       "name": "打包速递",
       "initiator": "拜松",
       "iconPath": "icons/strategies/band_closeout.png",
@@ -478,6 +519,7 @@
     },
     {
       "id": "band_pith",
+      "bandType": "GENERAL",
       "name": "优等生",
       "initiator": "Pith",
       "iconPath": "icons/strategies/band_pith.png",
@@ -488,6 +530,7 @@
     },
     {
       "id": "band_limit",
+      "bandType": "GENERAL",
       "name": "正直教官",
       "initiator": "坚雷",
       "iconPath": "icons/strategies/band_limit.png",
@@ -500,6 +543,7 @@
     },
     {
       "id": "band_bonus",
+      "bandType": "GENERAL",
       "name": "二重奏",
       "initiator": "复奏",
       "iconPath": "icons/strategies/band_bonus.png",
@@ -512,6 +556,7 @@
     },
     {
       "id": "band_yan2",
+      "bandType": "BONDRELEVANT",
       "name": "黑白相易",
       "initiator": "望",
       "iconPath": "icons/strategies/band_yan2.png",
@@ -524,6 +569,7 @@
     },
     {
       "id": "band_yan",
+      "bandType": "BONDRELEVANT",
       "name": "广交豪杰",
       "initiator": "杜遥夜",
       "iconPath": "icons/strategies/band_yan.png",
@@ -534,6 +580,7 @@
     },
     {
       "id": "band_sargon",
+      "bandType": "BONDRELEVANT",
       "name": "沙洲梦魇",
       "initiator": "娜仁图亚",
       "iconPath": "icons/strategies/band_sargon.png",
@@ -546,6 +593,7 @@
     },
     {
       "id": "band_pepe",
+      "bandType": "BONDRELEVANT",
       "name": "博学多通",
       "initiator": "佩佩",
       "iconPath": "icons/strategies/band_pepe.png",
@@ -556,6 +604,7 @@
     },
     {
       "id": "band_victoria",
+      "bandType": "BONDRELEVANT",
       "name": "自发制造",
       "initiator": "洛洛",
       "iconPath": "icons/strategies/band_victoria.png",
@@ -568,6 +617,7 @@
     },
     {
       "id": "band_harold",
+      "bandType": "BONDRELEVANT",
       "name": "人才盲盒",
       "initiator": "哈洛德",
       "iconPath": "icons/strategies/band_harold.png",
@@ -578,6 +628,7 @@
     },
     {
       "id": "band_egir",
+      "bandType": "BONDRELEVANT",
       "name": "猎人战法",
       "initiator": "歌蕾蒂娅",
       "iconPath": "icons/strategies/band_egir.png",
@@ -590,6 +641,7 @@
     },
     {
       "id": "band_clementia",
+      "bandType": "BONDRELEVANT",
       "name": "崇高牺牲",
       "initiator": "克莱门莎",
       "iconPath": "icons/strategies/band_clementia.png",
@@ -600,6 +652,7 @@
     },
     {
       "id": "band_kazimier",
+      "bandType": "BONDRELEVANT",
       "name": "骑士团长",
       "initiator": "焰尾",
       "iconPath": "icons/strategies/band_kazimier.png",
@@ -612,6 +665,7 @@
     },
     {
       "id": "band_mlynar",
+      "bandType": "BONDRELEVANT",
       "name": "业务指标",
       "initiator": "玛恩纳",
       "iconPath": "icons/strategies/band_mlynar.png",
@@ -622,6 +676,7 @@
     },
     {
       "id": "band_kjerag2",
+      "bandType": "BONDRELEVANT",
       "name": "不融信念",
       "initiator": "耶拉",
       "iconPath": "icons/strategies/band_kjerag2.png",
@@ -634,6 +689,7 @@
     },
     {
       "id": "band_kjerag",
+      "bandType": "BONDRELEVANT",
       "name": "雪域礼赠",
       "initiator": "休露丝",
       "iconPath": "icons/strategies/band_kjerag.png",
@@ -644,6 +700,7 @@
     },
     {
       "id": "band_siracusa",
+      "bandType": "BONDRELEVANT",
       "name": "量体裁衣",
       "initiator": "裁度",
       "iconPath": "icons/strategies/band_siracusa.png",
@@ -656,6 +713,7 @@
     },
     {
       "id": "band_bond",
+      "bandType": "BONDRELEVANT",
       "name": "团伙行动",
       "initiator": "贾维",
       "iconPath": "icons/strategies/band_bond.png",
@@ -666,6 +724,7 @@
     },
     {
       "id": "band_lethania",
+      "bandType": "BONDRELEVANT",
       "name": "流动乐章",
       "initiator": "车尔尼",
       "iconPath": "icons/strategies/band_lethania.png",
@@ -676,6 +735,7 @@
     },
     {
       "id": "band_ursus",
+      "bandType": "BONDRELEVANT",
       "name": "无惧风雪",
       "initiator": "怒潮凛冬",
       "iconPath": "icons/strategies/band_ursus.png",
@@ -686,6 +746,7 @@
     },
     {
       "id": "band_iberia",
+      "bandType": "BONDRELEVANT",
       "name": "出航时刻",
       "initiator": "引星棘刺",
       "iconPath": "icons/strategies/band_iberia.png",

@@ -33,7 +33,7 @@ public sealed class ShopEconomyReader(IOcrEngine ocr)
     private const double BadgeHeight = 38;
 
     private static readonly Regex RoundInline = new(@"回合\D{0,2}(\d{1,2})$", RegexOptions.Compiled);
-    private static readonly Regex ModeName = new(@"^[^\p{L}\p{N}]*(规程等级\d{1,2}|[一-龥]{2}模拟)$", RegexOptions.Compiled);
+    private static readonly Regex ModeName = new(@"^[^\p{L}\p{N}]*(规程等级\d{1,2}|入门协议|[一-龥]{2}模拟)$", RegexOptions.Compiled);
 
     public async Task<ShopEconomy> ReadAsync(byte[] png, int width, int height)
     {
@@ -58,19 +58,43 @@ public sealed class ShopEconomyReader(IOcrEngine ocr)
             cost = await ReadBadgeAsync(png, center - (int)(26 * k), height, k, (int)(52 * k));
         }
         // Skip the coin icon at the badge's left; it pulls the recogniser towards letters.
-        var money = await ReadBadgeAsync(png, width - (int)(120 * k), height, k, (int)(48 * k));
+        var money = preparation ? await ReadMoneyAsync(png, width, height)
+            : await ReadBadgeAsync(png, width - (int)(120 * k), height, k, (int)(48 * k));
         return new(round, money, cost, maxed, mode, preparation);
     }
 
     /// <summary>Rechecks only funds while the same shop layout remains open.</summary>
-    public Task<int?> ReadMoneyAsync(byte[] png, int width, int height)
-        => ReadBadgeAsync(png, width - (int)(120 * _hudScale), height, _hudScale, (int)(48 * _hudScale));
+    public async Task<int?> ReadMoneyAsync(byte[] png, int width, int height)
+    {
+        double scale = _hudScale;
+        int x = width - (int)(120 * scale), w = (int)(48 * scale);
+        // Leave room for the left stroke of 0 and the leading 1 of 15 at UI 90 in 16:10.
+        int y = height - (int)((BadgeFromBottom - 1) * scale);
+        var inner = await ocr.RecognizeLineAsync(png, x-(int)(7*scale), y, w+(int)(7*scale), (int)((BadgeHeight - 6) * scale));
+        return Number(inner) ?? await ReadBadgeAsync(png, x, height, scale, w);
+    }
+
+    internal async Task<ShopEconomy> ReadPreparationAsync(byte[] png, int width, int height)
+    {
+        double scale = Math.Min(width / 1920d, height / 1080d);
+        var (round, mode, preparation) = await ReadTopAsync(png, width, height, scale);
+        if (preparation && round is null)
+        {
+            // The compact round badge can be omitted by the wide HUD text detector.
+            var line = await ocr.RecognizeLineAsync(png, width / 2 - (int)(211 * scale), (int)(33 * scale),
+                (int)(36 * scale), (int)(24 * scale));
+            if (Number(line) is > 0 and <= 15 and var inferred) round = inferred;
+        }
+        return new(round, null, null, false, mode, preparation);
+    }
 
     /// <summary>Fresh round, preparation phase and funds for a pending purchase; reuse the measured HUD scale.</summary>
     public async Task<ShopEconomy> ReadPurchaseAsync(byte[] png, int width, int height, ShopEconomy previous)
     {
         var (round, mode, preparation) = await ReadTopAsync(png, width, height, Math.Min(width / 1920.0, height / 1080.0));
-        return previous with { Round = round, Mode = mode, IsPreparation = preparation, Money = await ReadMoneyAsync(png, width, height) };
+        var money = preparation && round == previous.Round && mode == previous.Mode
+            ? await ReadMoneyAsync(png, width, height) : null;
+        return previous with { Round = round, Mode = mode, IsPreparation = preparation, Money = money };
     }
 
     /// <summary>
@@ -130,6 +154,13 @@ public sealed class ShopEconomyReader(IOcrEngine ocr)
             round = Number(line);
             round ??= Number(top.Where(t => t.Box.X > label.Box.X + label.Box.W && t.Box.X < label.Box.X + label.Box.W + 80 * s
                 && Math.Abs(t.Box.Y - label.Box.Y) < 20 * s).OrderBy(t => t.Box.X).Take(1).ToList());
+        }
+        if (!preparation && round is > 0 and < 100 && mode is not null)
+        {
+            // During co-op the wide HUD detector can omit the text beside the skull.
+            var phase = await ocr.RecognizeLineAsync(png, width / 2 - (int)Math.Round(27*s), (int)Math.Round(27*s),
+                (int)Math.Round(122*s), (int)Math.Round(36*s));
+            preparation = phase.Any(t => t.Text.Contains("休息", StringComparison.Ordinal) || t.Text.Contains("休整", StringComparison.Ordinal));
         }
         return (round is > 0 and < 100 ? round : null, mode, preparation);
     }

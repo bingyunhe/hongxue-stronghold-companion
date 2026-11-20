@@ -1,0 +1,379 @@
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Polyline = System.Windows.Shapes.Polyline;
+using ASPAssistant.App;
+using ASPAssistant.App.Views;
+using ASPAssistant.Core.Data;
+using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
+using ASPAssistant.Core.ViewModels;
+using ASPAssistant.Tests.Services;
+
+namespace ASPAssistant.Tests.Views;
+
+internal static class RoundRoutesViewTests
+{
+    internal static void VerifyLiveRecommendations(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var source = GarrisonRoundRoutesTests.DataDirectory;
+        var maps = GarrisonBoardStore.LoadAsync(source).GetAwaiter().GetResult();
+        var operators = new JsonDataStore(source).LoadOperatorsAsync().GetAwaiter().GetResult()
+            .GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First());
+        var manual = new DeployPoolState { Owned = ["杰克", "砾"] };
+        var deploy = new DeployView();
+        var dir = Path.Combine(Path.GetTempPath(), $"live-plans-{Guid.NewGuid():N}");
+        deploy.Initialize(operators, [], maps, new TrackingViewModel(), new SettingsManager(dir), manual, false);
+        var host = new Window { Content = deploy, Width = 330, Height = 590, Opacity = 0, ShowInTaskbar = false, ShowActivated = false };
+        try
+        {
+            host.Show();
+            var modes = (ListBox)deploy.FindName("ModeList");
+            modes.SelectedIndex = 0;
+            var field = new FieldMark(new(1, 3), 1, new(400, 330), [], null);
+            var bench = field with { Slot = new(3, -1) };
+            var units = new LiveUnit[] { new(field, 1, "杰克", null, false, false),
+                new(bench, 2, null, null, false, false), new(field with { Slot = new(2,3) }, 3, "杰克", null, false, false) };
+            deploy.ShowLiveRoster(new("desert_crates", 8, units));
+            for (int mode = 1; mode <= 3; mode++)
+            {
+                modes.SelectedIndex = mode;
+                AwaitPlan(mode == 1 ? 3 : 4);
+                if (mode == 1)
+                {
+                    units = [units[0], units[1] with { Name = "风丸", Manual = true }, units[2]];
+                    deploy.ShowLiveRoster(new("desert_crates", 8, units));
+                    AwaitPlan(4);
+                }
+                var plan = deploy.CurrentPlan!;
+                var names = plan.Placed.Select(u => u.Key).Concat(plan.Bench.Select(u => u.Name)).ToList();
+                Assert.Contains("杰克#2", names);
+                Assert.Contains("风丸", names);
+                Assert.Contains("砾", names);
+                Assert.NotEmpty(((System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("OperatorGrid")).Children);
+                host.UpdateLayout();
+                var image = new RenderTargetBitmap((int)deploy.ActualWidth, (int)deploy.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                image.Render(deploy);
+                var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
+                using var file = File.Create(Path.Combine(TestOutput.Directory, $"recommendation-{mode}-Closure-{night}.png"));
+                png.Save(file);
+            }
+            deploy.ShowLiveRoster(new(null, null, []));
+            deploy.SetRecognizedBoard(new(maps!.Find("desert_crates")!, BoardCamera.Expanded, 1, 1));
+            AwaitPlan(2);
+            Assert.Equal(new[] { "杰克", "砾" }, manual.Owned);
+        }
+        finally { host.Close(); }
+
+        void AwaitPlan(int count)
+        {
+            var previous = deploy.CurrentPlan;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            while (ReferenceEquals(previous, deploy.CurrentPlan) || deploy.CurrentPlan is not { } plan || plan.Placed.Count + plan.Bench.Count != count)
+            {
+                Assert.True(timer.Elapsed < TimeSpan.FromSeconds(6), $"推荐阵容未更新到 {count} 人");
+                var frame = new System.Windows.Threading.DispatcherFrame();
+                var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
+                tick.Tick += (_, _) => { tick.Stop(); frame.Continue = false; };
+                tick.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
+            }
+        }
+    }
+
+    internal static void VerifyPlayback(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        string data = GarrisonRoundRoutesTests.DataDirectory;
+        var deploy = new DeployView();
+        deploy.Initialize(new Dictionary<string, Operator>(), [], GarrisonBoardStore.LoadAsync(data).GetAwaiter().GetResult(),
+            new TrackingViewModel(), new SettingsManager(Path.Combine(Path.GetTempPath(), "route-playback")),
+            new DeployPoolState { ManualMap = "desert_cactus" }, false, GarrisonRoundRouteStore.LoadAsync(data).GetAwaiter().GetResult());
+        var surface = new Border { Child = deploy, Background = (Brush)deploy.FindResource("PanelBackgroundBrush") };
+        var host = new Window { Content = surface, Width = 280, Height = 660, WindowStyle = WindowStyle.None,
+            ShowActivated = false, ShowInTaskbar = false, Opacity = 0, Left = -20000, Top = -20000 };
+        host.Show();
+        var hud = new ShopEconomy(9, 0, 0, false, "规程等级13", true);
+        var card = (RoundEnemyCard)deploy.FindName("RoundEnemyPanel");
+        var details = (StackPanel)deploy.FindName("RouteDetails");
+        var canvas = (Canvas)deploy.FindName("BoardCanvas");
+        foreach (bool flying in new[] { false, true })
+        {
+            var roster = flying ? new RoundEnemyInfo(9, ["妖怪", "妖怪MKII", "威龙"])
+                : new RoundEnemyInfo(9, ["深池逐火战士", "深池逐火精锐战士", "深池逐火护卫"]) { Bounties = ["W"] };
+            card.DataContext = new EnemyViewModel { RoundEnemies = roster };
+            deploy.SetRoundRouteContext(hud, roster);
+            host.UpdateLayout();
+            int phases = flying ? 3 : 2;
+            var headers = details.Children.OfType<TextBlock>().Select(t => t.Text).ToArray();
+            Assert.Contains(flying ? "上口 · 12 只" : "上口 · 6 只", headers);
+            Assert.Contains(flying ? "下口 · 7 只" : "下口 · 14 只", headers);
+            if (!flying) Assert.Contains("悬赏 W · 出怪口待确认", headers);
+            var arrow = Assert.Single(canvas.Children.OfType<System.Windows.Shapes.Polygon>());
+            for (int i = 0; i < phases; i++)
+            {
+                Pump(i == 0 ? 300 : 2000);
+                var active = Assert.Single(details.Children.OfType<Border>(), r => r.Background is not null);
+                Assert.Same(details.Children.OfType<Border>().ElementAt(i), active);
+                Assert.Equal(Visibility.Visible, arrow.Visibility);
+                Assert.Equal($"{i + 1} / {phases}", ((TextBlock)deploy.FindName("RoutePhaseNumber")).Text);
+                var matrix = ((MatrixTransform)arrow.RenderTransform).Matrix;
+                var routeLine = canvas.Children.OfType<Polyline>().First(p => ReferenceEquals(p.Tag, active.Tag));
+                Assert.True((new Point(matrix.OffsetX, matrix.OffsetY) - routeLine.Points[0]).Length > 1);
+                foreach (var scale in new[] { 1d, 1.25 })
+                {
+                    deploy.LayoutTransform = new ScaleTransform(scale, scale);
+                    host.Width = 280 * scale;
+                    host.Height = 660 * scale;
+                    host.UpdateLayout();
+                    var view = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    view.Render(surface);
+                    var png = new PngBitmapEncoder();
+                    png.Frames.Add(BitmapFrame.Create(view));
+                    using var file = File.Create(Path.Combine(TestOutput.Directory, $"gate-{flying}-{night}-{i}-{scale}.png"));
+                    png.Save(file);
+                    Assert.True(active.ActualWidth <= details.ActualWidth + 1);
+                }
+            }
+            deploy.Visibility = Visibility.Collapsed;
+            Assert.False(((MatrixTransform)arrow.RenderTransform).HasAnimatedProperties);
+            deploy.Visibility = Visibility.Visible;
+        }
+        deploy.SetRoundRouteContext(hud with { Round = 10 }, null);
+        Assert.Empty(details.Children);
+        host.Close();
+
+        static void Pump(int milliseconds)
+        {
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
+            timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+        }
+    }
+    internal static void VerifyRecognitionCards(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var model = new EnemyViewModel();
+        var deploy = new DeployView();
+        var info = new EnemyView { DataContext = model };
+        var mapCard = (RoundEnemyCard)deploy.FindName("RoundEnemyPanel");
+        var infoCard = (RoundEnemyCard)info.FindName("RoundEnemyPanel");
+        mapCard.DataContext = model;
+        var source = GarrisonRoundRoutesTests.DataDirectory;
+        deploy.Initialize(new Dictionary<string, Operator>(), [], GarrisonBoardStore.LoadAsync(source).GetAwaiter().GetResult(),
+            new TrackingViewModel(), new SettingsManager(Path.Combine(Path.GetTempPath(), "enemy-card-test")),
+            new DeployPoolState { ManualMap = "desert_crates" }, false);
+        var window = new Window { Width = 280, Height = 550, WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+            ShowActivated = false, Opacity = 0, Left = -20000, Top = -20000, Content = deploy };
+        window.Show();
+        var cards = new[] { (View: (FrameworkElement)deploy, Card: mapCard, Name: "map"),
+            (View: (FrameworkElement)info, Card: infoCard, Name: "run") };
+        var clicks = 0;
+        model.RoundEnemyReadRequested += () =>
+        {
+            clicks++;
+            model.RoundEnemies = new RoundEnemyInfo(2, []) { IsReading = true, Hint = "正在识别小怪，请保持游戏窗口可见。" };
+        };
+        foreach (var (view, card, name) in cards)
+        {
+            window.Content = view;
+            var button = (Button)card.FindName("ReadButton");
+            var text = (TextBlock)card.FindName("SummaryText");
+            model.RoundEnemies = new(2, []);
+            window.UpdateLayout();
+            Assert.True(button.IsEnabled);
+            button.Command.Execute(null);
+            window.UpdateLayout();
+            Assert.Contains("正在识别", text.Text);
+            Assert.False(button.IsEnabled);
+            model.RoundEnemies = new(2, ["猎狗pro"]);
+            Assert.Equal("第 2 回合 · 猎狗pro", text.Text);
+            model.RoundEnemies = new(14, ["宿主重装士兵", "堂皇", "“余音”"]) { Leaders = ["假想敌：管"] };
+            Assert.Contains("领袖 · 假想敌：管", text.Text);
+            model.RoundEnemies = new(3, ["宿主士兵", "步兵"])
+            {
+                Bounties = ["磨砻"], IsPartial = true, Hint = "尚未确认到底，向下滚动可继续补录。"
+            };
+            foreach (var scale in new[] { 1d, 1.25 })
+            {
+                window.Width = 280 * scale;
+                view.LayoutTransform = new ScaleTransform(scale, scale);
+                window.UpdateLayout();
+                Assert.Contains("悬赏 · 磨砻", text.Text);
+                Assert.Contains("部分识别", text.Text);
+                Assert.True(button.IsVisible);
+                var bounds = button.TransformToAncestor(card).TransformBounds(new Rect(button.RenderSize));
+                Assert.True(bounds.Right <= card.ActualWidth + 1);
+                if (ReferenceEquals(card, mapCard))
+                {
+                    var header = (Border)deploy.FindName("MapHeaderCard");
+                    var modes = (ListBox)deploy.FindName("ModeList");
+                    Assert.True(header.TranslatePoint(new Point(0, header.ActualHeight), deploy).Y <= card.TranslatePoint(new Point(), deploy).Y);
+                    Assert.True(card.TranslatePoint(new Point(0, card.ActualHeight), deploy).Y <= modes.TranslatePoint(new Point(), deploy).Y);
+                }
+                var surface = ReferenceEquals(card, mapCard) ? view : card;
+                var size = new Rect(surface.RenderSize);
+                var drawing = new DrawingVisual();
+                using (var dc = drawing.RenderOpen())
+                {
+                    dc.DrawRectangle((Brush)view.FindResource("PanelBackgroundBrush"), null, size);
+                    dc.DrawRectangle(new VisualBrush(surface), null, size);
+                }
+                var image = new RenderTargetBitmap((int)Math.Ceiling(size.Width * scale), (int)Math.Ceiling(size.Height * scale),
+                    96 * scale, 96 * scale, PixelFormats.Pbgra32);
+                image.Render(drawing);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using var stream = File.Create(Path.Combine(TestOutput.Directory, $"round-enemy-{name}-Closure-{night}-{scale}.png"));
+                encoder.Save(stream);
+            }
+        }
+        Assert.Equal(2, clicks);
+        window.Close();
+    }
+
+    internal static void Verify(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var source = GarrisonRoundRoutesTests.DataDirectory;
+        var board = GarrisonBoardStore.LoadAsync(source).GetAwaiter().GetResult();
+        var store = GarrisonRoundRouteStore.LoadAsync(source).GetAwaiter().GetResult();
+        var deploy = new DeployView();
+        var actualOps = new JsonDataStore(source).LoadOperatorsAsync().GetAwaiter().GetResult().GroupBy(o=>o.Name).ToDictionary(g=>g.Key,g=>g.First());
+        deploy.Initialize(actualOps, [], board, new TrackingViewModel(),
+            new SettingsManager(Path.Combine(Path.GetTempPath(), $"round-routes-{Guid.NewGuid():N}")),
+            new DeployPoolState { ManualMap = "desert_crates" }, false, store);
+        var panel = (Brush)deploy.FindResource("PanelBackgroundBrush");
+        var surface = new Border { Background = panel, Child = deploy };
+        var host = new Window { Content = surface, Width = 294, Height = 520, WindowStyle = WindowStyle.None,
+            ShowInTaskbar = false, ShowActivated = false, Opacity = 0, Left = -20000, Top = -20000 };
+        host.Show();
+        var canvas = (Canvas)deploy.FindName("BoardCanvas");
+        var status = (TextBlock)deploy.FindName("RoundRouteStatus");
+        var card = (Border)deploy.FindName("BoardCard");
+        var hud = new ShopEconomy(1, 4, 5, false, "规程等级7", true);
+        var roster = new RoundEnemyInfo(1, ["源石虫", "普通囚犯"]);
+        GarrisonRoundRoute[] Lines() => canvas.Children.OfType<Polyline>().Select(line => line.Tag)
+            .OfType<GarrisonRoundRoute>().ToArray();
+
+        deploy.SetRoundRouteContext(hud, null);
+        Assert.Contains("等待敌人名单", status.Text);
+        Assert.NotEmpty(Lines());
+        Assert.All(Lines(), line => Assert.True(line.Candidate));
+        Save("pending");
+
+        deploy.SetRoundRouteContext(hud, new RoundEnemyInfo(1, ["误读"]));
+        Assert.Contains("名单未匹配", status.Text);
+        Assert.NotEmpty(Lines());
+        Assert.All(canvas.Children.OfType<Polyline>(), line => Assert.NotEmpty(line.StrokeDashArray));
+        Save("unmatched");
+
+        deploy.SetRoundRouteContext(hud, roster with { IsPartial = true });
+        Assert.False(Assert.Single(Lines()).Candidate);
+        Assert.Contains("按怪组推算，名单待补全", status.Text);
+        Save("inferred");
+
+        deploy.SetRoundRouteContext(hud, roster);
+        var confirmed = Assert.Single(Lines());
+        Assert.Equal("第 1 回合 · 下路地面路线", status.Text);
+        Assert.False(confirmed.Candidate);
+        var rendered = Assert.Single(canvas.Children.OfType<Polyline>());
+        deploy.SetRoundRouteContext(hud with { Money = 3 }, new RoundEnemyInfo(1, roster.Names.ToArray()));
+        Assert.Same(rendered, Assert.Single(canvas.Children.OfType<Polyline>()));
+        Save("confirmed");
+
+        deploy.SetRoundRouteContext(hud with { Round = 2 }, roster);
+        Assert.Contains("等待敌人名单", status.Text);
+        Assert.NotEmpty(Lines());
+        Assert.DoesNotContain(rendered, canvas.Children.OfType<Polyline>());
+        Assert.All(Lines(), line => Assert.True(line.Candidate));
+        Save("next-round");
+
+        deploy.SetRoundRouteContext(hud with { Round = 14 }, null);
+        var stage = (Canvas)deploy.FindName("StageRoutesCanvas");
+        Assert.NotEmpty(stage.Children.OfType<Polyline>());
+        Assert.All(stage.Children.OfType<Polyline>(), line => Assert.NotEmpty(line.StrokeDashArray));
+        deploy.SetRoundRouteContext(hud with { Round = 14 }, new RoundEnemyInfo(14, []) { Leaders = ["假想敌：胄"], IsPartial = true });
+        Assert.True(((Canvas)deploy.FindName("StageRoutesCanvas")).Children.Count > 100);
+        Assert.Contains("routes/", status.ToolTip.ToString());
+        Save("boss");
+
+        deploy.SetRoundRouteContext(hud,roster);
+        var modes = (ListBox)deploy.FindName("ModeList");
+        modes.SelectedIndex = 0;
+        var unknown = new FieldMark(new(2,1),2,new(100,200),[],null);
+        var gravel = new FieldMark(new(7,-1),2,new(500,400),[],"砾");
+        deploy.ShowLiveRoster(new("desert_crates",1,[new(unknown,1,null,null,false,false),new(gravel,2,"砾","砾",false,false),
+            new(new(new(0,2),1,new(450,350),[],null),3,"陨星",null,false,false) { FromPurchaseList = true } ]));
+        Assert.False(((ListBox)deploy.FindName("FieldCountList")).IsEnabled);
+        var bench = (System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("BenchRow");
+        Assert.Equal(10,bench.Children.Count);
+        Assert.Contains("右起第3席",((Border)bench.Children[7]).ToolTip.ToString());
+        Assert.Contains("购买与棋子外观匹配",((Border)bench.Children[7]).ToolTip.ToString());
+        Assert.Contains(canvas.Children.OfType<Border>(), t => t.ToolTip?.ToString()?.Contains("购买名单唯一匹配") == true);
+        Assert.Contains(canvas.Children.OfType<Border>(),t=>t.ToolTip?.ToString()?.Contains("身份待确认")==true);
+        Assert.True(((Button)deploy.FindName("ReadFieldButton")).IsEnabled);
+        Save("live-field");
+        deploy.ShowLiveRoster(new("desert_crates",1,[
+            new(new(new(0,3),1,new(450,350),[],"地灵"),8,"地灵",null,false,false),
+            new LiveUnit(new(new(1,3),1,new(520,350),[],null),9,"艾丝黛尔",null,false,false) { FromPurchaseList = true }
+        ]));
+        var inferredTile = Assert.Single(canvas.Children.OfType<Border>(), t => t.ToolTip?.ToString()?.Contains("购买名单唯一匹配") == true);
+        var tip = new ToolTip { Content = inferredTile.ToolTip, Style = (Style)deploy.FindResource(typeof(ToolTip)) };
+        // ToolTips live in a separate popup. Composite its rendered pixels over the real board.
+        tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        tip.Arrange(new Rect(tip.DesiredSize));
+        tip.UpdateLayout();
+        var popup = new System.Windows.Shapes.Rectangle { Width = tip.ActualWidth, Height = tip.ActualHeight, Fill = new VisualBrush(tip) };
+        Canvas.SetLeft(popup, 2);
+        Canvas.SetTop(popup, 36);
+        canvas.Children.Add(popup);
+        Save("live-identity");
+        canvas.Children.Remove(popup);
+        modes.SelectedIndex = 2;
+        Assert.True(((ListBox)deploy.FindName("FieldCountList")).IsEnabled);
+        Assert.DoesNotContain(canvas.Children.OfType<Border>(),t=>t.ToolTip?.ToString()?.Contains("身份待确认")==true);
+
+        var text = ((SolidColorBrush)status.Foreground).Color;
+        var cardColor = ((SolidColorBrush)card.Background).Color;
+        var panelColor = ((SolidColorBrush)panel).Color;
+        double alpha = cardColor.A / 255d;
+        var background = Color.FromRgb(
+            (byte)Math.Round(cardColor.R * alpha + panelColor.R * (1 - alpha)),
+            (byte)Math.Round(cardColor.G * alpha + panelColor.G * (1 - alpha)),
+            (byte)Math.Round(cardColor.B * alpha + panelColor.B * (1 - alpha)));
+        double a = Luminance(text), b = Luminance(background);
+        double ratio = (Math.Max(a, b) + .05) / (Math.Min(a, b) + .05);
+        Assert.True(ratio >= 4.5, $"Route label contrast is {ratio:F2}");
+        File.WriteAllText(Path.Combine(TestOutput.Directory, $"contrast-round-routes-Closure-{night}.json"),
+            JsonSerializer.Serialize(new { RouteStatus = ratio }));
+
+        void Save(string label)
+        {
+            foreach (var scale in new[] { 1d, 1.25 })
+            {
+                deploy.LayoutTransform = new ScaleTransform(scale, scale);
+                host.Width = 294 * scale;
+                host.Height = 520 * scale;
+                host.UpdateLayout();
+                var image = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                image.Render(surface);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using var file = File.Create(Path.Combine(TestOutput.Directory, $"round-routes-Closure-{night}-{label}-{scale}.png"));
+                encoder.Save(file);
+            }
+        }
+
+        static double Luminance(Color c)
+        {
+            static double Linear(byte value) => value / 255d <= .04045 ? value / 255d / 12.92
+                : Math.Pow((value / 255d + .055) / 1.055, 2.4);
+            return .2126 * Linear(c.R) + .7152 * Linear(c.G) + .0722 * Linear(c.B);
+        }
+    }
+}

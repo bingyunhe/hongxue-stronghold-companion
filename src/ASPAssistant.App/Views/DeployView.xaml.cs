@@ -35,6 +35,11 @@ public partial class DeployView : UserControl
     private IReadOnlyDictionary<string, Operator> _operators = new Dictionary<string, Operator>();
     private PlacementPlanner? _planner;
     private GarrisonBoardData? _board;
+    private GarrisonRoundRouteStore? _roundRouteStore;
+    private int? _routeRound;
+    private string? _routeMode, _routeMap;
+    private RoundEnemyInfo? _routeEnemies;
+    private GarrisonRoundRouteMatch? _routeMatch;
     private TrackingViewModel? _tracking;
     private SettingsManager? _settings;
     private DeployPoolState _state = new();
@@ -66,8 +71,10 @@ public partial class DeployView : UserControl
     public DeployView()
     {
         InitializeComponent();
+        _routeTimer.Tick += (_, _) => AdvanceRoute();
+        BoardCard.IsVisibleChanged += (_, _) => UpdateRoutePlayback();
         _replanTimer.Tick += (_, _) => { _replanTimer.Stop(); _ = ReplanAsync(); };
-        ModeList.SelectedIndex = 1;
+        ModeList.SelectedIndex = 2;
         FieldCountList.SelectedIndex = 0;
         IsVisibleChanged += (_, _) => { if (IsVisible && _ready && _plan is null) ScheduleReplan(); };
     }
@@ -90,6 +97,7 @@ public partial class DeployView : UserControl
         _plan = _recommended = null;
         _recognized = null;
         _lastSeen = null;
+        _roster = new(null, null, []);
         _tracking!.StartNewRun();
         SetStatus(null);
         RefreshAll();
@@ -98,18 +106,20 @@ public partial class DeployView : UserControl
     }
 
     public void Initialize(IReadOnlyDictionary<string, Operator> operators, IEnumerable<CovenantInfo> covenants,
-        GarrisonBoardData? board, TrackingViewModel tracking, SettingsManager settings, DeployPoolState state, bool showInGame)
+        GarrisonBoardData? board, TrackingViewModel tracking, SettingsManager settings, DeployPoolState state, bool showInGame,
+        GarrisonRoundRouteStore? roundRoutes = null)
     {
         _operators = operators;
         _planner = new PlacementPlanner(operators, covenants);
         _board = board;
+        _roundRouteStore = roundRoutes;
         _tracking = tracking;
         _settings = settings;
         _state = state;
         tracking.SetDeployPool(state);
         InGameToggle.IsChecked = showInGame;
         _suppressSelection = true;
-        ModeList.SelectedIndex = (int)state.Mode;
+        ModeList.SelectedIndex = 1 + (int)state.Mode;
         FieldCountList.SelectedIndex = state.FieldCount >= 9 ? 1 : 0;
         _suppressSelection = false;
         tracking.PropertyChanged += OnTrackingPropertyChanged;
@@ -136,10 +146,26 @@ public partial class DeployView : UserControl
         else RefreshHeader();
     }
 
+    public void SetRoundRouteContext(ShopEconomy? economy, RoundEnemyInfo? enemies)
+    {
+        var round = economy?.Round;
+        var mode = economy?.Mode;
+        if (enemies?.Round != round) enemies = null;
+        if (_routeRound == round && _routeMode == mode &&
+            (ReferenceEquals(_routeEnemies, enemies) || (_routeEnemies is not null && enemies is not null &&
+             _routeEnemies.IsPartial == enemies.IsPartial && _routeEnemies.Names.SequenceEqual(enemies.Names) && _routeEnemies.Leaders.SequenceEqual(enemies.Leaders)
+             && _routeEnemies.Bounties.SequenceEqual(enemies.Bounties)))) return;
+        _routeRound = round;
+        _routeMode = mode;
+        _routeEnemies = enemies;
+        _routeMap = null;
+        if (_ready && _shownPage == Page.Main) DrawBoard();
+    }
+
     private GarrisonMap? _lastSeen;
 
     private GarrisonMap? CurrentMap =>
-        _state.ManualMap is { } id && _board?.Find(id) is { } manual ? manual : _recognized?.Map ?? _lastSeen;
+        _state.ManualMap is { } id && _board?.Find(id) is { } manual ? manual : _recognized?.Map ?? (_roster.Map is { } liveMap ? _board?.Find(liveMap) : null) ?? _lastSeen;
 
     private void OnMapChanged()
     {
@@ -186,9 +212,16 @@ public partial class DeployView : UserControl
         DeployPoolBuilder.Build(_tracking?.DisplayOperators ?? [], _operators, _state);
 
     /// <summary>Owned operators; a duplicated operator gives one candidate per copy (keys 冻河, 冻河#2…).</summary>
-    private List<PlacementCandidate> Candidates() =>
-        [.. _state.Owned.Distinct().Where(_operators.ContainsKey)
-            .SelectMany(n => Enumerable.Range(0, _state.CountOf(n)).Select(k => new PlacementCandidate(n, _state.IsElite(n), k)))];
+    private List<PlacementCandidate> Candidates()
+    {
+        var counts = _state.Owned.Distinct().Where(_operators.ContainsKey)
+            .ToDictionary(name => name, _state.CountOf);
+        foreach (var group in _roster.Units.Where(u => u.Name is not null && _operators.ContainsKey(u.Name))
+                     .GroupBy(u => u.Name!).OrderBy(g => g.Key, StringComparer.Ordinal))
+            counts[group.Key] = Math.Max(counts.GetValueOrDefault(group.Key), group.Count());
+        return [.. counts.SelectMany(entry => Enumerable.Range(0, entry.Value)
+            .Select(k => new PlacementCandidate(entry.Key, _state.IsElite(entry.Key), k)))];
+    }
 
     private static string NameOf(string key) => PlacementKeys.NameOf(key);
     /// <summary>Display name of a key: 冻河#2 → 冻河②.</summary>
@@ -293,7 +326,7 @@ public partial class DeployView : UserControl
     private void RefreshAll()
     {
         if (!_ready) return;
-        var page = _page == Page.Pool ? Page.Pool : CurrentMap is null || _pickingMap ? Page.NoMap : Page.Main;
+        var page = _page == Page.Pool ? Page.Pool : DisplayMap is null || _pickingMap ? Page.NoMap : Page.Main;
         if (page != _shownPage)
         {
             // Pool / map picker come in from the right, the main view from the left.
@@ -309,6 +342,8 @@ public partial class DeployView : UserControl
         if (page == Page.NoMap) { RefreshNoMap(); return; }
         RefreshHeader();
         DrawBoard();
+        if (ShowingLive) { RefreshLiveRows(); return; }
+        BenchRow.Columns = 2;
         RefreshBench();
         RefreshPlanList();
         RefreshDetail();
@@ -316,7 +351,7 @@ public partial class DeployView : UserControl
 
     private void RefreshHeader()
     {
-        var map = CurrentMap;
+        var map = DisplayMap;
         MapName.Text = map?.Name ?? "未识别地图";
         bool manual = _state.ManualMap is not null;
         bool stale = !manual && _recognized is null && _lastSeen is not null;
@@ -332,6 +367,8 @@ public partial class DeployView : UserControl
             : _recognized is not null ? " · 商店收起"
             : stale ? " · 暂时没看到棋盘" : "";
         MapSubline.Text = $"{level}{camera}" + (finals.Count > 0 ? " · " + string.Join(" + ", covs) : " · 还没有追踪阵容");
+        if (ShowingLive) { SetLiveSummary(); return; }
+        PoolMeta.ToolTip = null;
         int owned = Candidates().Count;
         PoolSummary.Text = _plan is null ? "整备区" : $"整备区 · {_plan.Bench.Count} 人";
         PoolMeta.Text = _plan is null ? (owned == 0 ? "先在干员状态标记已获取" : $"已获取 {owned} 名") : $"上场 {_plan.Placed.Count} · 已获取 {owned} 名";
@@ -361,8 +398,14 @@ public partial class DeployView : UserControl
 
     private void DrawBoard()
     {
+        _routeArrowTransform.BeginAnimation(MatrixTransform.MatrixProperty, null);
+        _routeRows.Clear();
+        RouteDetails.Children.Clear();
         BoardCanvas.Children.Clear();
-        if (CurrentMap is not { } map) return;
+        StageRoutesCanvas.Children.Clear();
+        StageRoutesBox.Visibility = Visibility.Collapsed;
+        RoundRouteStatus.ToolTip = null;
+        if (DisplayMap is not { } map) return;
         int allCols = map.ColumnCount, rows = map.RowCount;
         // Rows / columns with nothing on them (every map's row E, columns 1, 11 and 12) are left out.
         while (rows > 1 && Enumerable.Range(0, allCols).All(c => map.Cells[rows - 1, c] == BoardCellType.Blocked)) rows--;
@@ -402,19 +445,92 @@ public partial class DeployView : UserControl
             Place(rect, CellX(map, cell.Col) + 1, T + cell.Row * S + 1);
         }
 
-        for (int k = 0; k < map.Routes.Count; k++)
+        if (_routeMap != map.Id)
         {
-            var route = map.Routes[k];
+            _routeIndex = 0;
+            _routeTimer.Stop();
+            _routeMap = map.Id;
+            _routeMatch = _routeRound is int round
+                ? _roundRouteStore?.Find(map.Id, _routeMode, round, _routeEnemies?.RouteNames ?? [], _routeEnemies?.IsPartial != true)
+                : null;
+        }
+        if (_routeRound is int roundNumber)
+        {
+            var detail = _routeMatch?.Status switch
+            {
+                GarrisonRouteStatus.Confirmed => string.Join("、", _routeMatch.Routes.Select(route =>
+                    (route.Path.Lane switch { "lower" => "下路", "upper" => "上路", _ => "关卡" }) + (route.Path.Flying ? "飞行" : "地面")).Distinct()) + "路线",
+                GarrisonRouteStatus.Candidates => "实线为确定路线，虚线为候选路线",
+                GarrisonRouteStatus.WaitingForEnemies => "基础路线（虚线）· 等待敌人名单",
+                GarrisonRouteStatus.Unmatched => "基础路线（虚线）· 名单未匹配",
+                _ when string.IsNullOrWhiteSpace(_routeMode) => "等待识别难度",
+                GarrisonRouteStatus.Uncovered => "该地图、难度或回合缺少路线数据",
+                _ => "本回合路线数据不足",
+            };
+            if (_routeEnemies?.IsPartial == true && _routeMatch is { Status: GarrisonRouteStatus.Confirmed })
+                detail += "（按怪组推算，名单待补全）";
+            RoundRouteStatus.Text = $"第 {roundNumber} 回合 · {detail}";
+            if (_routeMatch is not null)
+            {
+                if (_routeMatch.Grid is { } grid)
+                {
+                    StageRoutesBox.Visibility = Visibility.Visible;
+                    StageRoutesCanvas.Width = grid[0].Length * S;
+                    StageRoutesCanvas.Height = grid.Length * S;
+                    for (int row = 0; row < grid.Length; row++)
+                        for (int col = 0; col < grid[row].Length; col++)
+                        {
+                            var tile = new Rectangle { Width = S - 2, Height = S - 2, RadiusX = 2, RadiusY = 2,
+                                Fill = grid[row][col] == '.' ? raised : line };
+                            Canvas.SetLeft(tile, col * S + 1);
+                            Canvas.SetTop(tile, row * S + 1);
+                            StageRoutesCanvas.Children.Add(tile);
+                        }
+                }
+                foreach (var route in _routeMatch.Routes.OrderByDescending(r => r.Candidate))
+                    foreach (var segment in route.Path.Segments)
+                        DrawRoute(segment, (Brush)FindResource(route.Path.Flying ? "AccentBrush" : "DangerBrush"), 2.6,
+                            route.Candidate ? [3, 2] : null, route);
+                BuildRouteDetails(_routeMatch);
+                if (_routeMatch.Routes.Any(r => r.Sources.Count > 0))
+                    RoundRouteStatus.ToolTip = string.Join("\n", _routeMatch.Routes.SelectMany(r => r.Sources).Distinct()
+                        .GroupBy(s => (s.Enemy, s.Level, s.Candidate)).Select(g =>
+                            $"{(g.Key.Candidate ? "候选 · " : "")}{g.Key.Enemy} · {g.Key.Level.Replace("level_act3autochess_", "")} · {string.Join("、", g.Select(s => s.Route))}"));
+            }
+        }
+        else
+        {
+            RoundRouteStatus.Text = "地图参考路线";
+            for (int k = 0; k < map.Routes.Count; k++)
+                DrawRoute(map.Routes[k], (Brush)FindResource("DangerBrush"), k == map.Routes.Count - 1 ? 2.6 : 1.4, [3, 2], null);
+        }
+        UpdateRoutePlayback();
+
+        void DrawRoute(IReadOnlyList<BoardCell> route, Brush brush, double thickness, DoubleCollection? dash, GarrisonRoundRoute? match)
+        {
             var pl = new Polyline
             {
-                Stroke = (Brush)FindResource("DangerBrush"),
-                StrokeThickness = k == map.Routes.Count - 1 ? 2.6 : 1.4,
-                StrokeDashArray = [3, 2],
-                Opacity = 0.75,
+                Stroke = brush,
+                StrokeThickness = thickness,
+                StrokeDashArray = dash,
+                Opacity = match is null ? 0.75 : 1,
                 IsHitTestVisible = false,
+                Tag = match,
             };
-            foreach (var c in route) pl.Points.Add(new Point(CellX(map, c.Col) + S / 2, T + c.Row * S + S / 2));
-            BoardCanvas.Children.Add(pl);
+            bool separate = match is not null && _routeMatch?.Grid is not null;
+            var canvas = separate ? StageRoutesCanvas : BoardCanvas;
+            foreach (var c in route)
+                pl.Points.Add(new Point((separate ? c.Col * S : CellX(map, c.Col)) + S / 2,
+                    (separate ? 0 : T) + c.Row * S + S / 2));
+            if (route.Count > 0 && route.All(c => c == route[0]))
+            {
+                var marker = new Ellipse { Width = 7, Height = 7, Stroke = brush, StrokeThickness = 2,
+                    StrokeDashArray = dash, IsHitTestVisible = false };
+                Canvas.SetLeft(marker, pl.Points[0].X - 3.5);
+                Canvas.SetTop(marker, pl.Points[0].Y - 3.5);
+                canvas.Children.Add(marker);
+            }
+            else canvas.Children.Add(pl);
         }
 
         // Selected operator: where it can go, its range, and where the planner had it.
@@ -449,6 +565,12 @@ public partial class DeployView : UserControl
             }
         }
 
+        if (ShowingLive)
+        {
+            foreach (var unit in VisibleUnits.Where(u => !u.Mark.Slot.Bench))
+                Place(LiveTile(unit), CellX(map, unit.Mark.Slot.Col) + 1, T + unit.Mark.Slot.Row * S + 1);
+            return;
+        }
         if (_plan is null) return;
         int animIndex = 0;
         foreach (var p in _plan.Placed)
@@ -963,7 +1085,14 @@ public partial class DeployView : UserControl
     private void OnModeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelection || !_ready || ModeList.SelectedIndex < 0) return;
-        _state.Mode = (PlacementMode)ModeList.SelectedIndex;
+        FieldCountList.IsEnabled = !ShowingLive;
+        FieldCountList.Opacity = ShowingLive ? .48 : 1;
+        _reviewSlot = false;
+        _selected = null;
+        LiveMessage.Visibility = ShowingLive ? Visibility.Visible : Visibility.Collapsed;
+        RefreshAll();
+        if (ShowingLive) return;
+        _state.Mode = (PlacementMode)(ModeList.SelectedIndex - 1);
         SaveState();
         ScheduleReplan();
     }

@@ -30,8 +30,14 @@ internal static class FeedbackViewTests
         encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(160, 90, 96, 96, PixelFormats.Bgra32, null, pixels, 160 * 4)));
         using var stream = new MemoryStream();
         encoder.Save(stream);
-        var report = new FeedbackReport("版本：界面验证\n系统：Windows", "[WARN] [Lineup] 无法连接本地代理 127.0.0.1:7890",
+        var report = new FeedbackReport("版本：界面验证\n系统：Windows", "[WARN] [ShopPurchase] 无法连接本地代理 127.0.0.1:7890",
             new(DateTimeOffset.Now.AddSeconds(-3), "商店识别", stream.ToArray(), "{\"识别结果\":\"风絮\",\"区域\":[0.1,0.8,0.1,0.03]}"));
+        var samples = new RecognitionSampleHistory();
+        var id = samples.Begin("干员复核 · D8", 8);
+        samples.Step(id, "点击前", stream.ToArray());
+        samples.Step(id, "详情仍是宴", stream.ToArray());
+        samples.Observe(stream.ToArray(), 8, DateTimeOffset.Now);
+        report = report with { Samples = samples.Freeze() };
         var owner = new Window { Width = 400, Height = 600, Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
         owner.Show();
         var dialog = new FeedbackWindow(report, true) { Owner = owner, Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
@@ -51,7 +57,17 @@ internal static class FeedbackViewTests
             ((TextBox)dialog.FindName("DescriptionBox")).Text = "商店内风絮未高亮，希望检查识别结果。";
             ((TextBlock)dialog.FindName("StatusText")).Text.Should().NotContain("请先填写");
             ((TextBox)dialog.FindName("StepsBox")).Text = "打开商店 → 将风絮加入追踪 → 刷新商店，预期高亮目标。";
+            var choices = (ComboBox)dialog.FindName("EventChoice");
+            choices.Items.Count.Should().Be(2);
+            choices.SelectedIndex = 1;
+            ((TextBlock)dialog.FindName("RecognitionText")).Text.Should().Contain("顺序");
+            choices.SelectedIndex = 0;
             screenshot.IsChecked = true; Pump();
+            var frames = (ComboBox)dialog.FindName("FrameChoice");
+            frames.Items.Count.Should().Be(2);
+            frames.SelectedIndex = 0;
+            frames.BringIntoView(); Pump();
+            Save(dialog, Path.Combine(output, $"{theme}-{night}-event-frames.png"));
             ((Image)dialog.FindName("ScreenshotPreview")).Source.Should().NotBeNull();
             foreach (var name in new[] { "RecognitionText", "PrivacyText", "StatusText" })
             {
@@ -139,6 +155,13 @@ internal static class FeedbackViewTests
             var title = (TextBlock)panel.FindName("FeedbackTitle");
             Ratio(((SolidColorBrush)title.Foreground).Color, Composite(((SolidColorBrush)((Border)((StackPanel)title.Parent).Parent).Background).Color,
                 ((SolidColorBrush)panel.FindResource("PanelBackgroundBrush")).Color)).Should().BeGreaterThanOrEqualTo(4.5);
+            var link = (System.Windows.Documents.Hyperlink)panel.FindName("QqGroupLink");
+            link.NavigateUri.Scheme.Should().Be("mqqapi");
+            link.NavigateUri.Query.Should().Contain("uin=1104531618").And.Contain("card_type=group");
+            var group = (TextBlock)link.Parent;
+            group.BringIntoView(); Pump();
+            var project = (TextBlock)panel.FindName("ProjectAddressText");
+            group.TranslatePoint(new Point(), about).Y.Should().BeGreaterThan(project.TranslatePoint(new Point(), about).Y);
             Save(panel, Path.Combine(output, $"{theme}-{night}-about.png"));
             foreach (var name in new[] { "FeedbackButton", "RecognitionFeedbackButton" })
             {

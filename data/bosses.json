@@ -6,7 +6,7 @@
       "name": "假想敌：胄",
       "aliases": [],
       "description": "被源石完全侵蚀的蒸汽甲胄，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石在大地上蔓延，曾经的勇气、信念与荣耀皆归于晶尘，只留被晶簇撕裂的甲胄仍向那余晖落幕之地前行。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC",
         "MAGIC"
@@ -206,7 +206,7 @@
       "name": "假想敌：铳",
       "aliases": [],
       "description": "被源石占据重塑的圣卫铳骑，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石在大地上蔓延，夺去一切我们尊崇的事物并取而代之，当所有的秩序被粉碎，它即是秩序。\n",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC"
       ],
@@ -405,7 +405,7 @@
       "name": "假想敌：管",
       "aliases": [],
       "description": "由源石创造再现的“女皇之声”，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石在大地上蔓延，淹没一切赞美与斥责。晶体棱面泛起的余音，不过是源石的另一个名字。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "MAGIC"
       ],
@@ -601,7 +601,7 @@
       "name": "盐风主教昆图斯",
       "aliases": [],
       "description": "混入灾后伊比利亚的深海教会成员之一，真诚地用自己的理念篡改了律法，追求着个体的完美姿态，却根本无法参透海洋的意愿。话说回来，谁又能呢？",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC"
       ],
@@ -774,7 +774,7 @@
         "帝国余晖"
       ],
       "description": "帝国最后的余晖，生锈冠冕下的幽灵。反驳他，反驳维多利亚无上的荣光与权力，他会审视，他可以宽恕。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC"
       ],
@@ -944,7 +944,7 @@
       "name": "“萨米的意志”",
       "aliases": [],
       "description": "因萨米的一个念想从土石和冰雪中诞生，在这个念想得到满足前，它将在此矗立，阻挡一切生灵的去路。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC",
         "MAGIC"
@@ -1115,7 +1115,7 @@
       "name": "假想敌：械",
       "aliases": [],
       "description": "由源石构建出的巨型自行机甲，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石在大地上蔓延，一切过去的荣光与牺牲，在此刻化作无上的暴力与痛苦，在人们的眼前轰鸣不止。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC"
       ],
@@ -1313,7 +1313,7 @@
       "name": "假想敌：茧",
       "aliases": [],
       "description": "受源石侵蚀而巨化的荒漠昆虫，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石在大地上蔓延，生存机理所设定的成长路径被它强行扭曲，从而制造出恐惧与贪欲的代表物。",
-      "attackType": null,
+      "attackType": "远程",
       "damageTypes": [
         "PHYSIC"
       ],
@@ -1510,7 +1510,7 @@
       "name": "假想敌：鳍",
       "aliases": [],
       "description": "受源石侵蚀而产生突变进化的恐鱼，是根据源石灾难在全泰拉爆发的想象而设计的假想敌之一。源石的污染渗透进生物的本质，将合理从进化的过程中剥离，诞生出虚妄的生命。",
-      "attackType": null,
+      "attackType": "近战",
       "damageTypes": [
         "MAGIC"
       ],
@@ -1708,7 +1708,7 @@
       "name": "矩兽",
       "aliases": [],
       "description": "溯合制序，止攻泯灾，刚而难曲，以矩名之。",
-      "attackType": null,
+      "attackType": "无",
       "damageTypes": [
         "PHYSIC"
       ],

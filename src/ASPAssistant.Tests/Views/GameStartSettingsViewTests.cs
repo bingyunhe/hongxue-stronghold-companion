@@ -20,6 +20,71 @@ namespace ASPAssistant.Tests.Views;
 
 internal static class GameStartSettingsViewTests
 {
+    public static void VerifyCurrentRunFilterPreference(bool night)
+    {
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+        var directory = Directory.CreateTempSubdirectory("current-run-filter-").FullName;
+        var settings = new SettingsManager(directory);
+        var calculator = new CovenantCalculator([], [], new Dictionary<string, string>());
+        var panel = new SidePanelWindow(new(), new(), new(), new(), new(), new(),
+            new(new LineupStore(Path.Combine(directory, "lineups"), calculator.EquipmentRules), calculator),
+            new(calculator.EquipmentRules, Path.Combine(directory, "share")), [], [], [], settings,
+            GameShopTheme.Closure, new SidePanelPositionSettings { FreeMovement = true },
+            appearance: new SidebarAppearance { Theme = GameShopTheme.Closure, Night = new() { [GameShopTheme.Closure] = night } })
+        { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000, Width = 280, Height = 600 };
+        try
+        {
+            panel.InitAutomaticCurrentRunFilters(Complete(settings.LoadAutomaticCurrentRunFiltersAsync()));
+            panel.Show();
+            ThemeManager.Apply(GameShopTheme.Closure, night);
+            OpenSettings(panel);
+            var toggle = (CheckBox)panel.FindName("AutomaticCurrentRunFiltersToggle");
+            var row = (DockPanel)toggle.Parent;
+            toggle.IsChecked.Should().BeFalse();
+            row.BringIntoView();
+            Wait(() => toggle.IsVisible);
+            Save(panel, $"Closure-{night}-current-run-filter-off");
+
+            panel.OperatorBrowseVm.SetAvailableCovenants(["炎"]);
+            panel.PlannerVm.SetAvailableCovenants(["炎"]);
+            panel.OperatorBrowseVm.OnlyCurrentRun = true;
+            panel.ApplyAutomaticCurrentRunFilters();
+            panel.OperatorBrowseVm.OnlyCurrentRun.Should().BeTrue("the disabled setting preserves a manual selection");
+            panel.PlannerVm.OnlyCurrentRun.Should().BeFalse();
+
+            panel.OperatorBrowseVm.OnlyCurrentRun = false;
+            toggle.IsChecked = true;
+            Wait(() => toggle.IsEnabled);
+            Complete(new SettingsManager(directory).LoadAutomaticCurrentRunFiltersAsync()).Should().BeTrue();
+            panel.OperatorBrowseVm.OnlyCurrentRun.Should().BeFalse("changing the setting does not immediately change the view");
+            panel.PlannerVm.OnlyCurrentRun.Should().BeFalse();
+
+            for (var recognition = 0; recognition < 2; recognition++)
+            {
+                panel.ApplyAutomaticCurrentRunFilters();
+                panel.OperatorBrowseVm.OnlyCurrentRun.Should().BeTrue();
+                panel.PlannerVm.OnlyCurrentRun.Should().BeTrue();
+                panel.OperatorBrowseVm.OnlyCurrentRun = panel.PlannerVm.OnlyCurrentRun = false;
+            }
+
+            ((Slider)panel.FindName("UiScaleSlider")).Value = 125;
+            row.BringIntoView(); Pump();
+            var bounds = row.TransformToAncestor(panel).TransformBounds(new Rect(row.RenderSize));
+            bounds.Right.Should().BeLessThanOrEqualTo(panel.ActualWidth + 1);
+            bounds.Top.Should().BeGreaterThanOrEqualTo(0);
+            bounds.Bottom.Should().BeLessThanOrEqualTo(panel.ActualHeight + 1);
+            Save(panel, $"Closure-{night}-current-run-filter-125");
+
+            toggle.IsChecked = false;
+            Wait(() => toggle.IsEnabled);
+            Complete(new SettingsManager(directory).LoadAutomaticCurrentRunFiltersAsync()).Should().BeFalse();
+            panel.ApplyAutomaticCurrentRunFilters();
+            panel.OperatorBrowseVm.OnlyCurrentRun.Should().BeFalse();
+            panel.PlannerVm.OnlyCurrentRun.Should().BeFalse();
+        }
+        finally { panel.Close(); Directory.Delete(directory, true); }
+    }
+
     public static void Verify(GameShopTheme theme, bool night)
     {
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
@@ -47,6 +112,38 @@ internal static class GameStartSettingsViewTests
         try
         {
             var panel = current;
+            OpenSettings(panel);
+            var roundToggle = (CheckBox)panel.FindName("AutomaticRoundEnemiesToggle");
+            panel.InitAutomaticRoundEnemies(Complete(settings.LoadAutomaticRoundEnemiesAsync()));
+            roundToggle.IsChecked.Should().BeFalse();
+            ((ScrollViewer)panel.FindName("SettingsScroll")).ScrollToEnd(); Pump();
+            roundToggle.IsVisible.Should().BeTrue();
+            Save(panel, $"{theme}-{night}-round-enemy-setting");
+            roundToggle.IsChecked = true;
+            Wait(() => roundToggle.IsEnabled);
+            Complete(settings.LoadAutomaticRoundEnemiesAsync()).Should().BeTrue();
+            roundToggle.IsChecked = false;
+            Wait(() => roundToggle.IsEnabled);
+            ((Button)panel.FindName("SettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var settingsView = (Border)panel.FindName("SettingsPanel");
+            Wait(() => settingsView.Visibility == Visibility.Collapsed);
+            var runTab = (TabItem)panel.FindName("RunInfoTab");
+            ((TabControl)panel.FindName("MainTabs")).SelectedItem = runTab;
+            panel.EnemyVm.RoundEnemies = new(1, []);
+            Pump();
+            var enemyView = (FrameworkElement)panel.FindName("EnemyView");
+            // The selected tab's scale viewport can be replaced on the loaded pass.
+            // Capture the steady state of the actual visual ancestors after layout.
+            for (DependencyObject? element = enemyView; element is not null && element != panel; element = VisualTreeHelper.GetParent(element))
+                if (element is FrameworkElement ancestor && ancestor.HasAnimatedProperties)
+                    ancestor.BeginAnimation(UIElement.OpacityProperty, null);
+            Pump();
+            Desc<TextBlock>(enemyView).Should().Contain(t => t.Text.Contains("第 1 回合 · 待确认") && t.IsVisible);
+            Save(panel, $"{theme}-{night}-round-enemy-pending");
+            panel.EnemyVm.RoundEnemies = new(1, ["源石虫", "普通囚犯"]);
+            Pump();
+            Desc<TextBlock>(enemyView).Should().Contain(t => t.Text.Contains("源石虫、普通囚犯") && t.IsVisible);
+            Save(panel, $"{theme}-{night}-round-enemy-read");
             OpenSettings(panel);
             var with = (ComboBox)panel.FindName("GameStartWithLineups");
             var without = (ComboBox)panel.FindName("GameStartWithoutLineups");

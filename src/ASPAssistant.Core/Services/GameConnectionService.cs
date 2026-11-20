@@ -102,7 +102,7 @@ public sealed class GameConnectionService : IDisposable
     }
 
     // The injected query is the ADB process boundary; tests can hold it pending without starting an emulator.
-    internal bool RefreshDisplay()
+    internal bool RefreshDisplay(bool waitForInitialDisplay = false)
     {
         lock (_captureLock)
         {
@@ -114,7 +114,7 @@ public sealed class GameConnectionService : IDisposable
                 _displayReadRevision = CaptureRevision;
                 _displayRead = Task.Run(() => AdbGameScreens.Select(_findDisplays(settings), settings));
             }
-            if (_displayRead is { IsCompleted: true } read)
+            if (_displayRead is { } read && (read.IsCompleted || waitForInitialDisplay))
             {
                 _displayRead = null;
                 var display = read.GetAwaiter().GetResult();
@@ -183,7 +183,7 @@ public sealed class GameConnectionService : IDisposable
     }
 
     /// <summary>Captures the selected ADB device; its dimensions also bound information-panel scrolling.</summary>
-    public byte[]? CaptureAdbScreen(int maxWidth)
+    public byte[]? CaptureAdbScreen(int maxWidth, bool waitForInitialDisplay = false)
     {
         lock (_captureLock)
         {
@@ -198,7 +198,7 @@ public sealed class GameConnectionService : IDisposable
                     if (string.IsNullOrWhiteSpace(Settings.AdbSerial))
                         throw new IOException("请填写 ADB 连接地址或选择发现的设备");
                 }
-                if (!RefreshDisplay()) return null;
+                if (!RefreshDisplay(waitForInitialDisplay)) return null;
                 var captureRevision = CaptureRevision;
                 if (_controller is null)
                 {
@@ -237,7 +237,7 @@ public sealed class GameConnectionService : IDisposable
             }
             catch (Exception ex)
             {
-                _status = $"{ex.Message}（5 秒后重试）";
+                _status = waitForInitialDisplay ? ex.Message : $"{ex.Message}（5 秒后重试）";
                 AppLogger.Warn("AdbCapture", _status);
                 _controller?.Dispose();
                 _controller = null;
@@ -263,13 +263,57 @@ public sealed class GameConnectionService : IDisposable
     }
 
     public bool ScrollInformationPanelDown()
+        => SendAdbGesture((width, height) => ((int)(width * .35), (int)(height * .72),
+            (int)(width * .35), (int)(height * .64), 200));
+
+    internal bool ScrollEnemyPanel(System.Drawing.Point point, System.Drawing.Size frame, long revision)
+    {
+        if (IsAdb)
+            return SendAdbGesture((w, h) =>
+            {
+                int x = point.X * w / frame.Width, y = point.Y * h / frame.Height;
+                return (x, y, x, y - h / 9, 220);
+            }, revision);
+        var window = FindGameWindow();
+        if (CaptureRevision != revision || window == IntPtr.Zero || User32.GetClientRectScreen(window) is not { } bounds
+            || Math.Abs(bounds.Width * (double)frame.Height / frame.Width - bounds.Height) > 2) return false;
+        var client = new System.Drawing.Point(point.X * bounds.Width / frame.Width, point.Y * bounds.Height / frame.Height);
+        return User32.CheckClickTarget(window, bounds.Left + client.X, bounds.Top + client.Y) == ClickResult.Sent
+            && new MaaScrollService().TryScrollAtPoint(window, -120, client);
+    }
+
+    internal bool CanRetryCapturedPoint(System.Drawing.Point point, int width, int height)
+    {
+        var window = FindGameWindow();
+        return IsAdb || (window != IntPtr.Zero && User32.GetClientRectScreen(window) is { } bounds
+            && Math.Abs(bounds.Width * (double)height / width - bounds.Height) <= 2
+            && User32.CheckClickTarget(window, bounds.Left + point.X * bounds.Width / width,
+                bounds.Top + point.Y * bounds.Height / height) == ClickResult.Sent);
+    }
+
+    internal ClickResult ClickCapturedPoint(System.Drawing.Point point, int width, int height, long captureRevision)
+    {
+        var window = FindGameWindow();
+        if (CaptureRevision != captureRevision) return ClickResult.StaleCapture;
+        if (IsAdb)
+            return SendAdbGesture((nativeWidth, nativeHeight) =>
+            {
+                int x = point.X * nativeWidth / width, y = point.Y * nativeHeight / height;
+                return (x, y, x, y, 35);
+            }, captureRevision) ? ClickResult.Sent : ClickResult.AdbUnconfirmed;
+        if (window == IntPtr.Zero || User32.GetClientRectScreen(window) is not { } bounds) return ClickResult.MissingWindow;
+        if (Math.Abs(bounds.Width * (double)height / width - bounds.Height) > 2) return ClickResult.SizeChanged;
+        return User32.ClickClientPoint(window, bounds, point.X * bounds.Width / width, point.Y * bounds.Height / height);
+    }
+
+    private bool SendAdbGesture(Func<int, int, (int X1, int Y1, int X2, int Y2, int Duration)> gesture, long? expectedRevision = null)
     {
         lock (_captureLock)
         {
             if (_disposed || _controller is null) return false;
             FindGameWindow();
             var revision = CaptureRevision;
-            if (_awaitingFocusedDisplay) return false;
+            if (_awaitingFocusedDisplay || expectedRevision is { } expected && expected != revision) return false;
             var display = AdbGameScreens.Select(AdbGameScreens.Find(Settings), Settings);
             FindGameWindow();
             if (revision != CaptureRevision || _display is null || display.DisplayId != _display.DisplayId || display.PackageName != _display.PackageName
@@ -278,8 +322,8 @@ public sealed class GameConnectionService : IDisposable
                 Interlocked.Exchange(ref _refreshDisplay, 1);
                 return false;
             }
-            return _controller.Swipe((int)(_screenWidth * .35), (int)(_screenHeight * .72),
-                (int)(_screenWidth * .35), (int)(_screenHeight * .64), 200).Wait() == MaaJobStatus.Succeeded;
+            var (x1, y1, x2, y2, duration) = gesture(_screenWidth, _screenHeight);
+            return _controller.Swipe(x1, y1, x2, y2, duration).Wait() == MaaJobStatus.Succeeded;
         }
     }
 }

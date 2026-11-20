@@ -70,6 +70,22 @@ public class ShopEconomyReaderTests(ShopReaderFixture fixture) : IClassFixture<S
         read.Should().Be(new ShopEconomy(null, money, cost, maxed, null, false));
     }
 
+    [Theory]
+    [InlineData("休息一下", true)]
+    [InlineData("作战中", false)]
+    public async Task ReadsPhaseBadgeWhenCoopHudOmitsIt(string phase, bool preparing)
+    {
+        var image = Array.Empty<byte>();
+        var ocr = new Mock<IOcrEngine>(MockBehavior.Strict);
+        ocr.Setup(o => o.RecognizeRegionAsync(image, 0, 0, 768, 64)).ReturnsAsync(
+            new OcrTextResult[] { new("终极模拟", default), new("回合2", default) });
+        ocr.Setup(o => o.RecognizeLineAsync(image, 622, 18, 81, 24)).ReturnsAsync(
+            new OcrTextResult[] { new(phase, default) });
+        var result = await new ShopEconomyReader(ocr.Object).ReadPreparationAsync(image, 1280, 720);
+        Assert.Equal(2, result.Round);
+        Assert.Equal(preparing, result.IsPreparation);
+    }
+
     [Fact]
     public async Task BanScreenHasNoShopHud()
     {
@@ -131,6 +147,7 @@ public class ShopEconomyNumberTests
         ocr.Setup(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .Returns((byte[] _, int x, int y, int w, int h) =>
             {
+                if (y < 100) return Task.FromResult<IReadOnlyList<OcrTextResult>>([]);
                 var text = x > 1000 ? "4" : conflict ? new[] { "⑤", "⑥", "5", "6", "?" }[priceIndex++] : "⑤";
                 return Task.FromResult<IReadOnlyList<OcrTextResult>>([new(text, (x, y, w, h))]);
             });

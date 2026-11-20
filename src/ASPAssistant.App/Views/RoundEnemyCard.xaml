@@ -1,0 +1,16 @@
+<UserControl x:Class="ASPAssistant.App.Views.RoundEnemyCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource ItemCardBorder}" Padding="10">
+        <DockPanel>
+            <Button x:Name="ReadButton" DockPanel.Dock="Right" Content="识别小怪"
+                    Command="{Binding RequestRoundEnemyReadCommand}" Style="{StaticResource SmallActionButton}"
+                    Margin="8,0,0,0" VerticalAlignment="Center" />
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="本回合敌人" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBlock x:Name="SummaryText" Text="{Binding RoundEnemySummary}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</UserControl>

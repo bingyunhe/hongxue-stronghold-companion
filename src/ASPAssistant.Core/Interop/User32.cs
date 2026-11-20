@@ -5,6 +5,8 @@ using System.Text;
 
 namespace ASPAssistant.Core.Interop;
 
+internal enum ClickResult { Sent, StaleCapture, MissingWindow, SizeChanged, NotForeground, Covered, MouseBusy, CursorUnavailable, TargetChanged, DownRejected, ReleaseUnconfirmed, AdbUnconfirmed }
+
 [StructLayout(LayoutKind.Sequential)]
 public struct RECT
 {
@@ -154,6 +156,63 @@ public static class User32
 
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MouseInput
+    {
+        public uint Type;
+        public MouseEvent Mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MouseEvent
+    {
+        public int X;
+        public int Y;
+        public uint Data;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint SendInput(uint count, [In] MouseInput[] inputs, int size);
+
+    internal static ClickResult CheckClickTarget(IntPtr window, int screenX, int screenY)
+    {
+        if (window != GetForegroundWindow()) return ClickResult.NotForeground;
+        if (GetAncestor(WindowFromPoint(new POINT { X = screenX, Y = screenY }), 2) != window) return ClickResult.Covered;
+        return GetAsyncKeyState(0x01) < 0 ? ClickResult.MouseBusy : ClickResult.Sent;
+    }
+
+    internal static ClickResult ClickClientPoint(IntPtr window, RECT bounds, int x, int y)
+    {
+        const uint leftDown = 0x0002, leftUp = 0x0004;
+        var point = new POINT { X = bounds.Left + x, Y = bounds.Top + y };
+        var ready = CheckClickTarget(window, point.X, point.Y);
+        if (ready != ClickResult.Sent) return ready;
+        if (!GetCursorPos(out var previous) || !SetCursorPos(point.X, point.Y)) return ClickResult.CursorUnavailable;
+        try
+        {
+            if (CheckClickTarget(window, point.X, point.Y) != ClickResult.Sent
+                || !GetCursorPos(out var atTarget) || atTarget.X != point.X || atTarget.Y != point.Y) return ClickResult.TargetChanged;
+            int inputSize = Marshal.SizeOf<MouseInput>();
+            if (SendInput(1, [new() { Mouse = new() { Flags = leftDown } }], inputSize) != 1) return ClickResult.DownRejected;
+            Thread.Sleep(35);
+            return SendInput(1, [new() { Mouse = new() { Flags = leftUp } }], inputSize) == 1 ? ClickResult.Sent : ClickResult.ReleaseUnconfirmed;
+        }
+        finally
+        {
+            if (GetCursorPos(out var current) && current.X == point.X && current.Y == point.Y)
+                SetCursorPos(previous.X, previous.Y);
+        }
+    }
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

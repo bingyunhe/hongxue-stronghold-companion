@@ -46,11 +46,25 @@ namespace HongxueCompanion.Launcher
             }
             try
             {
-                using (var process = Process.Start(new ProcessStartInfo(executable, arguments.ToString())
+                var start = new ProcessStartInfo(executable, arguments.ToString())
                 {
                     WorkingDirectory = directory,
                     UseShellExecute = false
-                }))
+                };
+                Process process;
+#if LEGACY_UPDATER
+                process = Process.Start(start);
+#else
+                try { process = Process.Start(start); }
+                catch (Win32Exception error)
+                {
+                    if (error.NativeErrorCode != 740) throw;
+                    start.UseShellExecute = true;
+                    start.Verb = "runas";
+                    process = Process.Start(start);
+                }
+#endif
+                using (process)
                 {
 #if LEGACY_UPDATER
                     // Old updaters observe this process while the real main process publishes startup readiness.
@@ -64,6 +78,9 @@ namespace HongxueCompanion.Launcher
             }
             catch (Win32Exception error)
             {
+#if !LEGACY_UPDATER
+                if (error.NativeErrorCode == 1223) return 1; // The user cancelled the UAC prompt.
+#endif
                 return Fail("无法启动鸿雪·卫戍助手：\n" + error.Message);
             }
         }

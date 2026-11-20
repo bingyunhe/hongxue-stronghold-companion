@@ -4,6 +4,7 @@ namespace ASPAssistant.Core.Models;
 public class Strategy
 {
     public string Id { get; set; } = "";
+    public string BandType { get; set; } = "";
     public string Name { get; set; } = "";
     public string Initiator { get; set; } = "";
     public string IconPath { get; set; } = "";

@@ -13,18 +13,55 @@ namespace ASPAssistant.App.Windows;
 
 public partial class FeedbackWindow : Window
 {
-    private readonly FeedbackReport _report;
+    private FeedbackReport _report;
     public FeedbackWindow(FeedbackReport report, bool recognitionProblem)
     {
         _report = report;
         InitializeComponent();
         WindowUiScale.PrepareCentered(this);
         CategoryBox.SelectedIndex = recognitionProblem ? 1 : 0;
+        CategoryBox.SelectionChanged += (_, _) => UpdateCategory();
+        UpdateCategory();
+    }
+
+    private void UpdateCategory()
+    {
+        var report = _report;
+        ScreenshotChoice.IsChecked = false;
+        if (CategoryBox.SelectedIndex == 1 && report.Samples.Length > 0)
+        {
+            EventChoice.ItemsSource = report.Samples;
+            EventChoice.Visibility = Visibility.Visible;
+            EventChoice.SelectedIndex = 0;
+            return;
+        }
+        _report = report with { Selected = null };
+        EventChoice.ItemsSource = null;
+        EventChoice.Visibility = Visibility.Collapsed;
+        FrameChoice.ItemsSource = null;
+        ScreenshotChoice.Content = "附上这次识别画面";
         ScreenshotChoice.IsEnabled = report.Recognition is { Frame.Length: > 0 };
         RecognitionText.Text = report.Recognition is { } snapshot
             ? $"已固定 {snapshot.CapturedAt.LocalDateTime:MM-dd HH:mm:ss} 的{snapshot.Source}记录，距现在 {(DateTimeOffset.Now - snapshot.CapturedAt).TotalSeconds:F0} 秒。" +
                 (snapshot.Frame.Length == 0 ? "画面超过 16 MB，仅保留识别结果。" : "")
             : "暂无识别记录。请在问题出现后打开此窗口；仍可反馈程序报错或功能建议。";
+    }
+
+    private void OnEventChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (EventChoice.SelectedItem is not RecognitionSample sample) return;
+        _report = _report with { Selected = sample };
+        ScreenshotChoice.IsChecked = false;
+        ScreenshotChoice.IsEnabled = sample.Frames.Length > 0;
+        ScreenshotChoice.Content = $"附上这组游戏画面（{sample.Frames.Length} 张）";
+        RecognitionText.Text = sample.Result;
+        FrameChoice.ItemsSource = sample.Frames;
+        FrameChoice.SelectedIndex = sample.Frames.Length - 1;
+    }
+
+    private void OnFrameChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ScreenshotChoice.IsChecked == true) UpdateScreenshot();
     }
 
     private string Category => ((ComboBoxItem)CategoryBox.SelectedItem).Content.ToString()!;
@@ -39,14 +76,20 @@ public partial class FeedbackWindow : Window
     }
 
     private void OnScreenshotChanged(object sender, RoutedEventArgs e)
+        => UpdateScreenshot();
+
+    private void UpdateScreenshot()
     {
+        FrameChoice.Visibility = ScreenshotChoice.IsChecked == true && _report.Selected is not null
+            ? Visibility.Visible : Visibility.Collapsed;
         if (ScreenshotChoice.IsChecked != true)
         {
             ScreenshotPreview.Source = null;
             ScreenshotPreview.Visibility = Visibility.Collapsed;
             return;
         }
-        using var stream = new MemoryStream(_report.Recognition!.Frame);
+        var bytes = FrameChoice.SelectedItem is SampleFrame frame ? frame.Image : _report.Recognition!.Frame;
+        using var stream = new MemoryStream(bytes);
         var image = new BitmapImage();
         image.BeginInit();
         image.CacheOption = BitmapCacheOption.OnLoad;
@@ -79,9 +122,10 @@ public partial class FeedbackWindow : Window
         var description = DescriptionBox.Text;
         var steps = StepsBox.Text;
         var include = ScreenshotChoice.IsChecked == true;
+        var report = _report;
         try
         {
-            await Task.Run(() => _report.Export(dialog.FileName, category, description, steps, include));
+            await Task.Run(() => report.Export(dialog.FileName, category, description, steps, include));
             StatusText.Text = "反馈包已保存。可打开反馈页面，填写问题并手动附上 ZIP 文件。";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

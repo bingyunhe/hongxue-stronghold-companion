@@ -141,6 +141,62 @@ public sealed class FeedbackReportTests : IDisposable
     }
 
     [Fact]
+    public void FrozenEventExportsOrderedPreviewedFramesAndOmitsImagesWhenUnchecked()
+    {
+        var history = new RecognitionSampleHistory();
+        var id = history.Begin("干员复核 · D8", 8);
+        history.Step(id, "点击前", [0x42, 0x4d, 1]);
+        history.Step(id, "目标 D8 · 点击 900,390");
+        history.Step(id, "选中 D9", [0x89, 0x50, 2]);
+        var selected = Assert.Single(history.Freeze());
+        history.Step(id, "后续扫描");
+        var report = new FeedbackReport("本机版本", "[LiveField] selected=D9\n[Private] unrelated", null) { Selected = selected };
+        var preview = report.Preview("识别有误","", "");
+        Assert.Contains("目标 D8", preview);
+        Assert.Contains("选中 D9", preview);
+        Assert.DoesNotContain("unrelated", preview);
+        Assert.DoesNotContain("后续扫描", preview);
+        foreach (var include in new[] { true, false })
+        {
+            var path = Path.Combine(_directory, $"event-{include}.zip");
+            report.Export(path, "识别有误", "", "", include);
+            using var zip = ZipFile.OpenRead(path);
+            Assert.Equal(include ? 4 : 1, zip.Entries.Count);
+            using var reader = new StreamReader(zip.GetEntry("反馈说明.txt")!.Open());
+            Assert.Equal(preview, reader.ReadToEnd());
+            for (int i = 0; include && i < selected.Frames.Length; i++)
+            {
+                using var manifest = JsonDocument.Parse(zip.GetEntry("recognition.json")!.Open());
+                var pathInZip = manifest.RootElement.GetProperty("frames")[i].GetProperty("file").GetString()!;
+                using var encoded = zip.GetEntry(pathInZip)!.Open();
+                using var bytes = new MemoryStream();
+                encoded.CopyTo(bytes);
+                Assert.Equal(selected.Frames[i].Image, bytes.ToArray());
+                Assert.EndsWith(selected.Frames[i].Extension, pathInZip);
+            }
+        }
+    }
+
+    [Fact]
+    public void SampleBuffersKeepRecentFramesAndEnforceTheirByteLimits()
+    {
+        var history = new RecognitionSampleHistory();
+        var frame = new byte[12 * 1024 * 1024];
+        for (int i = 0; i < 18; i++)
+        {
+            history.Observe(frame, 4, DateTimeOffset.Now);
+            var id = history.Begin($"事件{i}", 4, true);
+            history.Step(id, "核对", frame);
+        }
+        var groups = history.Freeze();
+        Assert.Equal("事件17", groups[0].Kind);
+        Assert.InRange(groups[..^1].Sum(s => s.Frames.Sum(f => f.Image.Length)), 1, RecognitionSampleHistory.EventBytes);
+        Assert.InRange(groups[^1].Frames.Sum(f => f.Image.Length), 1, RecognitionSampleHistory.RecentBytes);
+        history.ClearRecent();
+        Assert.DoesNotContain(history.Freeze(), s => s.Kind == "最近游戏画面");
+    }
+
+    [Fact]
     public void MeasureSnapshotRetentionCost()
     {
         var frame = new byte[1024 * 1024];

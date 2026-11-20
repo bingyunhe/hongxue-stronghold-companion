@@ -18,7 +18,10 @@ public record UpdateInfo(
     string ReleaseNotes,
     string DownloadUrl,
     string AssetName,
-    string? ChecksumsUrl);
+    string? ChecksumsUrl)
+{
+    public bool FromMirrorChyan { get; init; }
+}
 
 /// <summary>Thrown when the downloaded package does not match the published SHA-256.</summary>
 public class UpdateIntegrityException(string message) : Exception(message);
@@ -31,21 +34,30 @@ public partial class UpdateService
     /// </summary>
     public const string FeedOverrideVariable = "ASPA_UPDATE_FEED";
 
-    public const string DefaultFeedUrl =
-        "https://api.github.com/repos/bingyunhe/hongxue-stronghold-companion/releases/latest";
+    private const string GitHubReleasesUrl = "https://api.github.com/repos/bingyunhe/hongxue-stronghold-companion/releases";
+    public const string DefaultFeedUrl = GitHubReleasesUrl + "/latest";
 
     private const string PackageSuffix = "-win-x64.zip";
     private const string ChecksumsAssetName = "SHA256SUMS.txt";
     private const string AppExecutableName = "ASPAssistant.App.exe";
 
-    private static readonly HttpClient _http = new()
+    private static readonly HttpClient SharedHttp = new()
     {
         Timeout = TimeSpan.FromSeconds(30),
         DefaultRequestHeaders = { { "User-Agent", "HongxueStrongholdCompanion-Updater/1.0" } }
     };
 
-    public Version CurrentVersion =>
-        Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0);
+    private readonly HttpClient _http;
+
+    public UpdateService() : this(SharedHttp, Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0)) { }
+
+    internal UpdateService(HttpClient http, Version currentVersion)
+    {
+        _http = http;
+        CurrentVersion = currentVersion;
+    }
+
+    public Version CurrentVersion { get; }
 
     /// <summary>
     /// 返回 true 表示当前是开发构建（版本号为 0.0.0），不进行更新检查。
@@ -54,6 +66,7 @@ public partial class UpdateService
 
     /// <summary>最近一次失败的人类可读原因；成功时清空。</summary>
     public string? LastError { get; private set; }
+    public string? DownloadNotice { get; private set; }
 
     /// <summary>已下载并暂存好的更新脚本；点了“立即重启”后才启动它。</summary>
     public string? PendingScriptPath { get; private set; }
@@ -69,13 +82,30 @@ public partial class UpdateService
 
     public async Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken ct = default)
     {
-        // Skip update check in dev / IDE builds where no real version is embedded
         if (IsDevBuild) return null;
+        var feedUrl = FeedUrl;
+        if (feedUrl != DefaultFeedUrl) return await CheckGitHubUpdateAsync(feedUrl, ct);
 
+        var (release, _) = await QueryMirrorChyanAsync(null, ct);
+        var version = TryParseVersion(release?.VersionName);
+        if (version is not null && version > CurrentVersion)
+        {
+            LastError = null;
+            return new UpdateInfo($"v{version}", version.ToString(), release!.ReleaseNote ?? "", "",
+                $"hongxue-stronghold-companion-v{version}-win-x64.zip", null) { FromMirrorChyan = true };
+        }
+
+        var fallback = await CheckGitHubUpdateAsync(feedUrl, ct);
+        if (version is not null) LastError = null;
+        return fallback;
+    }
+
+    private async Task<UpdateInfo?> CheckGitHubUpdateAsync(string feedUrl, CancellationToken ct)
+    {
         LastError = null;
         try
         {
-            var release = await _http.GetFromJsonAsync<GitHubRelease>(FeedUrl, ct);
+            var release = await _http.GetFromJsonAsync<GitHubRelease>(feedUrl, ct);
             if (release is null || string.IsNullOrEmpty(release.TagName))
             {
                 LastError = "更新源返回的数据不完整";
@@ -124,9 +154,11 @@ public partial class UpdateService
     public async Task DownloadAndApplyUpdateAsync(
         UpdateInfo info,
         IProgress<double>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? mirrorCdk = null)
     {
         LastError = null;
+        DownloadNotice = null;
 
         // 每次尝试用独立目录：上一次的 update.ps1 可能仍被 PowerShell 占用，
         // 复用固定目录会让 Directory.Delete 抛 IOException 而整条下载失败。
@@ -134,40 +166,39 @@ public partial class UpdateService
         var tempDir = Directory.CreateTempSubdirectory("ASPAssistant-Update-").FullName;
 
         var zipPath = Path.Combine(tempDir, info.AssetName);
-
-        // Download with progress reporting
-        using (var response = await _http.GetAsync(
-                   info.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct))
+        string? expectedHash = null;
+        if (info.FromMirrorChyan)
         {
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-            await using var httpStream = await response.Content.ReadAsStreamAsync(ct);
-            await using var fileStream = File.Create(zipPath);
-            var buffer = new byte[65536];
-            long downloaded = 0;
-            int bytesRead;
-            while ((bytesRead = await httpStream.ReadAsync(buffer, ct)) > 0)
+            expectedHash = await TryDownloadMirrorChyanAsync(info, mirrorCdk, zipPath, progress, ct);
+            if (expectedHash is null)
             {
-                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                downloaded += bytesRead;
-                if (totalBytes > 0)
-                    progress?.Report((double)downloaded / totalBytes * 0.85);
+                var fallback = await CheckGitHubUpdateAsync($"{GitHubReleasesUrl}/tags/{Uri.EscapeDataString(info.TagName)}", ct);
+                ct.ThrowIfCancellationRequested();
+                if (fallback is null || fallback.Version != info.Version)
+                    throw new InvalidOperationException($"{DownloadNotice}。GitHub Releases 暂无相同版本的下载包，请稍后重新检查更新。");
+                info = fallback;
+                zipPath = Path.Combine(tempDir, info.AssetName);
             }
         }
 
-        progress?.Report(0.87);
+        if (expectedHash is null)
+        {
+            await DownloadPackageAsync(new Uri(info.DownloadUrl), zipPath, progress, ct);
+            if (string.IsNullOrWhiteSpace(info.ChecksumsUrl))
+                throw IntegrityFailure($"发布 {info.TagName} 缺少 {ChecksumsAssetName}，已停止更新");
+            var checksumsText = await _http.GetStringAsync(info.ChecksumsUrl, ct);
+            expectedHash = ParseChecksum(checksumsText, info.AssetName)
+                ?? throw IntegrityFailure($"校验文件中没有 {info.AssetName} 的记录，已停止更新");
+        }
 
-        // Integrity check against the published SHA256SUMS.txt (fail closed).
+        progress?.Report(0.87);
         var actualHash = await ComputeSha256Async(zipPath, ct);
-        if (string.IsNullOrWhiteSpace(info.ChecksumsUrl))
-            throw IntegrityFailure($"发布 {info.TagName} 缺少 {ChecksumsAssetName}，已停止更新");
-        var checksumsText = await _http.GetStringAsync(info.ChecksumsUrl, ct);
-        var expectedHash = ParseChecksum(checksumsText, info.AssetName)
-            ?? throw IntegrityFailure($"校验文件中没有 {info.AssetName} 的记录，已停止更新");
         if (!ChecksumMatches(expectedHash, actualHash))
+        {
+            File.Delete(zipPath);
             throw IntegrityFailure(
                 $"安装包校验不通过（期望 {expectedHash[..12]}…，实际 {actualHash[..12]}…），已停止更新");
+        }
 
         progress?.Report(0.92);
 
@@ -207,6 +238,28 @@ public partial class UpdateService
         PendingScriptPath = scriptPath;
         PendingStagingDir = Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}");
         progress?.Report(1.0);
+    }
+
+    private async Task DownloadPackageAsync(Uri address, string zipPath, IProgress<double>? progress, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentType?.MediaType == "application/json")
+            throw new HttpRequestException("更新源未返回 ZIP 安装包");
+
+        var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+        await using var httpStream = await response.Content.ReadAsStreamAsync(ct);
+        await using var fileStream = File.Create(zipPath);
+        var buffer = new byte[65536];
+        long downloaded = 0;
+        int bytesRead;
+        while ((bytesRead = await httpStream.ReadAsync(buffer, ct)) > 0)
+        {
+            await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+            downloaded += bytesRead;
+            if (totalBytes > 0)
+                progress?.Report((double)downloaded / totalBytes * 0.85);
+        }
     }
 
     // The optional manifest is the package boundary: legacy releases have no layout file.
@@ -313,7 +366,7 @@ public partial class UpdateService
         _ => ex.Message
     };
 
-    public static Version? TryParseVersion(string tag)
+    public static Version? TryParseVersion(string? tag)
     {
         var text = (tag ?? "").Trim().TrimStart('v', 'V');
         return Version.TryParse(text, out var result) ? result : null;
