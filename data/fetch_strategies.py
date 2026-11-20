@@ -23,6 +23,7 @@ def build_strategies(activity: dict) -> list[dict]:
             raise ValueError(f"策略描述格式异常：{entry['bandId']}")
         strategies.append({
             'id': entry['bandId'],
+            'bandType': entry['bandType'],
             'name': title[1:-1],
             'initiator': band['bandName'],
             'iconPath': f"icons/strategies/{entry['bandId']}.png",

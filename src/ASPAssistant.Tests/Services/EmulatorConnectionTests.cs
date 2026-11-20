@@ -9,6 +9,64 @@ namespace ASPAssistant.Tests.Services;
 
 public class EmulatorConnectionTests
 {
+    [Fact]
+    public async Task ManualDisplayTestAwaitsOnePendingQuery()
+    {
+        var display = new AdbGameDisplay(0, "77", "com.hypergryph.arknights", true);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queries = 0;
+        using var connection = new GameConnectionService(new() { Source = GameCaptureSource.Adb }, IntPtr.Zero, _ =>
+        {
+            Interlocked.Increment(ref queries);
+            started.SetResult();
+            finish.Task.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            return [display];
+        });
+
+        connection.RefreshDisplay().Should().BeFalse();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var captureStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var test = Task.Run(() =>
+        {
+            captureStarted.SetResult();
+            return connection.RefreshDisplay(waitForInitialDisplay: true);
+        });
+        try
+        {
+            await captureStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            (await Task.WhenAny(test, Task.Delay(100))).Should().NotBeSameAs(test);
+        }
+        finally { finish.SetResult(); }
+
+        (await test.WaitAsync(TimeSpan.FromSeconds(5))).Should().BeTrue();
+        connection.CurrentDisplay.Should().Be(display);
+        queries.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(true, "ADB 查询超时")]
+    [InlineData(false, "未找到所选明日方舟屏幕")]
+    public async Task ManualCaptureReportsTheActualQueryError(bool timeout, string message)
+    {
+        var calls = 0;
+        using var connection = new GameConnectionService(new()
+        {
+            Source = GameCaptureSource.Adb, AdbPath = Environment.ProcessPath!, AdbSerial = "test",
+            AndroidDisplayId = 0, AndroidPackageName = "com.hypergryph.arknights", FollowFocusedGame = false,
+        }, IntPtr.Zero, _ =>
+        {
+            Interlocked.Increment(ref calls);
+            if (timeout) throw new IOException(message);
+            return [new(2, "99", "com.hypergryph.arknights.bilibili", true)];
+        });
+
+        var png = await Task.Run(() => connection.CaptureAdbScreen(1920, waitForInitialDisplay: true));
+        png.Should().BeNull();
+        connection.Status.Should().StartWith(message);
+        calls.Should().Be(1);
+    }
+
     [Theory]
     [InlineData("127.0.0.1:16384", false)]
     [InlineData("localhost:16384", false)]

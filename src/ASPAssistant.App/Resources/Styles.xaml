@@ -537,12 +537,13 @@
 
     <!-- Segmented control (本局可用 / 全部 / 不可用) -->
     <Style x:Key="SegmentedItem" TargetType="ListBoxItem" BasedOn="{StaticResource ClickableListBoxItemBase}">
+        <Setter Property="Padding" Value="9,3" />
         <Setter Property="FontSize" Value="11" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
-                    <Border x:Name="seg" Padding="9,3" Background="Transparent" CornerRadius="{DynamicResource RowCornerRadius}">
+                    <Border x:Name="seg" Padding="{TemplateBinding Padding}" Background="Transparent" CornerRadius="{DynamicResource RowCornerRadius}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>

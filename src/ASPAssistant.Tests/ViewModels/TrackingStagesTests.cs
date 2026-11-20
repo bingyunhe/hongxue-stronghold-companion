@@ -2,6 +2,7 @@
 using System.Text.Json;
 using System.Diagnostics;
 using ASPAssistant.Core.Data;
+using ASPAssistant.Core.GameState;
 using ASPAssistant.Core.Models;
 using ASPAssistant.Core.Services;
 using ASPAssistant.Core.ViewModels;
@@ -131,7 +132,7 @@ public class TrackingStagesTests
     }
 
     [Fact]
-    public void OverviewUnifiesStageNeedsWithoutChangingTheCurrentStageOrShopTargets()
+    public void OverviewUnifiesStageNeedsWithoutChangingTheCurrentStage()
     {
         var pool = new DeployPoolState(); pool.SetOwned("共用", true);
         var vm = new TrackingViewModel(); vm.SetDeployPool(pool); vm.TrackLineup(Example());
@@ -155,6 +156,36 @@ public class TrackingStagesTests
         vm.ActiveEntries.Should().Contain(e => e.Name == "前期装备");
         vm.ShowAllStages = false;
         vm.DisplayOperators.Select(e => e.Name).Should().BeEquivalentTo("共用", "前期干员", "备选");
+    }
+
+    [Fact]
+    public void AllStageShopHighlightsSurviveSelectionAndStopAtAcquisition()
+    {
+        var vm = new TrackingViewModel();
+        var pool = new DeployPoolState();
+        vm.SetDeployPool(pool);
+        vm.TrackLineup(Example());
+        Select(vm, "early");
+        var items = new[] { "前期干员", "中期干员", "成型干员", "前期装备", "成型装备", "共用" }
+            .Select(name => new ShopItem { Name = name }).ToList();
+        string[] Highlight()
+        {
+            GameStateUpdater.UpdateShopTracking(items, vm.ShopTrackingEntries);
+            return items.Where(i => i.IsTracked).Select(i => i.Name).ToArray();
+        }
+        pool.SetOwned("共用", true);
+        vm.SyncDeployPool();
+        Highlight().Should().Equal("前期干员", "前期装备");
+        vm.ShowAllStages = true;
+        Highlight().Should().Equal("前期干员", "中期干员", "成型干员", "前期装备", "共用");
+        Select(vm, "mid");
+        Highlight().Should().Equal("前期干员", "中期干员", "成型干员", "共用");
+        pool.SetOwned("前期干员", true);
+        pool.SetElite("共用", true);
+        vm.SyncDeployPool();
+        Highlight().Should().Equal("中期干员", "成型干员");
+        vm.ShowAllStages = false;
+        Highlight().Should().Equal("中期干员");
     }
 
     [Fact]

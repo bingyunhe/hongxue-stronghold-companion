@@ -172,6 +172,7 @@
 **地图模拟与站位参考（实验）**
 
 - 在追踪页切换“地图模拟”，从手动选择的实际拥有池挑选 8 / 9 人，参考路线拦截、远近排布、治疗覆盖、阻挡、地块与位置叠层特质生成格子及朝向。
+- 地图模拟按当前地图、难度、回合和敌人名单匹配国服关卡路线。实线表示各匹配怪组都有的走法，虚线表示候选或含近似检查点的走法。悬停路线说明可看敌人对应的关卡和路线编号。首领战与入门关卡单独显示战区。
 - 小棋盘显示头像，可拖动换位、固定位置并重新规划；支持同名干员重复上场，盟约按不同干员计数。
 - 地图识别支持 10 张地图和两种镜头。**没有实现自动识别场上、整备区干员**，干员池由用户管理。
 - 游戏内显示默认关闭，开启后显示格框、朝向与名牌。打分权重是估计值，结果仅供参考。
@@ -265,6 +266,8 @@ python fetch_spdatabase.py --skip-bosses --skip-enemies
 
 数据脚本的输出格式和来源沿用原项目，并增加当前赛季读取逻辑；更新数据不会自动完成识别区域适配。
 
+本回合路线数据可运行 `python data/build_round_routes.py <出怪预览数据块.js> <zh_CN/gamedata> <ArknightsGameData 提交>` 离线重建，输入来源见下方致谢。
+
 ## 数据与项目结构
 
 ```text
@@ -300,6 +303,8 @@ python fetch_spdatabase.py --skip-bosses --skip-enemies
 - [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet)：MVVM 基础设施。
 - [Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC)：内置界面字体（子集），SIL Open Font License 1.1，许可文本随字体文件分发。
 - [PRTS Wiki](https://prts.wiki/) 与 [SPDatabase](https://github.com/Yanstory/SPDatabase)：游戏数据和图片来源，具体接口保留在数据脚本中。
+- 感谢路标档案馆授权引用卫戍协议的怪组、出怪口和模板数据。 [卫戍协议出怪预览](https://www.lubiao.wiki/tools/garrison-spawn-preview)
+- 关卡路线编号、检查点和通行数据取自国服游戏数据。地图编号对照与地面寻路规则参考 StrongholdAssistant。 [ArknightsGameData](https://github.com/Kengxxiao/ArknightsGameData) · [StrongholdAssistant](https://github.com/LBEILC/StrongholdAssistant)
 - xUnit、Moq、FluentAssertions 等测试依赖遵循各自许可证。
 
 ## 许可证

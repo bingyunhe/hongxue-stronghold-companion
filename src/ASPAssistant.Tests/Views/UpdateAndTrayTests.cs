@@ -27,16 +27,8 @@ internal static class UpdateAndTrayTests
     {
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         var folder = Path.Combine(Path.GetTempPath(), "update-tray-ui-" + Guid.NewGuid().ToString("N"));
-        var calculator = new CovenantCalculator([], [], new Dictionary<string, string>());
         var settings = new SettingsManager(folder);
-        var panel = new SidePanelWindow(new OperatorBrowseViewModel(), new EquipmentBrowseViewModel(), new TrackingViewModel(),
-            new GameStateViewModel(), new BanViewModel(), new EnemyViewModel(),
-            new LineupViewModel(new LineupStore(Path.Combine(folder, "lineups"), calculator.EquipmentRules), calculator),
-            new LineupShareService(calculator.EquipmentRules, Path.Combine(folder, "share")), [], [], [], settings,
-            GameShopTheme.Terminal, new SidePanelPositionSettings { FreeMovement = true })
-        {
-            ShowActivated = false, ShowInTaskbar = false, Opacity = 0, Left = -20000, Top = -20000, Width = 280, Height = 900
-        };
+        var panel = CreatePanel(settings);
         var overlay = new Window { ShowActivated = false, ShowInTaskbar = false, Opacity = 0, Left = -20000, Top = -20000 };
         var oldFeed = Environment.GetEnvironmentVariable(UpdateService.FeedOverrideVariable);
         try
@@ -226,6 +218,65 @@ internal static class UpdateAndTrayTests
         }
     }
 
+    public static void VerifyMirrorChyanSettings()
+    {
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+        var folder = Directory.CreateTempSubdirectory("mirrorchyan-settings-ui-").FullName;
+        var panel = CreatePanel(new SettingsManager(folder));
+        try
+        {
+            panel.Show();
+            ((Button)panel.FindName("SettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((TabControl)panel.FindName("SettingsCategoryList")).SelectedIndex = 3;
+            WaitForAnimation();
+            var cdk = (PasswordBox)panel.FindName("MirrorChyanCdkBox");
+            var save = (Button)panel.FindName("SaveMirrorChyanCdkButton");
+            var status = (TextBlock)panel.FindName("MirrorChyanCdkStatus");
+            var slider = (Slider)panel.FindName("UiScaleSlider");
+            foreach (var night in new[] { false, true })
+            foreach (var scale in new[] { 100, 125 })
+            {
+                ThemeManager.Apply(GameShopTheme.Closure, night);
+                slider.Value = scale;
+                cdk.Password = "masked-demo";
+                Pump();
+                cdk.IsVisible.Should().BeTrue();
+                cdk.ActualWidth.Should().BeGreaterThan(100);
+                var position = save.TransformToAncestor(panel).TransformBounds(new Rect(save.RenderSize));
+                position.Right.Should().BeLessThanOrEqualTo(panel.ActualWidth);
+                position.Bottom.Should().BeLessThanOrEqualTo(panel.ActualHeight);
+                Save((FrameworkElement)panel.Content, $"MirrorChyan-{night}-settings-{scale}", panel.RenderSize);
+            }
+
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AwaitWhen(() => save.IsEnabled);
+            status.Text.Should().Contain("已保存");
+            cdk.Password.Should().BeEmpty();
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            AwaitWhen(() => save.IsEnabled);
+            status.Text.Should().Contain("留空使用 GitHub");
+        }
+        finally
+        {
+            panel.Close();
+            Directory.Delete(folder, true);
+        }
+    }
+
+    private static SidePanelWindow CreatePanel(SettingsManager settings)
+    {
+        var folder = settings.DirectoryPath;
+        var calculator = new CovenantCalculator([], [], new Dictionary<string, string>());
+        return new SidePanelWindow(new OperatorBrowseViewModel(), new EquipmentBrowseViewModel(), new TrackingViewModel(),
+            new GameStateViewModel(), new BanViewModel(), new EnemyViewModel(),
+            new LineupViewModel(new LineupStore(Path.Combine(folder, "lineups"), calculator.EquipmentRules), calculator),
+            new LineupShareService(calculator.EquipmentRules, Path.Combine(folder, "share")), [], [], [], settings,
+            GameShopTheme.Terminal, new SidePanelPositionSettings { FreeMovement = true })
+        {
+            ShowActivated = false, ShowInTaskbar = false, Opacity = 0, Left = -20000, Top = -20000, Width = 280, Height = 900
+        };
+    }
+
     private static void Respond(TcpListener server, int status, string body)
     {
         using var client = server.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
@@ -245,6 +296,12 @@ internal static class UpdateAndTrayTests
         Pump();
     }
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+    private static void AwaitWhen(Func<bool> complete)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!complete() && DateTime.UtcNow < deadline) Pump();
+        complete().Should().BeTrue();
+    }
     private static void Await(Task task)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);
@@ -262,11 +319,12 @@ internal static class UpdateAndTrayTests
             foreach (var item in Descendants<T>(child)) yield return item;
         }
     }
-    private static void Save(FrameworkElement view, string name)
+    private static void Save(FrameworkElement view, string name, Size? viewport = null)
     {
         var folder = Path.Combine(TestOutput.Directory, "update-tray-previews");
         Directory.CreateDirectory(folder);
-        var image = new RenderTargetBitmap((int)view.ActualWidth, (int)view.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+        var size = viewport ?? view.RenderSize;
+        var image = new RenderTargetBitmap((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height), 96, 96, PixelFormats.Pbgra32);
         image.Render(view);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(image));

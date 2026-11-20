@@ -3,8 +3,10 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using ASPAssistant.Core.Data;
+using ASPAssistant.Core.Interop;
 using ASPAssistant.Core.Models;
 using ASPAssistant.Core.Services;
 using MaaFramework.Binding;
@@ -46,6 +48,8 @@ public partial class GameConnectionWindow : Window
         _settings = settings;
         InitializeComponent();
         WindowUiScale.PrepareCentered(this);
+        SourceInitialized += (_, _) => FitWorkArea(Owner ?? this);
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(() => FitWorkArea(this));
         var saved = capture.Connection.Settings;
         AdbPathBox.Text = saved.AdbPath;
         AdbSerialBox.Text = saved.AdbSerial;
@@ -63,6 +67,14 @@ public partial class GameConnectionWindow : Window
     }
 
     private bool IsAdb => AdbMode.IsChecked == true;
+
+    private void FitWorkArea(Window reference)
+    {
+        var hwnd = new WindowInteropHelper(reference).Handle;
+        var bounds = User32.ReadWindowRect(hwnd);
+        var work = User32.GetMonitorGeometry(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2).WorkArea;
+        MaxHeight = Math.Floor(work.Height / User32.GetWindowDpiScale(hwnd));
+    }
 
     private void OnTitleBarDrag(object sender, MouseButtonEventArgs e)
     {
@@ -109,7 +121,7 @@ public partial class GameConnectionWindow : Window
         var (fill, border, icon, glyph, titleBrush) = tone switch
         {
             Tone.Ok => ("SuccessTintBrush", "SuccessBorderBrush", "SuccessBrush", "✓", "SuccessTextBrush"),
-            Tone.Error => ("DangerTintBrush", "DangerBorderBrush", "DangerBrush", "!", "DangerBrush"),
+            Tone.Error => ("DangerTintBrush", "DangerBorderBrush", "DangerBrush", "!", "TextPrimaryBrush"),
             Tone.Busy => ("AccentTintBrush", "AccentBorderBrush", "AccentBrush", "…", "AccentBrush"),
             _ => ("SectionBackgroundBrush", "BorderBrush", "TextSecondaryBrush", "i", "TextPrimaryBrush"),
         };
@@ -294,14 +306,18 @@ public partial class GameConnectionWindow : Window
         if (DisplaySelector.SelectedItem is not AdbGameDisplay)
         {
             await RefreshDisplaysAsync();
-            return;
+            if (DisplaySelector.SelectedItem is not AdbGameDisplay)
+            {
+                ConnectionBody.ScrollToBottom();
+                return;
+            }
         }
         var candidate = NewCandidate(true, window);
         SetBusy(true);
         SetStatus(Tone.Busy, "正在连接并读取画面", "首次连接需要几秒");
         try
         {
-            var png = await Task.Run(() => candidate.CaptureAdbScreen(_capture.MaxCaptureWidth));
+            var png = await Task.Run(() => candidate.CaptureAdbScreen(_capture.MaxCaptureWidth, waitForInitialDisplay: true));
             if (png is null) throw new IOException(candidate.Status);
             if (candidate.FindGameWindow() == IntPtr.Zero || candidate.GetViewport(window.Handle) is null)
                 throw new IOException("游戏显示区域不可用，请恢复对应模拟器窗口后重试。");
@@ -316,7 +332,11 @@ public partial class GameConnectionWindow : Window
             candidate.Dispose();
             SetStatus(Tone.Error, "读不到画面", $"{ex.Message} 确认实例已启动、地址正确，再点「发现设备」。");
         }
-        finally { SetBusy(false); }
+        finally
+        {
+            SetBusy(false);
+            ConnectionBody.ScrollToBottom();
+        }
     }
 
     private async Task ApplyAsync(GameConnectionService candidate)

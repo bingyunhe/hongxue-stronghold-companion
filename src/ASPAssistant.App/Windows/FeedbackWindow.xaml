@@ -43,12 +43,16 @@
                             <TextBlock Text="复现步骤与预期结果" Margin="0,12,0,5" />
                             <TextBox x:Name="StepsBox" Style="{StaticResource DialogTextBox}" Height="70" AcceptsReturn="True"
                                      MaxLength="6000" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="复现步骤与预期结果" />
+                            <ComboBox x:Name="EventChoice" DisplayMemberPath="Label" Visibility="Collapsed" Margin="0,10,0,0"
+                                      AutomationProperties.Name="按回合和时间选择识别记录" SelectionChanged="OnEventChanged" />
                             <TextBlock x:Name="RecognitionText" TextWrapping="Wrap" Margin="0,12,0,8" FontSize="11"
                                        Foreground="{DynamicResource TextSecondaryBrush}" />
                             <CheckBox x:Name="ScreenshotChoice" Content="附上这次识别画面" Checked="OnScreenshotChanged" Unchecked="OnScreenshotChanged"
                                       Foreground="{DynamicResource TextPrimaryBrush}" />
                             <TextBlock x:Name="PrivacyText" Text="截图可能含游戏昵称或聊天内容，请先查看下方画面。反馈包不包含个人阵容和设置文件。"
                                        TextWrapping="Wrap" Margin="0,6,0,8" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                            <ComboBox x:Name="FrameChoice" DisplayMemberPath="Label" Visibility="Collapsed" Margin="0,0,0,6"
+                                      AutomationProperties.Name="预览将附上的画面" SelectionChanged="OnFrameChanged" />
                             <Image x:Name="ScreenshotPreview" MaxHeight="170" Stretch="Uniform" Visibility="Collapsed" />
                         </StackPanel>
                     </ScrollViewer>

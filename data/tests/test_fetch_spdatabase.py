@@ -42,8 +42,8 @@ class EnemyFetchTests(unittest.TestCase):
             },
         }
         self.book = {"enemyData": {
-            "book_fin": {"name": "假想敌：鳍", "abilityList": [{"text": "鳍的能力"}]},
-            "book_matrix": {"name": "矩兽", "description": "矩兽介绍"},
+            "book_fin": {"name": "假想敌：鳍", "attackType": "近战", "abilityList": [{"text": "鳍的能力"}]},
+            "book_matrix": {"name": "矩兽", "attackType": "远程", "description": "矩兽介绍"},
             "unrelated": {"name": "不属于当前赛季的首领", "enemyLevel": "BOSS"},
             "enemy_a": {"name": "致命敌人甲"},
             "enemy_b": {"name": "致命敌人乙"},
@@ -182,6 +182,17 @@ class EnemyFetchTests(unittest.TestCase):
                     self.assertEqual((destination / name).read_bytes(), b"keep unchanged")
                 self.assertEqual([b["name"] for b in json.loads((destination / "bosses.json").read_text(encoding="utf-8"))["bosses"]],
                                  ["假想敌：鳍", "矩兽"])
+
+    def test_missing_attack_type_uses_prts_combat_enemy_id(self):
+        self.book["enemyData"]["book_fin"]["attackType"] = None
+        db = {"enemies": [{"Key": "enemy_fin", "Value": [{"enemyData": {
+            "applyWay": {"m_defined": True, "m_value": "MELEE"}}}]}]}
+        with tempfile.TemporaryDirectory() as directory, patch.object(fetch, "fetch_json", side_effect=[self.book, db]):
+            destination = Path(directory)
+            fetch.update_enemy_data(self.season, self.metadata, destination,
+                                    skip_icons=True, skip_bosses=False, skip_enemies=True)
+            rows = json.loads((destination / "bosses.json").read_bytes())["bosses"]
+            self.assertEqual([b["attackType"] for b in rows], ["近战", "远程"])
 
     def test_skip_special_enemies_does_not_require_type_fields(self):
         del self.metadata["enemyTypeDatas"]

@@ -42,7 +42,10 @@ public partial class SidePanelWindow : Window
     {
         e.Handled = true;
         try { Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true }); }
-        catch (Win32Exception) { ShowToast($"无法打开默认浏览器，请手动访问：{e.Uri.AbsoluteUri}"); }
+        catch (Win32Exception)
+        {
+            ShowToast(e.Uri.Scheme == "mqqapi" ? "未能打开 QQ 客户端，可在 QQ 中搜索群号 1104531618。" : $"无法打开默认浏览器，请手动访问：{e.Uri.AbsoluteUri}");
+        }
     }
 
     private readonly LineupShareService _lineupShareService;
@@ -54,6 +57,7 @@ public partial class SidePanelWindow : Window
     private readonly DispatcherTimer _toastHideTimer;
 
     private readonly UpdateService _updateService = new();
+    private readonly MirrorChyanCdkStore _mirrorChyanCdk;
     private bool _isCheckingForUpdates;
     private bool _hasCheckedForUpdates;
     private readonly SettingsManager _settingsManager;
@@ -126,6 +130,7 @@ public partial class SidePanelWindow : Window
         _lineupPlanner = lineupPlanner ?? new LineupPlanner(allOperators, covenants ?? []);
         _covenants = covenants ?? [];
         _settingsManager = settingsManager;
+        _mirrorChyanCdk = new(settingsManager.DirectoryPath);
         _positionSettings = positionSettings;
         GameTheme = gameTheme;
 
@@ -150,6 +155,7 @@ public partial class SidePanelWindow : Window
         ApplyUiScale();
         UiScaleSlider.ValueChanged += OnUiScaleValueChanged;
         CurrentVersionText.Text = $"当前版本  v{typeof(SidePanelWindow).Assembly.GetName().Version!.ToString(3)}";
+        RefreshMirrorChyanCdkStatus();
         GameThemeSelector.SelectedIndex = (int)gameTheme;
         FollowModeThemeToggle.IsChecked = _appearance.FollowModeTheme;
         UiThemeSelector.SelectedIndex = (int)_appearance.Theme;
@@ -206,11 +212,16 @@ public partial class SidePanelWindow : Window
 
         OperatorView.DataContext = operatorVm;
         EquipmentView.DataContext = equipmentVm;
+        ((ListBoxItem)CodexSegment.Items[0]).Tag = allOperators.Count;
+        ((ListBoxItem)CodexSegment.Items[1]).Tag = allEquipment.Count;
+        ((ListBoxItem)CodexSegment.Items[2]).Tag = allStrategies.Count;
+        CodexSegment.Loaded += (_, _) => ((ListBoxItem)CodexSegment.Items[4]).Tag = _codexBounties.Value.Length;
         TrackingView.SetOperators(allOperators);
         TrackingView.SetEquipment(allEquipment);
         TrackingView.SetCovenantCalculator(lineupVm.Calculator);
         TrackingView.DataContext = trackingVm;
         EnemyView.DataContext = enemyVm;
+        TrackingView.DeployPage.RoundEnemyPanel.DataContext = enemyVm;
         RunBanView.DataContext = operatorVm;
         LineupView.DataContext = lineupVm;
         LineupView.SetTracking(trackingVm);
@@ -368,8 +379,9 @@ public partial class SidePanelWindow : Window
     public void UpdateManualScanStatus(int pending)
         => RunBanView.UpdateManualScanStatus(pending);
 
-    public void EnableCurrentRunFilters()
+    public void ApplyAutomaticCurrentRunFilters()
     {
+        if (AutomaticCurrentRunFiltersToggle.IsChecked != true) return;
         OperatorBrowseVm.OnlyCurrentRun = true;
         PlannerVm.OnlyCurrentRun = true;
     }
@@ -513,7 +525,16 @@ public partial class SidePanelWindow : Window
 
         try
         {
-            await _updateService.DownloadAndApplyUpdateAsync(info, progress);
+            string? cdk = null;
+            if (info.FromMirrorChyan)
+            {
+                try { cdk = await _mirrorChyanCdk.LoadAsync(); }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+                {
+                    MirrorChyanCdkStatus.Text = "无法读取已保存的 CDK，请重新填写。";
+                }
+            }
+            await _updateService.DownloadAndApplyUpdateAsync(info, progress, mirrorCdk: cdk);
 
             _isDownloadReady = true;
             Dispatcher.Invoke(() =>
@@ -524,7 +545,9 @@ public partial class SidePanelWindow : Window
                 UpdateActionIcon.Text = "↻ ";
                 UpdateActionText.Text = "立即重启";
                 UpdateStatusText.Text = $"新版本 {info.TagName} 已就绪，点击“立即重启”完成更新（会自动关闭并重新打开）";
-                _openUpdateDialog?.ReportProgress(1.0);
+                if (_updateService.DownloadNotice is { } notice)
+                    UpdateStatusText.Text += $"。{notice}，已使用 GitHub Releases 下载。";
+                _openUpdateDialog?.ReportProgress(1.0, _updateService.DownloadNotice);
             });
         }
         catch (Exception ex)
@@ -577,7 +600,8 @@ public partial class SidePanelWindow : Window
         var dialog = new UpdateDialog(_pendingUpdate) { Owner = this };
         dialog.DownloadRequested += StartUpdateDownload;
         if (_downloadError is not null) dialog.ReportFailure(_downloadError);
-        else if (_downloadTask is not null) dialog.ReportProgress(_lastUpdateProgress);
+        else if (_downloadTask is not null)
+            dialog.ReportProgress(_isDownloadReady ? 1.0 : _lastUpdateProgress, _updateService.DownloadNotice);
         _openUpdateDialog = dialog;
         try
         {
@@ -642,6 +666,15 @@ public partial class SidePanelWindow : Window
             && (User32.GetWindowLong(foreground, User32.GWL_EXSTYLE) & 8) == 0)
             insertAfter = foreground;
         User32.SetWindowLayer(hwnd, insertAfter);
+        // Windows can promote an owned dialog while leaving its owner behind another app.
+        if (topmost && (User32.GetWindowLong(hwnd, User32.GWL_EXSTYLE) & 8) == 0 && OwnedWindows.Count > 0)
+        {
+            foreach (Window dialog in OwnedWindows)
+            {
+                if (dialog.IsVisible) User32.SetWindowLayer(new WindowInteropHelper(dialog).Handle, new IntPtr(-2));
+            }
+            User32.SetWindowLayer(hwnd, new IntPtr(-1));
+        }
     }
 
     public void UpdatePosition(RECT gameRect, bool isFullscreen)
@@ -786,6 +819,7 @@ public partial class SidePanelWindow : Window
         HighlightSettingsButton(open);
         if (open)
         {
+            if (ReferenceHost.Content is ReferenceCatalogueView catalogue) catalogue.CloseDetails();
             SettingsPanel.Tag = null;
             SettingsPanel.Visibility = Visibility.Visible;
             PageTransition.SlideIn(SettingsPanel, fromX: 18);
@@ -1162,6 +1196,34 @@ public partial class SidePanelWindow : Window
 
     public event Action<bool>? AutomaticPurchaseTrackingChanged;
     public event Action<PurchaseRecognitionSpeed>? PurchaseRecognitionSpeedChanged;
+    public event Action<bool>? AutomaticRoundEnemiesChanged;
+
+    public void InitAutomaticCurrentRunFilters(bool enabled)
+    {
+        AutomaticCurrentRunFiltersToggle.IsChecked = enabled;
+        AutomaticCurrentRunFiltersToggle.Checked += SaveAutomaticCurrentRunFilters;
+        AutomaticCurrentRunFiltersToggle.Unchecked += SaveAutomaticCurrentRunFilters;
+    }
+
+    private async void SaveAutomaticCurrentRunFilters(object sender, RoutedEventArgs e)
+    {
+        bool enabled = AutomaticCurrentRunFiltersToggle.IsChecked == true;
+        await SavePreferenceAsync(() => _settingsManager.SaveAutomaticCurrentRunFiltersAsync(enabled), AutomaticCurrentRunFiltersToggle);
+    }
+
+    public void InitAutomaticRoundEnemies(bool enabled)
+    {
+        AutomaticRoundEnemiesToggle.IsChecked = enabled;
+        AutomaticRoundEnemiesToggle.Checked += OnAutomaticRoundEnemiesChanged;
+        AutomaticRoundEnemiesToggle.Unchecked += OnAutomaticRoundEnemiesChanged;
+    }
+
+    private async void OnAutomaticRoundEnemiesChanged(object sender, RoutedEventArgs e)
+    {
+        bool enabled = AutomaticRoundEnemiesToggle.IsChecked == true;
+        AutomaticRoundEnemiesChanged?.Invoke(enabled);
+        await SavePreferenceAsync(() => _settingsManager.SaveAutomaticRoundEnemiesAsync(enabled), AutomaticRoundEnemiesToggle);
+    }
 
     public void InitPurchaseRecognitionSpeed(PurchaseRecognitionSpeed speed)
     {
@@ -1423,14 +1485,45 @@ public partial class SidePanelWindow : Window
         if (IsLoaded) PageTransition.SlideIn(planner ? PlannerView : LineupView, fromY: 8);
     }
 
-    private void OnCodexSegmentChanged(object sender, SelectionChangedEventArgs e)
+    private readonly Dictionary<int, ReferenceCatalogueView> _referencePages = [];
+    private IReadOnlyList<BossInfo> _codexBosses = [];
+    private readonly Lazy<CodexBounty[]> _codexBounties = new(CodexBounty.Load);
+
+    public void SetCodexBosses(IReadOnlyList<BossInfo> bosses)
+    {
+        _codexBosses = bosses;
+        ((ListBoxItem)CodexSegment.Items[3]).Tag = bosses.Count;
+    }
+
+    private void OnCodexWidthChanged(object sender, SizeChangedEventArgs e)
+        => ((ListBox)sender).Tag = e.NewSize.Width < 245;
+
+    private async void OnCodexSegmentChanged(object sender, SelectionChangedEventArgs e)
     {
         e.Handled = true;
-        if (OperatorView is null || EquipmentView is null) return;
-        bool equipment = CodexSegment.SelectedIndex == 1;
-        OperatorView.Visibility = equipment ? Visibility.Collapsed : Visibility.Visible;
-        EquipmentView.Visibility = equipment ? Visibility.Visible : Visibility.Collapsed;
-        if (IsLoaded) PageTransition.SlideIn(equipment ? EquipmentView : OperatorView, fromY: 8);
+        if (ReferenceHost is null) return;
+        int index = CodexSegment.SelectedIndex;
+        OperatorView.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EquipmentView.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
+        ReferenceHost.Visibility = index >= 2 ? Visibility.Visible : Visibility.Collapsed;
+        Task portraitsReady = Task.CompletedTask;
+        if (index >= 2)
+        {
+            if (!_referencePages.TryGetValue(index, out var page))
+            {
+                page = new ReferenceCatalogueView();
+                _referencePages.Add(index, page);
+                switch (index)
+                {
+                    case 2: portraitsReady = page.SetStrategiesAsync(_allStrategies); break;
+                    case 3: page.SetBosses(_codexBosses, EnemyVm); break;
+                    case 4: page.SetBounties(_codexBounties.Value); break;
+                }
+            }
+            ReferenceHost.Content = page;
+        }
+        if (IsLoaded) PageTransition.SlideIn(index switch { 0 => OperatorView, 1 => EquipmentView, _ => ReferenceHost }, fromY: 8);
+        await portraitsReady;
     }
 
     private void WirePlannerView()

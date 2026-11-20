@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <!-- Version is overridden by CI via -p:Version=x.y.z during release builds -->
-    <Version>1.9.4</Version>
+    <Version>1.9.5</Version>
     <AssemblyTitle>Hongxue Stronghold Companion</AssemblyTitle>
     <Product>Hongxue Stronghold Companion</Product>
     <!-- Custom entry point with OS version guard (Program.cs); overrides WPF auto-generated Main -->
@@ -57,6 +57,7 @@
              Condition="Exists('..\..\data\icons\bosses')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\..\data\template\field-sprites.bin" Link="data\template\field-sprites.bin" CopyToOutputDirectory="PreserveNewest" />
     <!-- Card template images (op_card.png, etc.) copied to data/template/ for reference. -->
     <Content Include="..\..\data\template\*.png" Link="data\template\%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 using ASPAssistant.Core.GameModes.GarrisonProtocol;
 using ASPAssistant.Core.GameState;
 using ASPAssistant.Core.Models;
@@ -63,6 +64,37 @@ public class OcrScannerServiceTests
         await scanner.ScanNowAsync();
         purchased.Should().Equal("坚守盾牌");
         await scanner.ScanNowAsync(); purchased.Should().HaveCount(1);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EnemyPanelTransitionPreservesPurchaseEvidenceButFoldingTheShopClearsIt(bool enemyPanel)
+    {
+        var reader = CreateEconomyReader();
+        int money = 4;
+        _ocr.Setup(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .Returns((byte[] _, int x, int y, int _, int _) => Task.FromResult<IReadOnlyList<OcrTextResult>>([new(money.ToString(), (x,y,20,30))]));
+        using var scanner = new OcrScannerService(() => _screenshot, new GarrisonOcrStrategy(),
+            new ShopReader(_ocr.Object, _names) { Theme = GameShopTheme.Closure }, _ocr.Object, new(), _names)
+            { EconomyReader = reader, AutomaticPurchaseTracking = true, PurchaseTargets = () => _names.ToHashSet() };
+        var purchased = new List<string>();
+        scanner.PurchasesDetected += (names, _, _) => purchased.AddRange(names);
+        await scanner.ScanNowAsync();
+        await scanner.ScanNowAsync();
+        var state = (RoundEnemyState)typeof(OcrScannerService).GetField("_roundEnemyState",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(scanner)!;
+        if (enemyPanel) state.BeginConfirmation();
+        var offers = _shopTexts;
+        _shopTexts = [];
+        await scanner.ScanNowAsync();
+        if (enemyPanel) state.EndConfirmation();
+        _shopTexts = offers.Where(t => t.Text != "坚守盾牌").ToArray();
+        money = 2;
+        await scanner.ScanNowAsync();
+        await scanner.ScanNowAsync();
+        if (enemyPanel) purchased.Should().Equal("坚守盾牌");
+        else purchased.Should().BeEmpty();
     }
 
     [Fact]
@@ -448,10 +480,10 @@ public class OcrScannerServiceTests
     [InlineData("坚守盾牌", false, false)]
     [InlineData("坚守盾牌", true, true)]
     [InlineData("坚守盾牌", false, true)]
-    public async Task PurchasePipelineChecksFreshFundsOnlyWhenCardsChange(string purchased, bool eligible, bool unreliableFunds)
+    public async Task PurchasePipelineReadsPendingFundsWithoutWaitingForPeriodicHud(string purchased, bool eligible, bool unreliableFunds)
     {
         var reader = CreateEconomyReader();
-        var money = 20;
+        var money = 4;
         _ocr.Setup(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
             .Returns((byte[] _, int x, int y, int _, int _) => Task.FromResult<IReadOnlyList<OcrTextResult>>([new(money.ToString(), (x, y, 20, 30))]));
         var catalog = eligible ? _names.ToHashSet(StringComparer.Ordinal) : new HashSet<string>();
@@ -466,22 +498,34 @@ public class OcrScannerServiceTests
         scanner.PurchasesDetected += (names, _, _) => results.AddRange(names);
         await scanner.ScanNowAsync();
         await scanner.ScanNowAsync();
-        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(3));
+        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(2));
         _shopTexts = _shopTexts.Where(t => t.Text != purchased).ToList();
+        var elapsed = Stopwatch.StartNew();
         if (unreliableFunds)
         {
-            money = 26;
             await scanner.ScanNowAsync();
             results.Should().BeEmpty();
-            await Task.Delay(2100);
+            money = 20;
+            await scanner.ScanNowAsync();
+            results.Should().BeEmpty();
         }
-        money = 19;
+        money = 2;
         await scanner.ScanNowAsync();
         results.Should().BeEmpty();
         await scanner.ScanNowAsync();
         results.Should().Equal(eligible ? new[] { purchased } : []);
+        if (eligible)
+        {
+            var sample = RecognitionDiagnostics.Samples.Freeze().First(s => s.Kind == "商店购买核对" &&
+                s.Frames.Any(f => ReferenceEquals(f.Image, _screenshot)) && s.Result.Contains(purchased));
+            sample.Frames.Length.Should().BeGreaterThan(1);
+        }
+        int expectedCalls = eligible && unreliableFunds ? 6 : 4;
         _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()),
-            Times.Exactly(unreliableFunds ? 9 : 6));
+            Times.Exactly(expectedCalls));
+        if (eligible && unreliableFunds)
+            File.WriteAllText(Path.Combine(TestOutput.Directory, "purchase-funds-replay.json"),
+                System.Text.Json.JsonSerializer.Serialize(new { ElapsedMs = elapsed.Elapsed.TotalMilliseconds, PurchaseStageBalanceOcrCalls = expectedCalls - 2, BalanceReads = new[] { 4, 20, 2, 2 } }));
     }
 
     [Theory]
@@ -520,7 +564,7 @@ public class OcrScannerServiceTests
         await scanner.ScanNowAsync();
         results.Should().Equal(reset == "none" ? new[] { "坚守盾牌" } : []);
         await scanner.ScanNowAsync();
-        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(9));
+        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(5));
     }
 
     [Fact]
@@ -545,7 +589,7 @@ public class OcrScannerServiceTests
         _shopTexts = original.Where(t => t.Text != "坚守盾牌").ToList(); money = 1;
         await scanner.ScanNowAsync(); await scanner.ScanNowAsync();
         results.Should().BeEmpty(); targetsRead.Should().Be(0);
-        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(3));
+        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Once);
         scanner.AutomaticPurchaseTracking = true;
         await scanner.ScanNowAsync(); await scanner.ScanNowAsync();
         results.Should().BeEmpty("enabling must not apply purchases made while disabled");
@@ -593,7 +637,7 @@ public class OcrScannerServiceTests
     }
 
     [Fact]
-    public async Task PendingFastFundsReadsDoNotPostponePeriodicHudCalibration()
+    public async Task PendingFastFundsReadsCalibrateOnceAndReturnToReadingOnlyFunds()
     {
         var reader = CreateEconomyReader();
         var money = 2;
@@ -608,14 +652,12 @@ public class OcrScannerServiceTests
         };
         await scanner.ScanNowAsync();
         await scanner.ScanNowAsync();
+        typeof(OcrScannerService).GetField("_nextEconomyRead", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(scanner, DateTime.MinValue);
         _shopTexts = _shopTexts.Where(t => t.Text != "坚守盾牌").ToList();
         money = 16;
-        for (int i = 0; i < 8; i++)
-        {
-            await scanner.ScanNowAsync();
-            await Task.Delay(300);
-        }
-        _ocr.Verify(e => e.RecognizeRegionAsync(It.IsAny<byte[]>(), 0, 0, 1152, 97), Times.AtLeast(2));
+        for (int i = 0; i < 3; i++) await scanner.ScanNowAsync();
+        _ocr.Verify(e => e.RecognizeRegionAsync(It.IsAny<byte[]>(), 0, 0, 1152, 97), Times.Exactly(2));
     }
 
     [Fact]
@@ -638,7 +680,7 @@ public class OcrScannerServiceTests
         acquired.Should().Equal("坚守盾牌");
         captures.Should().Be(4, "baseline scans plus the missing frame and an independent confirmation frame");
         _ocr.Verify(e => e.RecognizeRegionAsync(It.IsAny<byte[]>(), 0, 0, 3840, 540), Times.Exactly(6));
-        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(9));
+        _ocr.Verify(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.Is<int>(x => x > 1700), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()), Times.Exactly(4));
     }
 
     [Theory]

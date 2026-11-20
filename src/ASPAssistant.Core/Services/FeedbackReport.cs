@@ -8,8 +8,12 @@ namespace ASPAssistant.Core.Services;
 
 public sealed record FeedbackReport(string Environment, string Logs, RecognitionSnapshot? Recognition)
 {
+    public RecognitionSample[] Samples { get; init; } = [];
+    public RecognitionSample? Selected { get; init; }
+
     public static FeedbackReport Prepare()
     {
+        var samples = RecognitionDiagnostics.Samples.Freeze();
         var snapshot = RecognitionDiagnostics.Latest;
         var version = Assembly.GetEntryAssembly()!.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
         var details = $"程序版本：{version}\n系统：{RuntimeInformation.OSDescription}\n架构：{RuntimeInformation.ProcessArchitecture}\n运行时：{RuntimeInformation.FrameworkDescription}\n生成时间：{DateTimeOffset.Now:O}";
@@ -34,21 +38,54 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
                 logs = $"无法读取日志，仍可填写问题和导出已有识别记录。\n{ex.Message}";
             }
         }
-        return new(Sanitize(details), Sanitize(logs), snapshot is null ? null : snapshot with { Result = Sanitize(snapshot.Result) });
+        return new(Sanitize(details), Sanitize(logs), snapshot is null ? null : snapshot with { Result = Sanitize(snapshot.Result) }) { Samples = samples };
     }
 
     public string Preview(string category, string description, string steps) =>
         $"问题类型：{category}\n问题描述：\n{Sanitize(description)}\n\n复现步骤：\n{Sanitize(steps)}\n\n{Environment}\n\n识别记录：\n" +
-        (Recognition is { } frame ? $"时间：{frame.CapturedAt:O}\n来源：{frame.Source}\n{frame.Result}" : "暂无识别记录。") +
-        $"\n\n近期日志：\n{Logs}";
+        (Selected is { } sample ? $"{sample.Label}\n{Sanitize(sample.Result)}\n{Sanitize(string.Join("\n", sample.Actions))}\n" +
+            string.Join("\n", sample.Frames.Select((f,i) => $"{i+1:00} · {f.Time:O} · {Sanitize(f.Step)}")) :
+            Recognition is { } frame ? $"时间：{frame.CapturedAt:O}\n来源：{frame.Source}\n{frame.Result}" : "暂无识别记录。") +
+        $"\n\n近期日志：\n{(Selected is null ? Logs : string.Join("\n", Logs.Split('\n').Where(line =>
+            line.Contains("[LiveField]") || line.Contains("[RoundEnemy]") || line.Contains("[ShopPurchase]")).TakeLast(120)))}";
 
     public void Export(string path, string category, string description, string steps, bool includeScreenshot)
     {
-        using var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
+        string pending = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write))
+                WriteArchive(output, category, description, steps, includeScreenshot);
+            File.Move(pending, path);
+        }
+        finally { File.Delete(pending); }
+    }
+
+    private void WriteArchive(Stream output, string category, string description, string steps, bool includeScreenshot)
+    {
         using var zip = new ZipArchive(output, ZipArchiveMode.Create);
         using (var writer = new StreamWriter(zip.CreateEntry("反馈说明.txt").Open(), Encoding.UTF8))
             writer.Write(Preview(category, description, steps));
-        if (includeScreenshot && Recognition is { Frame.Length: > 0 } snapshot)
+        if (!includeScreenshot) return;
+        if (Selected is { } sample)
+        {
+            var frames = sample.Frames.Select((frame, i) => new
+            {
+                file = $"frames/{i + 1:00}.{frame.Extension}", time = frame.Time, step = Sanitize(frame.Step)
+            }).ToArray();
+            using (var manifest = zip.CreateEntry("recognition.json").Open())
+                System.Text.Json.JsonSerializer.Serialize(manifest, new { version = 1, round = sample.Round,
+                    kind = Sanitize(sample.Kind), started = sample.Started, result = Sanitize(sample.Result),
+                    actions = sample.Actions.Select(Sanitize), frames });
+            for (int i = 0; i < sample.Frames.Length; i++)
+            {
+                var frame = sample.Frames[i];
+                using var image = zip.CreateEntry(frames[i].file, CompressionLevel.NoCompression).Open();
+                image.Write(frame.Image);
+            }
+            return;
+        }
+        if (Recognition is { Frame.Length: > 0 } snapshot)
         {
             using var image = zip.CreateEntry("识别画面.png", CompressionLevel.NoCompression).Open();
             image.Write(snapshot.Frame);
@@ -57,7 +94,7 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
 
     public static string Sanitize(string text)
     {
-        text = Regex.Replace(text, @"(?im)^(.*\b(?:authorization|cookie|set-cookie|password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]).*$", "$1 <已隐藏>");
+        text = Regex.Replace(text, @"(?im)^(.*\b(?:authorization|cookie|set-cookie|password|passwd|secret|cdk|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]).*$", "$1 <已隐藏>");
         text = Regex.Replace(text, @"(?i)(https?://)[^\s/@]+:[^\s/@]+@", "$1<已隐藏>@");
         text = Regex.Replace(text, @"(?i)(https?://[^\s?""<>]+)\?[^\s""<>]*", "$1?<参数已隐藏>");
         text = Regex.Replace(text, @"(?i)(?<![a-z0-9])(?:[a-z]:[\\/]|\\\\)[^\r\n""<>|]*", "<本地路径>");

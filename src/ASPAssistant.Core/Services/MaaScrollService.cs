@@ -7,10 +7,14 @@ namespace ASPAssistant.Core.Services;
 public sealed class MaaScrollService
 {
     public bool TryScrollAtWindowCenter(IntPtr hwnd, int dy)
+        => TryScrollAtPoint(hwnd, dy, null);
+
+    internal bool TryScrollAtPoint(IntPtr hwnd, int dy, System.Drawing.Point? client)
     {
         if (hwnd == IntPtr.Zero || !Interop.User32.IsWindow(hwnd)) return false;
         if (Interop.User32.GetForegroundWindow() != hwnd)
         {
+            if (client.HasValue) return false;
             Interop.User32.SetForegroundWindow(hwnd);
             if (Interop.User32.GetForegroundWindow() != hwnd)
             {
@@ -41,10 +45,13 @@ public sealed class MaaScrollService
                 != MaaJobStatus.Succeeded) return false;
             using var tasker = new MaaTasker(controller, resource, DisposeOptions.None);
             // Controller.Scroll(dx, dy) resets the target to (0, 0); the action accepts an explicit target.
+            var point = client ?? new System.Drawing.Point(rect.Value.Width / 2, rect.Value.Height / 2);
+            if (client.HasValue && Interop.User32.CheckClickTarget(hwnd, rect.Value.Left + point.X, rect.Value.Top + point.Y) != Interop.ClickResult.Sent)
+                return false;
             var status = ((IMaaTasker)tasker).AppendAction("Scroll", JsonSerializer.Serialize(new
-                { target = new[] { rect.Value.Width / 2, rect.Value.Height / 2 }, dx = 0, dy })).Wait();
+                { target = new[] { point.X, point.Y }, dx = 0, dy })).Wait();
             if (!Interop.User32.GetCursorPos(out var atWheel)) return false;
-            AppLogger.Info("InformationScroll", $"PC wheel dy={dy}, status={status}, target=({rect.Value.Left + rect.Value.Width / 2},{rect.Value.Top + rect.Value.Height / 2}), cursor=({atWheel.X},{atWheel.Y})");
+            AppLogger.Info("InformationScroll", $"PC wheel dy={dy}, status={status}, target=({rect.Value.Left + point.X},{rect.Value.Top + point.Y}), cursor=({atWheel.X},{atWheel.Y})");
             // Keep the pointer over the panel until the game has processed the wheel event.
             Thread.Sleep(250);
             return status == MaaJobStatus.Succeeded;

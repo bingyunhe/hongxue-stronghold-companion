@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using ASPAssistant.App.Views;
 using ASPAssistant.App.Windows;
@@ -64,6 +66,8 @@ internal static class EmulatorFixViewTests
 
     public static void VerifyConnectionLayout()
     {
+        var appearance = new SidebarAppearance();
+        WindowUiScale.Initialize(appearance);
         var dialog = new GameConnectionWindow(new ScreenCaptureService(), new SettingsManager(Path.Combine(Path.GetTempPath(), "connection-layout")))
         { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000, WindowStartupLocation = WindowStartupLocation.Manual };
         dialog.Show();
@@ -71,13 +75,13 @@ internal static class EmulatorFixViewTests
         ((System.Windows.Controls.Primitives.ToggleButton)dialog.FindName("ManualToggle")).IsChecked = true;
         var output = Path.Combine(TestOutput.Directory, "emulator-connection");
         Directory.CreateDirectory(output);
+        var content = (FrameworkElement)dialog.Content;
         foreach (var theme in Enum.GetValues<GameShopTheme>())
         foreach (var night in new[] { false, true })
         {
             ASPAssistant.App.ThemeManager.Apply(theme, night);
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             dialog.UpdateLayout();
-            var content = (FrameworkElement)dialog.Content;
             content.ActualHeight.Should().BeLessThan(900);
             foreach (var name in new[] { "WindowSelector", "DisplaySelector", "FollowFocusedGameToggle", "ApplyButton" })
             {
@@ -87,14 +91,87 @@ internal static class EmulatorFixViewTests
                 bounds.Right.Should().BeLessThanOrEqualTo(content.ActualWidth + 1);
                 bounds.Bottom.Should().BeLessThanOrEqualTo(content.ActualHeight + 1);
             }
-            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(content);
-            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
-            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
-            using var file = File.Create(Path.Combine(output, $"{theme}-{night}.png"));
-            encoder.Save(file);
+            Save($"{theme}-{night}.png");
+        }
+
+        var body = (ScrollViewer)dialog.FindName("ConnectionBody");
+        var apply = (Button)dialog.FindName("ApplyButton");
+        var cancel = (Button)dialog.FindName("CancelButton");
+        var status = (Border)dialog.FindName("StatusStrip");
+        var statusTitle = (TextBlock)dialog.FindName("StatusTitle");
+        var statusText = (TextBlock)dialog.FindName("StatusText");
+        var preview = (Border)dialog.FindName("PreviewFrame");
+        appearance.UiScale = 1.25;
+        WindowUiScale.Refresh(appearance);
+        dialog.MaxHeight = 380;
+        foreach (var night in new[] { false, true })
+        {
+            ASPAssistant.App.ThemeManager.Apply(GameShopTheme.Closure, night);
+            ((ComboBox)dialog.FindName("WindowSelector")).SelectedIndex = -1;
+            apply.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            statusTitle.Text.Should().Be("还没选游戏窗口");
+            statusText.Text = "请恢复对应模拟器窗口，确认当前游戏屏幕，再在列表中重新选择。选择后可重新测试。";
+            body.ScrollToTop();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            var applyPosition = Bounds(apply);
+            var cancelPosition = Bounds(cancel);
+            applyPosition.Bottom.Should().BeLessThanOrEqualTo(content.ActualHeight + 1);
+            cancelPosition.Bottom.Should().BeLessThanOrEqualTo(content.ActualHeight + 1);
+            body.ComputedVerticalScrollBarVisibility.Should().Be(Visibility.Visible);
+            var bar = (System.Windows.Controls.Primitives.ScrollBar)body.Template.FindName("PART_VerticalScrollBar", body);
+            bar.IsVisible.Should().BeTrue();
+            body.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120) { RoutedEvent = Mouse.MouseWheelEvent });
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            body.VerticalOffset.Should().BeGreaterThan(0);
+            body.ScrollToBottom();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            Bounds(status).Bottom.Should().BeLessThan(Bounds(body).Bottom);
+            Bounds(apply).Should().Be(applyPosition);
+            Bounds(cancel).Should().Be(cancelPosition);
+            var background = ((SolidColorBrush)dialog.Background).Color;
+            var tint = ((SolidColorBrush)status.Background).Color;
+            var opacity = tint.A / 255.0;
+            var composed = Color.FromRgb(
+                (byte)Math.Round(tint.R * opacity + background.R * (1 - opacity)),
+                (byte)Math.Round(tint.G * opacity + background.G * (1 - opacity)),
+                (byte)Math.Round(tint.B * opacity + background.B * (1 - opacity)));
+            foreach (var text in new[] { statusTitle, statusText })
+            {
+                var foreground = Luminance(((SolidColorBrush)text.Foreground).Color);
+                var surface = Luminance(composed);
+                ((Math.Max(foreground, surface) + .05) / (Math.Min(foreground, surface) + .05)).Should().BeGreaterThanOrEqualTo(4.5);
+            }
+            Save($"Closure-{night}-compact-error.png");
+
+            preview.Visibility = Visibility.Visible;
+            body.ScrollToBottom();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            Bounds(preview).Bottom.Should().BeLessThan(Bounds(body).Bottom);
+            preview.Visibility = Visibility.Collapsed;
         }
         dialog.Close();
+
+        Rect Bounds(FrameworkElement element) => element.TransformToAncestor(content).TransformBounds(new Rect(element.RenderSize));
+
+        void Save(string name)
+        {
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(content.ActualWidth), (int)Math.Ceiling(content.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            var surface = new DrawingVisual();
+            using (var drawing = surface.RenderOpen()) drawing.DrawRectangle(dialog.Background, null, new Rect(content.RenderSize));
+            bitmap.Render(surface);
+            bitmap.Render(content);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var file = File.Create(Path.Combine(output, name));
+            encoder.Save(file);
+        }
+
+        static double Luminance(Color color)
+        {
+            static double Linear(byte value) => value / 255.0 <= .04045
+                ? value / 255.0 / 12.92 : Math.Pow((value / 255.0 + .055) / 1.055, 2.4);
+            return .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
+        }
     }
 
     public static void VerifyPicker()
@@ -176,14 +253,19 @@ internal static class EmulatorFixViewTests
         panel.Topmost.Should().BeTrue("Issue 32: focusing the assistant restores topmost after another app was active");
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         // Verify the visible ordering of both windows in the owned group.
-        var precedingOther = new HashSet<IntPtr>();
+        var precedingOther = new List<IntPtr>();
         for (var window = User32.GetWindow(new WindowInteropHelper(other).Handle, 3); window != IntPtr.Zero; window = User32.GetWindow(window, 3)) precedingOther.Add(window);
         precedingOther.Should().Contain(hwnd, "the focused assistant must appear above the other app");
-        precedingOther.Should().Contain(new WindowInteropHelper(dialog).Handle);
+        var dialogHwnd = new WindowInteropHelper(dialog).Handle;
+        precedingOther.Should().Contain(dialogHwnd);
+        precedingOther.IndexOf(hwnd).Should().BeLessThan(precedingOther.IndexOf(dialogHwnd),
+            "walking upward from the other app must reach the owner before its dialog");
         ((User32.GetWindowLong(hwnd, User32.GWL_EXSTYLE)
             | User32.GetWindowLong(new WindowInteropHelper(dialog).Handle, User32.GWL_EXSTYLE)) & 8).Should().Be(8);
         panel.UpdateTopmost(gameHwnd, new WindowInteropHelper(other).Handle);
-        panel.UpdateTopmost(gameHwnd, new WindowInteropHelper(dialog).Handle);
+        // An owned popup can remain topmost while its owner has already yielded to another app.
+        User32.SetWindowLayer(dialogHwnd, new IntPtr(-1));
+        panel.UpdateTopmost(gameHwnd, dialogHwnd);
         panel.Topmost.Should().BeTrue("an owned dialog also restores topmost from the inactive state");
         panel.UpdateTopmost(gameHwnd, gameHwnd);
         panel.UpdateTopmost(IntPtr.Zero, gameHwnd);

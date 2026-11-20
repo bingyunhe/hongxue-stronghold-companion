@@ -44,6 +44,7 @@ public partial class App : Application
     private System.Windows.Threading.DispatcherTimer? _connectionStatusTimer;
     private readonly SemaphoreSlim _informationScanGate = new(1, 1);
     private List<ASPAssistant.Core.Models.ShopItem> _lastShopItems = [];
+    private List<TrackingEntry> _shopTrackingEntries = [];
 
     public App()
     {
@@ -308,6 +309,7 @@ public partial class App : Application
 
         var enemyRecognizer = new EnemyRecognizer(ocrEngine, garrisonMode.OcrStrategy, bossDataService);
         var boardData = await Core.Data.GarrisonBoardStore.LoadAsync(dataDir);
+        var roundRoutes = await GarrisonRoundRouteStore.LoadAsync(dataDir);
         _ocrScanner = new OcrScannerService(
             captureService.CaptureScreen, garrisonMode.OcrStrategy, shopReader, ocrEngine, gameState, shopNames,
             intervalMs: 500,
@@ -318,10 +320,16 @@ public partial class App : Application
             ThemeProvider = () => shopReader.Theme,
             ThemeDetector = new GameShopThemeDetector(Path.Combine(dataDir, "shop_theme_refs.json")),
             AutomaticGameTheme = automaticGameTheme,
+            RoundEnemyReader = new RoundEnemyReader(ocrEngine, roundRoutes,
+                Views.CodexBounty.Load().Select(b => b.Title).ToHashSet(StringComparer.Ordinal)),
+            CaptureEnemyPanelFrame = captureService.CaptureEnemyPanelFrame,
+            AutomaticRoundEnemies = await _settingsManager.LoadAutomaticRoundEnemiesAsync(),
             AutomaticPurchaseTracking = await _settingsManager.LoadAutomaticPurchaseTrackingAsync(),
             PurchaseSpeed = await _settingsManager.LoadPurchaseRecognitionSpeedAsync(),
             BoardRecognizer = boardData is null ? null : new BoardRecognizer(boardData),
             PurchaseTargets = () => purchaseNames,
+            LiveReader = boardData == null ? null : new LiveFieldReader(dataDir, boardData),
+            FieldTiers = operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First().Tier),
         };
 
         _windowTracker = new WindowTrackerService(
@@ -336,13 +344,17 @@ public partial class App : Application
             operators, equipment, strategies, _settingsManager, gameTheme, sidePanelPosition,
             new LineupPlanner(operators, covenantInfos), covenantInfos, appearance: appearance,
             closeBehavior: await _settingsManager.LoadMainWindowCloseBehaviorAsync());
+        sidePanel.SetCodexBosses(bossDataService.Bosses);
         sidePanel.InitGameStartSettings(await _settingsManager.LoadGameStartSettingsAsync());
         if (configurationImport is not null) sidePanel.ShowConfigurationImportResult(configurationImport);
         sidePanel.GameThemeChanged += theme => shopReader.Theme = theme;
         sidePanel.InitAutomaticGameTheme(automaticGameTheme);
         sidePanel.AutomaticGameThemeChanged += automatic => _ocrScanner.AutomaticGameTheme = automatic;
         sidePanel.InitAutomaticPurchaseTracking(_ocrScanner.AutomaticPurchaseTracking);
+        sidePanel.InitAutomaticCurrentRunFilters(await _settingsManager.LoadAutomaticCurrentRunFiltersAsync());
         sidePanel.AutomaticPurchaseTrackingChanged += enabled => _ocrScanner.AutomaticPurchaseTracking = enabled;
+        sidePanel.InitAutomaticRoundEnemies(_ocrScanner.AutomaticRoundEnemies);
+        sidePanel.AutomaticRoundEnemiesChanged += enabled => _ocrScanner.AutomaticRoundEnemies = enabled;
         sidePanel.InitPurchaseRecognitionSpeed(_ocrScanner.PurchaseSpeed);
         sidePanel.PurchaseRecognitionSpeedChanged += speed => _ocrScanner.PurchaseSpeed = speed;
         _ocrScanner.GameThemeDetected += theme => Dispatcher.Invoke(() => sidePanel.ApplyDetectedGameTheme(theme));
@@ -519,7 +531,7 @@ public partial class App : Application
             Dispatcher.Invoke(() =>
             {
                 Core.GameState.GameStateUpdater.UpdateShopTracking(
-                    state.ShopItems, trackingVm.ActiveEntries.ToList());
+                    state.ShopItems, _shopTrackingEntries);
 
                 _lastShopItems = state.ShopItems;
 
@@ -541,7 +553,8 @@ public partial class App : Application
         var deployState = await _settingsManager.LoadDeployPoolAsync();
         var deploy = sidePanel.TrackingView.DeployPage;
         deploy.Initialize(operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First()), covenantInfos,
-            boardData, trackingVm, _settingsManager, deployState, deployState.ShowInGame);
+            boardData, trackingVm, _settingsManager, deployState, deployState.ShowInGame, roundRoutes);
+        deploy.ConnectLiveField(_ocrScanner);
         _ocrScanner.PurchasesDetected += (names, captureRevision, runRevision) => Dispatcher.Invoke(() =>
         {
             if (captureRevision != captureService.Connection.CaptureRevision || runRevision != _ocrScanner.RunRevision) return;
@@ -618,7 +631,7 @@ public partial class App : Application
                 banVm.SetCovenantBans(result.CoreCovenants.Concat(result.AdditionalCovenants).Where(c => c.IsBanned).Select(c => c.Name));
                 operatorVm.SetAvailableCovenants(result.CoreCovenants.Concat(result.AdditionalCovenants)
                     .Where(c => !c.IsBanned).Select(c => c.Name));
-                sidePanel.EnableCurrentRunFilters();
+                sidePanel.ApplyAutomaticCurrentRunFilters();
                 if (result.EnemyFaction is null)
                     enemyVm.RecognitionFailed("盟约已录入，本次敌人信息未完整读出，可点击“截屏录入”重试。");
                 sidePanel.ShowToast(result.EnemyFaction is null ? "盟约已录入，敌人信息可重新截屏录入" : "本局信息已录入");
@@ -645,11 +658,7 @@ public partial class App : Application
             _ocrScanner.ResetRegulationLevel();
             _ocrScanner.ResetEconomy();
             await Dispatcher.InvokeAsync(deploy.StartNewRunAsync).Task.Unwrap();
-            await Dispatcher.InvokeAsync(() =>
-            {
-                sidePanel.PlannerVm.Strategy = PlannerStrategy.Other;
-                sidePanel.EnableCurrentRunFilters();
-            });
+            await Dispatcher.InvokeAsync(() => sidePanel.PlannerVm.Strategy = PlannerStrategy.Other);
             await _settingsManager.SaveTerminalLevelAsync(0);
             AppLogger.Info("Run", bansChanged ? "Changed Ban set confirmed; progress reset for the new run"
                 : "Opening confirmed; progress reset for the new run");
@@ -676,10 +685,32 @@ public partial class App : Application
         _ocrScanner.BanScreenDetected += async () => await RecordInformationAsync();
         _ocrScanner.RegulationLevelChanged += () =>
             Dispatcher.Invoke(() => enemyVm.RegulationLevel = _ocrScanner.RegulationLevel);
+        _ocrScanner.RoundEnemiesChanged += () => Dispatcher.Invoke(() =>
+        {
+            enemyVm.RoundEnemies = _ocrScanner.CurrentRoundEnemies;
+            deploy.SetRoundRouteContext(_ocrScanner.CurrentEconomy, enemyVm.RoundEnemies);
+        });
+        enemyVm.RoundEnemyReadRequested += () =>
+        {
+            if (_ocrScanner.RequestRoundEnemyRead() is { } hint)
+            {
+                sidePanel.ShowToast(hint);
+                return;
+            }
+            var connection = captureService.Connection;
+            if (!connection.IsAdb)
+            {
+                // The recognition button is on the assistant; desktop capture needs the game in front.
+                var game = connection.FindGameWindow();
+                if (game != IntPtr.Zero && Core.Interop.User32.GetForegroundWindow() != game)
+                    Core.Interop.User32.SetForegroundWindow(game);
+            }
+        };
         _ocrScanner.EconomyChanged += _ => Dispatcher.Invoke(() =>
         {
             var economy = _ocrScanner.CurrentEconomy;
             trackingVm.Economy = economy;
+            deploy.SetRoundRouteContext(economy, _ocrScanner.CurrentRoundEnemies);
             if (economy is null) enemyVm.CurrentMode = null;
             if (economy?.Mode is { } mode) enemyVm.CurrentMode = mode;
         });
@@ -701,8 +732,10 @@ public partial class App : Application
         }
         trackingVm.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName != nameof(TrackingViewModel.TerminalLevel)) return;
-            RefreshOverlayTracking(trackingVm);
+            if (e.PropertyName == nameof(TrackingViewModel.TerminalLevel)) RefreshOverlayTracking(trackingVm);
+            else if (e.PropertyName == nameof(TrackingViewModel.OperatorProgress) &&
+                trackingVm.ShowAllStages && !trackingVm.StageTargetsUpdating)
+                RefreshOverlayTracking(trackingVm, scanIfEmpty: false);
         };
         _sidePanel.ManualScanRequested += async () => await RecordInformationAsync();
 
@@ -737,18 +770,19 @@ public partial class App : Application
         };
         trackingVm.StageStateChanged += async () =>
         {
-            if (_overlay is not null)
-            {
-                Core.GameState.GameStateUpdater.UpdateShopTracking(_lastShopItems, trackingVm.ActiveEntries.ToList());
-                _overlay.UpdateShopItems(_lastShopItems);
-            }
+            RefreshOverlayTracking(trackingVm, scanIfEmpty: false);
             await SaveTrackingAsync();
         };
-        trackingVm.SourcesChanged += async () => await SaveTrackingAsync();
+        trackingVm.SourcesChanged += async () =>
+        {
+            RefreshOverlayTracking(trackingVm, scanIfEmpty: false);
+            await SaveTrackingAsync();
+        };
         trackingVm.UpgradeReminderStateChanged += async () => await SaveTrackingAsync();
         trackingVm.UpgradeReminderRequested += reminder => sidePanel.ShowToast($"{reminder.Title} · {reminder.RangeText}");
 
         // Show windows and start services
+        _shopTrackingEntries = trackingVm.ShopTrackingEntries;
         MainWindow = _sidePanel;
         _sidePanel.Show();
         if (_settingsManager.DeployPoolRecoveryNotice is { } recoveryNotice)
@@ -773,13 +807,14 @@ public partial class App : Application
         return true;
     }
 
-    private void RefreshOverlayTracking(TrackingViewModel trackingVm)
+    private void RefreshOverlayTracking(TrackingViewModel trackingVm, bool scanIfEmpty = true)
     {
         if (_overlay is null) return;
+        _shopTrackingEntries = trackingVm.ShopTrackingEntries;
         Core.GameState.GameStateUpdater.UpdateShopTracking(
-            _lastShopItems, trackingVm.ActiveEntries.ToList());
+            _lastShopItems, _shopTrackingEntries);
         Dispatcher.Invoke(() => _overlay.UpdateShopItems(_lastShopItems));
-        if (_lastShopItems.Count == 0 && trackingVm.AllEntries.Any(e => !e.IsAcquired))
+        if (scanIfEmpty && _lastShopItems.Count == 0 && trackingVm.AllEntries.Any(e => !e.IsAcquired))
             _ = _ocrScanner!.ScanNowAsync();
     }
 

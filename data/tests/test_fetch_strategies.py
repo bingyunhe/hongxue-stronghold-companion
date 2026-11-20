@@ -11,9 +11,9 @@ class StrategyFetchTests(unittest.TestCase):
     def setUp(self):
         self.season = {'bandDataListDict': {
             'later': {'bandId': 'later', 'sortId': 2, 'bandDesc': '【复制】\\n<@autochess.dgreen>拖拽使用</>：复制干员',
-                      'totalHp': 28, 'inactiveModeIdList': ['mode_single_funny']},
+                      'bandType': 'BONDRELEVANT', 'totalHp': 28, 'inactiveModeIdList': ['mode_single_funny']},
             'initial': {'bandId': 'initial', 'sortId': 1, 'bandDesc': '【协同】\\n被动效果：增强干员',
-                        'totalHp': 25, 'inactiveModeIdList': []},
+                        'bandType': 'GENERAL', 'totalHp': 25, 'inactiveModeIdList': []},
         }}
         self.activity = {
             'activity': {'AUTOCHESS': {'act3autochess': {'V3_1': self.season}}},
@@ -27,6 +27,7 @@ class StrategyFetchTests(unittest.TestCase):
     def test_current_pool_order_unlocks_effects_and_portrait_ids(self):
         strategies = build_strategies(self.activity)
         self.assertEqual([s['id'] for s in strategies], ['initial', 'later'])
+        self.assertEqual([s['bandType'] for s in strategies], ['GENERAL', 'BONDRELEVANT'])
         self.assertEqual(strategies[0]['unlockRequirement'], '')
         self.assertEqual(strategies[1]['unlockRequirement'], '通关任意模拟8次解锁')
         self.assertEqual(strategies[1]['name'], '复制')

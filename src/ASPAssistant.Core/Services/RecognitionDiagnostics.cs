@@ -13,6 +13,7 @@ public static class RecognitionDiagnostics
         WriteIndented = true,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+    public static RecognitionSampleHistory Samples { get; } = new();
     public static RecognitionSnapshot? Latest => Volatile.Read(ref _latest);
 
     // Frames are already encoded by the capture service and are not modified by readers.

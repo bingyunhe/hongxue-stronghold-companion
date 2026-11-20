@@ -3,12 +3,41 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace ASPAssistant.Core.ViewModels;
 
-public partial class EnemyViewModel : ObservableObject
+public partial class EnemyViewModel : BossHealthViewModel
 {
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RoundEnemySummary))]
+    [NotifyCanExecuteChangedFor(nameof(RequestRoundEnemyReadCommand))]
+    private RoundEnemyInfo? _roundEnemies;
+
+    public string RoundEnemySummary
+    {
+        get
+        {
+            if (RoundEnemies is not { } current) return "进入整备阶段后可识别。";
+            var summary = $"第 {current.Round} 回合";
+            if (current.Names.Count > 0) summary += $" · {string.Join("、", current.Names)}";
+            if (current.Leaders.Count > 0) summary += $"\n领袖 · {string.Join("、", current.Leaders)}";
+            if (current.Bounties.Count > 0) summary += $"\n悬赏 · {string.Join("、", current.Bounties)}";
+            if (current.IsPartial) return summary + $"\n部分识别 · {current.Hint}";
+            if (current.HasCompleteList) return summary;
+            return summary + $" · {current.Hint ?? "待确认，可点击「识别小怪」"}";
+        }
+    }
+
+    public event Action? RoundEnemyReadRequested;
+
+    private bool CanRequestRoundEnemyRead() => RoundEnemies?.IsReading != true;
+
+    [RelayCommand(CanExecute = nameof(CanRequestRoundEnemyRead))]
+    private void RequestRoundEnemyRead() => RoundEnemyReadRequested?.Invoke();
+
     [ObservableProperty]
     private bool _isRecognizing;
 
@@ -62,59 +91,6 @@ public partial class EnemyViewModel : ObservableObject
     [ObservableProperty]
     private ObservableCollection<string> _bossAbilities = [];
 
-    /// <summary>单人：极速模拟与规程等级 1–20。</summary>
-    [ObservableProperty]
-    private ObservableCollection<BossHpCell> _bossHpSingle = [];
-
-    /// <summary>多人：标准 / 险境 / 绝境 / 终极模拟。</summary>
-    [ObservableProperty]
-    private ObservableCollection<BossHpCell> _bossHpMulti = [];
-
-    [ObservableProperty]
-    private bool _bossHasHiddenForm;
-
-    public int? RegulationLevel
-    {
-        get => CurrentMode is { } mode && mode.StartsWith("规程等级") ? int.Parse(mode["规程等级".Length..]) : null;
-        set => CurrentMode = value is { } level ? $"规程等级{level}" : null;
-    }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasCurrentBossHp))]
-    private BossHpCell? _currentBossHp;
-
-    public bool HasCurrentBossHp => CurrentBossHp is not null;
-    public IEnumerable<BossHpCell> OtherBossHpSingle => BossHpSingle.Where(cell => cell.Name != CurrentBossHp?.Name);
-
-    [ObservableProperty]
-    private bool _otherBossHpExpanded = true;
-
-    private void RefreshCurrentBossHp()
-    {
-        CurrentBossHp = BossHpSingle.FirstOrDefault(cell => cell.Name == CurrentMode);
-        OtherBossHpExpanded = CurrentBossHp is null;
-        OnPropertyChanged(nameof(OtherBossHpSingle));
-    }
-
-    /// <summary>Mode name read from the shop HUD (规程等级 N / …模拟); highlights that HP cell.</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RegulationLevel))]
-    private string? _currentMode;
-
-    partial void OnCurrentModeChanged(string? value)
-    {
-        MarkCurrentMode();
-        RefreshCurrentBossHp();
-    }
-
-    private void MarkCurrentMode()
-    {
-        foreach (var list in new[] { BossHpSingle, BossHpMulti })
-            for (int i = 0; i < list.Count; i++)
-                if (list[i].IsCurrent != (list[i].Name == CurrentMode))
-                    list[i] = list[i] with { IsCurrent = list[i].Name == CurrentMode };
-    }
-
     // ── Enemy type detail cards (populated from EnemyTypeDataService) ──────────
 
     /// <summary>
@@ -137,10 +113,7 @@ public partial class EnemyViewModel : ObservableObject
         BossDescription    = "";
         EnemyTypes.Clear();
         BossAbilities.Clear();
-        BossHpSingle.Clear();
-        BossHpMulti.Clear();
-        BossHasHiddenForm = false;
-        RefreshCurrentBossHp();
+        SetHealthLevels([]);
         EnemyTypeDetails.Clear();
         UnmatchedEntries.Clear();
         RawTexts.Clear();
@@ -189,14 +162,8 @@ public partial class EnemyViewModel : ObservableObject
         if (bossInfo is not null)
             foreach (var a in bossInfo.AbilityList)
                 BossAbilities.Add(a);
-        BossHpSingle.Clear();
-        BossHpMulti.Clear();
-        foreach (var level in bossInfo?.Hp ?? [])
-            (level.Group == "multi" ? BossHpMulti : BossHpSingle).Add(BossHpCell.From(level));
-        BossHasHiddenForm = bossInfo?.Hp.Any(l => l.HiddenHp is not null) == true;
         if (result.RegulationLevel is { } detectedLevel) RegulationLevel = detectedLevel;
-        MarkCurrentMode();
-        RefreshCurrentBossHp();
+        SetHealthLevels(bossInfo?.Hp ?? []);
         AvatarPath = string.IsNullOrWhiteSpace(bossInfo?.IconPath)
             ? null
             : bossInfo!.IconPath.Trim();
@@ -224,7 +191,7 @@ public partial class EnemyViewModel : ObservableObject
         HasRecordedResult = true;
     }
 
-    private static string FormatDamageTypes(IReadOnlyList<string>? types)
+    public static string FormatDamageTypes(IReadOnlyList<string>? types)
     {
         if (types is null || types.Count == 0)
             return "";

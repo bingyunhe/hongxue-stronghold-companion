@@ -27,6 +27,26 @@ public class RegulationDataTests
     }
 
     [Fact]
+    public async Task FirstTierHasFrontAndBackIdlePosesForEveryOperator()
+    {
+        var names=(await _store.LoadOperatorsAsync()).Where(o=>o.Tier==1).Select(o=>o.Name).ToHashSet();
+        using var file=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"data","template","field-purchase-poses.json"));
+        using var library=System.Text.Json.JsonDocument.Parse(file);
+        var covered=new HashSet<string>();
+        foreach(var entry in library.RootElement.EnumerateArray())
+        {
+            var frames=entry.GetProperty("poses").EnumerateObject().ToArray();
+            foreach(string side in new[]{"Front","Back"})
+            {
+                Assert.Contains(frames,p=>p.Name==side+"/Default");
+                Assert.True(frames.Count(p=>p.Name.StartsWith(side+"/Idle"))>=2);
+            }
+            covered.Add(entry.GetProperty("operator").GetString()!);
+        }
+        Assert.True(names.IsSubsetOf(covered));
+    }
+
+    [Fact]
     public async Task Operators_LoadProfilesWithSkillsAndRoles()
     {
         // Shop-pool assertions exclude strategy-only pieces.

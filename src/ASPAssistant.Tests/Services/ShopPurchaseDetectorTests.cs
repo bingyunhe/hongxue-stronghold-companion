@@ -24,6 +24,80 @@ public class ShopPurchaseDetectorTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FirstCardSelectionRequiresItsPurchaseButtonToCompleteTheBaseline(bool buttonVisible)
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] cards = [Card("地灵", .33), Card("深靛", .46)];
+        using var image = new Bitmap(960, 540);
+        using (var g = Graphics.FromImage(image))
+        {
+            g.Clear(Color.DarkGray);
+            if (buttonVisible) g.FillRectangle(Brushes.Cyan, 315, 462, 32, 58);
+        }
+        var selected = ImageBytes.Encode(image);
+        var targets = new HashSet<string> { "地灵" };
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.Observe(selected, [cards[1]], true, Funds(4), targets).Should().BeEmpty();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(1), targets).Should().BeEmpty();
+        var bought = detector.Observe(Frame(false), [cards[1]], true, Funds(1), targets);
+        if (buttonVisible) bought.Should().Equal("地灵");
+        else bought.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TwoIdenticalPurchasesRetainTheirSlotsAcrossABriefFold(bool fold)
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] cards = [Card("地灵", .33), Card("地灵", .46), Card("野鬃", .65)];
+        var targets = cards.Select(c => c.Name).ToHashSet();
+        detector.Observe(Frame(), cards, true, Funds(5), targets);
+        detector.Observe(Frame(), cards, true, Funds(5), targets);
+        var paid = Frame(false, false);
+        detector.Observe(paid, [cards[2]], true, Funds(1), targets).Should().BeEmpty();
+        if (fold) detector.Observe(paid, [], false, Funds(1), targets).Should().BeEmpty();
+        detector.Observe(paid, [cards[2]], true, Funds(1), targets).Should().Equal("地灵", "地灵");
+        detector.Observe(paid, [cards[2]], true, Funds(1), targets).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("same")]
+    [InlineData("refresh")]
+    [InlineData("round")]
+    [InlineData("all-empty")]
+    public void PendingGravelPurchaseRequiresTheSameRemainingOffersAfterTheShopReopens(string scene)
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] offers = [Card("砾", .33), Card("霜叶", .46)];
+        var targets = offers.Select(c => c.Name).ToHashSet();
+        detector.Observe(Frame(), offers, true, Funds(10, 5), targets);
+        detector.Observe(Frame(), offers, true, Funds(10, 5), targets);
+        var paid = Frame(false);
+        detector.Observe(paid, [offers[1]], true, Funds(7, 5), targets).Should().BeEmpty();
+        detector.Observe(paid, [], false, Funds(7, 5), targets).Should().BeEmpty();
+        ShopItem[] remaining = scene switch { "all-empty" => [], "refresh" => [Card("锡人", .46)], _ => [offers[1]] };
+        var result = detector.Observe(paid, remaining, true, Funds(7, scene == "round" ? 6 : 5), targets);
+        if (scene == "same") result.Should().Equal("砾");
+        else result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BlankPaidRefreshAfterAnEnemyPanelCannotConfirmTheOldOffers()
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] cards = [Card("地灵", .33), Card("深靛", .46)];
+        var targets = cards.Select(c => c.Name).ToHashSet();
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.PauseForEnemyPanel();
+        detector.Observe(Frame(false, false), [], true, Funds(3), targets).Should().BeEmpty();
+        detector.Observe(Frame(false, false), [], true, Funds(3), targets).Should().BeEmpty();
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     public void EmptySlotDecorationIsNotTreatedAsACardBorder(int nameJitter)
@@ -57,8 +131,9 @@ public class ShopPurchaseDetectorTests
         ShopItem[] cards = [Card("角峰", .33), Card("霜叶", .46)];
         IReadOnlySet<string> targets = new HashSet<string> { "角峰" };
         detector.Observe(Frame(), cards, true, Funds(20), targets).Should().BeEmpty();
-        detector.NeedsFundsRead(cards, true).Should().BeFalse("unchanged cards must reuse the existing HUD reading");
+        detector.NeedsFundsRead(cards, true).Should().BeTrue("the baseline needs a second independent balance read");
         detector.Observe(Frame(), cards, true, Funds(20), targets).Should().BeEmpty();
+        detector.NeedsFundsRead(cards, true).Should().BeFalse("a confirmed baseline can be reused while cards stay unchanged");
         detector.NeedsFundsRead([cards[1]], true).Should().BeTrue();
         detector.Observe(Frame(false), [cards[1]], true, Funds(20 - price), targets).Should().BeEmpty();
         detector.Observe(Frame(false), [cards[1]], true, Funds(20 - price), targets).Should().Equal("角峰");
@@ -163,6 +238,25 @@ public class ShopPurchaseDetectorTests
         detector.Observe(Frame(false, false), [], true, Funds(18), new HashSet<string>()).Should().BeEmpty();
     }
 
+    [Fact]
+    public void BalanceMisreadDoesNotReplaceTheConfirmedBaselineOrCountAsFreshEvidence()
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] cards = [Card("角峰", .33), Card("霜叶", .46)];
+        var targets = new HashSet<string> { cards[0].Name };
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.Observe(Frame(), cards, true, Funds(20), targets);
+        detector.Observe(Frame(), cards, true, Funds(20), targets, freshFunds: false);
+        detector.Observe(Frame(false), [cards[1]], true, Funds(4), targets).Should().BeEmpty();
+        detector.NeedsFundsRead([cards[1]], true).Should().BeTrue();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(20), targets).Should().BeEmpty();
+        detector.NeedsFundsRead([cards[1]], true).Should().BeTrue();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(2), targets).Should().BeEmpty();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(2), targets, freshFunds: false).Should().BeEmpty();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(2), targets).Should().Equal("角峰");
+    }
+
     [Theory]
     [InlineData(16)]
     [InlineData(null)]
@@ -174,10 +268,28 @@ public class ShopPurchaseDetectorTests
         detector.Observe(Frame(), cards, true, Funds(2), targets);
         detector.Observe(Frame(), cards, true, Funds(2), targets);
         detector.Observe(Frame(false), [cards[1]], true, Funds(2) with { Money = badMoney }, targets).Should().BeEmpty();
-        detector.NeedsFundsRead([cards[1]], true).Should().BeFalse("unreliable funds wait for periodic recalibration instead of repeated OCR each scan");
+        detector.NeedsFundsRead([cards[1]], true).Should().BeTrue("a pending purchase gets a short burst of balance-only reads");
         detector.Observe(Frame(false), [cards[1]], true, Funds(1), targets).Should().BeEmpty();
         detector.Observe(Frame(false), [cards[1]], true, Funds(1), targets).Should().Equal("虹彩活血饮料");
         detector.Observe(Frame(false), [cards[1]], true, Funds(1), targets).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PersistentUnreadableFundsReturnToPeriodicReadsAfterFourAttempts()
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] cards = [Card("角峰", .33), Card("霜叶", .46)];
+        var targets = new HashSet<string> { cards[0].Name };
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        detector.Observe(Frame(), cards, true, Funds(4), targets);
+        for (int i = 0; i < 4; i++)
+        {
+            detector.NeedsFundsRead([cards[1]], true).Should().BeTrue();
+            detector.Observe(Frame(false), [cards[1]], true, Funds(20), targets).Should().BeEmpty();
+        }
+        detector.NeedsFundsRead([cards[1]], true).Should().BeFalse();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(2), targets).Should().BeEmpty();
+        detector.Observe(Frame(false), [cards[1]], true, Funds(2), targets).Should().Equal("角峰");
     }
 
     [Fact]

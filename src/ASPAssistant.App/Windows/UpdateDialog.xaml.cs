@@ -34,7 +34,7 @@ public partial class UpdateDialog : Window
     }
 
     /// <summary>把下载进度（0～1）与阶段文案同步到对话框。</summary>
-    public void ReportProgress(double fraction)
+    public void ReportProgress(double fraction, string? downloadNotice = null)
     {
         DownloadButton.Visibility = Visibility.Collapsed;
         DialogProgress.Visibility = Visibility.Visible;
@@ -47,7 +47,8 @@ public partial class UpdateDialog : Window
             < 0.85 => "正在下载安装包…",
             < 0.95 => "正在校验安装包…",
             < 1.0 => "正在解压安装包…",
-            _ => "下载完成，点击主界面横幅上的“立即重启”完成更新。"
+            _ => (downloadNotice is null ? "" : $"{downloadNotice}，已使用 GitHub Releases 下载。\n")
+                 + "下载完成，点击主界面横幅上的“立即重启”完成更新。"
         };
     }
 

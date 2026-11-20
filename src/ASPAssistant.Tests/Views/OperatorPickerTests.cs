@@ -4,7 +4,11 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Reflection;
+using ASPAssistant.App;
+using ASPAssistant.App.Views;
 using ASPAssistant.App.Windows;
 using ASPAssistant.Core.Data;
 using ASPAssistant.Core.Models;
@@ -16,6 +20,60 @@ namespace ASPAssistant.Tests.Views;
 
 internal static class OperatorPickerTests
 {
+    internal static void VerifyLiveCorrection(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var data = Path.Combine(AppContext.BaseDirectory, "TestData", "Regulation");
+        var operators = new JsonDataStore(data).LoadOperatorsAsync().GetAwaiter().GetResult()
+            .GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First());
+        var deploy = new DeployView();
+        deploy.Initialize(operators, [], GarrisonBoardStore.LoadAsync(data).GetAwaiter().GetResult(), new TrackingViewModel(),
+            new SettingsManager(Path.Combine(Path.GetTempPath(), "live-picker-tests")), new DeployPoolState(), false);
+        var area = SystemParameters.WorkArea;
+        var owner = new Window { Content = deploy, Width = 280, Height = 500, Left = area.Right - 280, Top = area.Top,
+            WindowStartupLocation = WindowStartupLocation.Manual, ShowActivated = false, ShowInTaskbar = false, Opacity = 0 };
+        owner.Show();
+        var mark = new FieldMark(new(2, 1), 4, default, [], null);
+        var tile = (Border)typeof(DeployView).GetMethod("LiveTile", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(deploy, [new LiveUnit(mark, 1, null, null, false, false)])!;
+        var change = tile.ContextMenu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "更换干员并记住"));
+        Exception? failure = null;
+        try
+        {
+            owner.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+            {
+                var picker = Assert.Single(owner.OwnedWindows.Cast<Window>().OfType<OperatorPickerWindow>());
+                try
+                {
+                    Assert.InRange(picker.Left + picker.ActualWidth, area.Left, area.Right + 1);
+                    var filters = (OperatorBrowseViewModel)picker.DataContext;
+                    filters.TierChips.Single(c => c.Value == "4").IsSelected = true;
+                    filters.SearchText = "夜莺";
+                    picker.UpdateLayout();
+                    var list = (ListBox)picker.FindName("OperatorsList");
+                    var row = (ListBoxItem)list.ItemContainerGenerator.ContainerFromIndex(0);
+                    Assert.Equal("夜莺", ((Operator)row.Content).Name);
+                    var surface = (FrameworkElement)picker.Content;
+                    var view = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    view.Render(surface);
+                    var png = new PngBitmapEncoder();
+                    png.Frames.Add(BitmapFrame.Create(view));
+                    using var output = File.Create(Path.Combine(TestOutput.Directory, $"live-correction-Closure-{night}.png"));
+                    png.Save(output);
+                    RaiseMouse(row, Mouse.PreviewMouseDownEvent);
+                    RaiseMouse(row, Mouse.MouseUpEvent);
+                    Assert.Equal("夜莺", picker.Result);
+                }
+                catch (Exception ex) { failure = ex; }
+                finally { if (picker.IsVisible) picker.Close(); }
+            });
+            change.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Assert.Null(failure);
+            Assert.Contains("已移动", ((TextBlock)deploy.FindName("LiveMessage")).Text);
+        }
+        finally { owner.Close(); }
+    }
+
     public static void VerifySelection()
     {
         var culture = CultureInfo.CurrentCulture;

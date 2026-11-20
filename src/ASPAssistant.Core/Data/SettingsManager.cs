@@ -332,6 +332,47 @@ public class SettingsManager
     public Task SavePurchaseRecognitionSpeedAsync(PurchaseRecognitionSpeed speed) =>
         SavePreferenceAsync("purchase-recognition-speed.json", JsonSerializer.Serialize(speed.ToString()));
 
+    public async Task<bool> LoadAutomaticRoundEnemiesAsync()
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<bool>(await File.ReadAllTextAsync(Path.Combine(_settingsDir, "automatic-round-enemies.json")));
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (JsonException)
+        {
+            AppLogger.Warn("Settings", "回合敌人自动获取设置无效，恢复关闭");
+            return false;
+        }
+    }
+
+    public Task SaveAutomaticRoundEnemiesAsync(bool enabled) =>
+        SavePreferenceAsync("automatic-round-enemies.json", JsonSerializer.Serialize(enabled));
+
+    public async Task<bool> LoadAutomaticCurrentRunFiltersAsync()
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<bool>(await File.ReadAllTextAsync(
+                Path.Combine(_settingsDir, "automatic-current-run-filters.json")));
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (JsonException)
+        {
+            AppLogger.Warn("Settings", "只看本局自动勾选设置无效，恢复关闭");
+            return false;
+        }
+    }
+
+    public Task SaveAutomaticCurrentRunFiltersAsync(bool enabled) =>
+        SavePreferenceAsync("automatic-current-run-filters.json", JsonSerializer.Serialize(enabled));
+
     /// <summary>Draw deployable cells and enemy routes over the game board (on by default).</summary>
     public async Task<bool> LoadShowBoardOverlayAsync()
     {

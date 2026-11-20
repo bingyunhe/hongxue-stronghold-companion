@@ -730,6 +730,15 @@ def update_enemy_data(season_data: dict, auto_chess_data: dict, data_dir: Path, 
         print(f"  类型数: {len(enemy_types)}, 敌人变体数: {sum(len(t['firstHalfVariants']) + len(t['secondHalfVariants']) for t in enemy_types.values())}")
     if not skip_bosses:
         bosses = process_bosses(handbook_data, season_data, auto_chess_data["bossInfoDict"])
+        missing = [boss for boss in bosses if not boss["attackType"]]
+        if missing:
+            db = fetch_json(TORAPPU_ENDPOINT + "/gamedata/latest/levels/enemydata/enemy_database.json")
+            missing_ids = {b["enemyId"] for b in missing}
+            enemies = {e["Key"]: e["Value"][0]["enemyData"]["applyWay"] for e in db["enemies"] if e["Key"] in missing_ids}
+            for boss in missing:
+                way = enemies[boss["enemyId"]]
+                if way["m_defined"]:
+                    boss["attackType"] = {"RANGED": "远程", "MELEE": "近战", "NONE": "无"}[way["m_value"]]
         outputs.append((data_dir / "bosses.json", {"bosses": bosses}))
         print(f"  Boss 数: {len(bosses)}")
 

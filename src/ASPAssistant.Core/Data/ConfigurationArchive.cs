@@ -20,7 +20,8 @@ public static class ConfigurationArchive
     };
     private static readonly HashSet<string> SoftwareFiles = new(StringComparer.OrdinalIgnoreCase)
     {
-        "appearance.json", "assistant-hotkey.json", "automatic-purchases.json", "board-overlay.json", "close-behavior.json",
+        "appearance.json", "assistant-hotkey.json", "automatic-current-run-filters.json", "automatic-purchases.json",
+        "automatic-round-enemies.json", "board-overlay.json", "close-behavior.json",
         "custom-operators.json", "deploy-pool.json", "game-connection.json", "game-start.json", "game-theme.json",
         "game-theme-auto.json", "light-theme.json", "multiple-lineups.json", "purchase-recognition-speed.json",
         "recognition-hotkey.json", "side-panel-position.json", "skipped_version.txt", "terminal-level.json"
@@ -232,7 +233,8 @@ public static class ConfigurationArchive
             if (TerminalUpgradeReminder.DataError(lineup.UpgradeReminders) is { Length: > 0 } error) throw new InvalidDataException(error);
         }
         else if (path.StartsWith("lineups/order/", StringComparison.Ordinal)) _ = JsonSerializer.Deserialize<List<string>>(bytes);
-        else if (path is "automatic-purchases.json" or "board-overlay.json" or "game-theme-auto.json" or "light-theme.json" or "multiple-lineups.json") _ = JsonSerializer.Deserialize<bool>(bytes);
+        else if (path is "automatic-current-run-filters.json" or "automatic-purchases.json" or "automatic-round-enemies.json"
+            or "board-overlay.json" or "game-theme-auto.json" or "light-theme.json" or "multiple-lineups.json") _ = JsonSerializer.Deserialize<bool>(bytes);
         else if (path == "appearance.json") _ = JsonSerializer.Deserialize<SidebarAppearance>(bytes, JsonOptions);
         else if (path == "game-connection.json") _ = JsonSerializer.Deserialize<GameConnectionSettings>(bytes, JsonOptions);
         else if (path == "game-start.json") _ = JsonSerializer.Deserialize<GameStartSettings>(bytes, JsonOptions);

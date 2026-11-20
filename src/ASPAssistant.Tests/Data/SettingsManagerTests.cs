@@ -7,6 +7,26 @@ namespace ASPAssistant.Tests.Data;
 
 public class SettingsManagerTests : IDisposable
 {
+    [Fact]
+    public async Task AutomaticCurrentRunFiltersDefaultOffAndPersist()
+    {
+        (await _manager.LoadAutomaticCurrentRunFiltersAsync()).Should().BeFalse();
+        await _manager.SaveAutomaticCurrentRunFiltersAsync(true);
+        (await new SettingsManager(_tempDir).LoadAutomaticCurrentRunFiltersAsync()).Should().BeTrue();
+        await _manager.SaveAutomaticCurrentRunFiltersAsync(false);
+        (await new SettingsManager(_tempDir).LoadAutomaticCurrentRunFiltersAsync()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RoundEnemyAutomaticReadDefaultsOffAndPersists()
+    {
+        (await _manager.LoadAutomaticRoundEnemiesAsync()).Should().BeFalse();
+        await _manager.SaveAutomaticRoundEnemiesAsync(true);
+        (await new SettingsManager(_tempDir).LoadAutomaticRoundEnemiesAsync()).Should().BeTrue();
+        await _manager.SaveAutomaticRoundEnemiesAsync(false);
+        (await _manager.LoadAutomaticRoundEnemiesAsync()).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(PurchaseRecognitionSpeed.Standard)]
     [InlineData(PurchaseRecognitionSpeed.Fast)]

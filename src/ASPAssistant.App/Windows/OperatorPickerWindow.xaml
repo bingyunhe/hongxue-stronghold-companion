@@ -45,7 +45,7 @@
             </Border>
             <Border Style="{StaticResource DialogFooter}" DockPanel.Dock="Bottom">
                 <DockPanel>
-                    <Button Style="{StaticResource DialogSecondaryButton}" DockPanel.Dock="Right" Content="清空这个位置" Click="OnClearClick" />
+                    <Button x:Name="ClearSlotButton" Style="{StaticResource DialogSecondaryButton}" DockPanel.Dock="Right" Content="清空这个位置" Click="OnClearClick" />
                     <TextBlock x:Name="CountText" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
                 </DockPanel>
             </Border>

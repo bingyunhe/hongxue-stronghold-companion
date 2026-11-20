@@ -39,6 +39,36 @@ public class ScreenCaptureService
     {
         var connection = Connection;
         if (connection.IsAdb) return connection.CaptureAdbScreen(MaxCaptureWidth);
+        return CaptureDesktopScreen(connection);
+    }
+
+    public byte[]? CaptureEnemyPanelFrame()
+    {
+        var connection = Connection;
+        if (connection.IsAdb) return null;
+        var hwnd = connection.FindGameWindow();
+        if (hwnd == IntPtr.Zero || User32.GetForegroundWindow() != hwnd ||
+            User32.IsIconic(hwnd) || User32.GetClientRectScreen(hwnd) is not { } bounds) return null;
+        var size = new Size(bounds.Width, bounds.Height);
+        var area = RoundEnemyReader.ProbeArea(size);
+        if (area.Width <= 0 || area.Height <= 0) return null;
+        try
+        {
+            using var strip = new Bitmap(area.Width, area.Height, PixelFormat.Format24bppRgb);
+            using (var graphics = Graphics.FromImage(strip))
+                graphics.CopyFromScreen(bounds.Left + area.X, bounds.Top + area.Y, 0, 0, area.Size);
+            if (!RoundEnemyReader.ProbeVisible(strip, size)) return null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // The window can disappear between the foreground check and CopyFromScreen.
+            return null;
+        }
+        return CaptureDesktopScreen(connection);
+    }
+
+    private byte[]? CaptureDesktopScreen(GameConnectionService connection)
+    {
         var hwnd = connection.FindGameWindow();
         if (hwnd == IntPtr.Zero)
         {

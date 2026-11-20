@@ -20,6 +20,7 @@ public sealed class BossDataService
         PropertyNameCaseInsensitive = true,
     };
 
+    public IReadOnlyList<BossInfo> Bosses => _byName?.Values.Distinct().ToArray() ?? [];
     private Dictionary<string, BossInfo>? _byName;
 
     private List<(string Key, string CanonicalName)> _bossOcrMatchPairs = [];

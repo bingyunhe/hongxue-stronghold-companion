@@ -36,6 +36,9 @@ public sealed class ConfigurationArchiveTests : IDisposable
     public void RoundTripKeepsScopeStagesUntilStartupAndBacksUpCurrentData(ConfigurationScope scope)
     {
         var source = Profile("source", 1.25); var destination = Profile("destination", 1);
+        const string filterFile = "automatic-current-run-filters.json";
+        File.WriteAllText(Path.Combine(source, filterFile), "true");
+        File.WriteAllText(Path.Combine(destination, filterFile), "false");
         var zip = Path.Combine(_root, scope + ".zip");
         ConfigurationArchive.Export(source, zip, scope);
         using (var archive = ZipFile.OpenRead(zip))
@@ -43,6 +46,7 @@ public sealed class ConfigurationArchiveTests : IDisposable
             archive.Entries.Should().NotContain(entry => entry.FullName.Contains("unrelated") || entry.FullName.Contains("old.zip"));
             archive.Entries.Any(entry => entry.FullName == "files/tracking.json").Should().Be(scope == ConfigurationScope.Full);
             archive.Entries.Any(entry => entry.FullName == "files/appearance.json").Should().Be(scope != ConfigurationScope.Lineups);
+            archive.Entries.Any(entry => entry.FullName == "files/" + filterFile).Should().Be(scope != ConfigurationScope.Lineups);
             archive.Entries.Any(entry => entry.FullName == "files/lineups/one.json").Should().Be(scope != ConfigurationScope.Software);
         }
         var oldAppearance = File.ReadAllBytes(Path.Combine(destination, "appearance.json"));
@@ -58,6 +62,7 @@ public sealed class ConfigurationArchiveTests : IDisposable
         }
         var appearance = JsonSerializer.Deserialize<SidebarAppearance>(File.ReadAllText(Path.Combine(destination, "appearance.json")))!;
         appearance.UiScale.Should().Be(scope == ConfigurationScope.Lineups ? 1 : 1.25);
+        File.ReadAllText(Path.Combine(destination, filterFile)).Should().Be(scope == ConfigurationScope.Lineups ? "false" : "true");
         var lineup = JsonSerializer.Deserialize<Lineup>(File.ReadAllText(Path.Combine(destination, "lineups", "one.json")))!;
         lineup.Name.Should().Be(scope == ConfigurationScope.Software ? "destination" : "source");
         var tracking = JsonSerializer.Deserialize<TrackingState>(File.ReadAllText(Path.Combine(destination, "tracking.json")))!;
@@ -93,6 +98,7 @@ public sealed class ConfigurationArchiveTests : IDisposable
     [InlineData("tracking.json", "{\"Entries\":null}")]
     [InlineData("custom-operators.json", "[null]")]
     [InlineData("automatic-purchases.json", "\"yes\"")]
+    [InlineData("automatic-current-run-filters.json", "\"yes\"")]
     [InlineData("lineups/one.json", "{\"slots\":null}")]
     public void ImportRejectsMalformedConfigurationBeforeTouchingUserData(string entry, string content)
     {
