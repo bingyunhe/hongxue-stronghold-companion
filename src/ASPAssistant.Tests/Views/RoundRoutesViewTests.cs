@@ -23,7 +23,7 @@ internal static class RoundRoutesViewTests
         var maps = GarrisonBoardStore.LoadAsync(source).GetAwaiter().GetResult();
         var operators = new JsonDataStore(source).LoadOperatorsAsync().GetAwaiter().GetResult()
             .GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First());
-        var manual = new DeployPoolState { Owned = ["杰克", "砾"] };
+        var manual = new DeployPoolState { Owned = ["灰喉", "砾", "烈夏", LineupEquipmentService.MechName], Extra = ["灰喉"] };
         var deploy = new DeployView();
         var dir = Path.Combine(Path.GetTempPath(), $"live-plans-{Guid.NewGuid():N}");
         deploy.Initialize(operators, [], maps, new TrackingViewModel(), new SettingsManager(dir), manual, false);
@@ -35,28 +35,37 @@ internal static class RoundRoutesViewTests
             modes.SelectedIndex = 0;
             var field = new FieldMark(new(1, 3), 1, new(400, 330), [], null);
             var bench = field with { Slot = new(3, -1) };
-            var units = new LiveUnit[] { new(field, 1, "杰克", null, false, false),
+            var units = new LiveUnit[] { new(field, 1, "灰喉", null, false, false),
                 new(bench, 2, null, null, false, false), new(field with { Slot = new(3,3) }, 3, "杰克", null, false, false),
                 new(field with { Slot = new(4,2), Tier = 5 }, 4, LineupEquipmentService.MechName, null, false, false),
                 new(field with { Slot = new(4,1) }, 5, "烈夏", null, false, false),
                 new(field with { Slot = new(2,3) }, 6, "烈夏", "烈夏", false, false) };
+            var evidence = units.Where(u => u.Name == "烈夏").Select(u => u with { Mark = u.Mark with { StandaloneName = "烈夏" } }).ToArray();
+            var scan = new FieldObservation(Guid.NewGuid(), new(DateTimeOffset.Now, "实况", []), "desert_crates", 8, evidence, []) { PersonalBoard = true };
+            new DeployOwnership(manual).Observe(new(scan, evidence));
             deploy.ShowLiveRoster(new("desert_crates", 8, units));
             for (int mode = 1; mode <= 3; mode++)
             {
                 modes.SelectedIndex = mode;
-                AwaitPlan(mode == 1 ? 6 : 7);
+                AwaitPlan(mode == 1 ? 5 : 4);
                 if (mode == 1)
                 {
                     units = [.. units.Select(u => u.Mark.Slot.Bench ? u with { Name = "风丸", Manual = true } : u)];
                     deploy.ShowLiveRoster(new("desert_crates", 8, units));
-                    AwaitPlan(7);
+                    var current = deploy.CurrentPlan;
+                    Pump(650);
+                    Assert.Same(current, deploy.CurrentPlan);
+                    Assert.Contains(current!.Placed, p => p.Name == "灰喉");
+                    ToggleGreyThroat();
+                    AwaitPlan(4);
                 }
                 var plan = deploy.CurrentPlan!;
                 Assert.Contains(plan.Placed, p => p.Name == LineupEquipmentService.MechName);
                 Assert.Equal(2, plan.Placed.Count(p => p.Name == "烈夏"));
                 var names = plan.Placed.Select(u => u.Key).Concat(plan.Bench.Select(u => u.Name)).ToList();
-                Assert.Contains("杰克#2", names);
-                Assert.Contains("风丸", names);
+                Assert.DoesNotContain("杰克", names);
+                Assert.DoesNotContain("灰喉", names);
+                Assert.DoesNotContain("风丸", names);
                 Assert.Contains("砾", names);
                 Assert.NotEmpty(((System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("OperatorGrid")).Children);
                 host.UpdateLayout();
@@ -66,12 +75,33 @@ internal static class RoundRoutesViewTests
                 using var file = File.Create(Path.Combine(TestOutput.Directory, $"recommendation-{mode}-Closure-{night}.png"));
                 png.Save(file);
             }
+            modes.SelectedIndex = 0;
+            var benchRow = (System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("BenchRow");
+            Assert.Contains(benchRow.Children.OfType<Border>(), tile => tile.ToolTip?.ToString()?.Contains("风丸") == true);
+            modes.SelectedIndex = 1;
+            AwaitPlan(4);
+            ToggleGreyThroat();
+            AwaitPlan(5);
+            Assert.Contains(deploy.CurrentPlan!.Placed,p => p.Name == "灰喉");
+            modes.SelectedIndex = 0;
             deploy.ShowLiveRoster(new(null, null, []));
             deploy.SetRecognizedBoard(new(maps!.Find("desert_crates")!, BoardCamera.Expanded, 1, 1));
-            AwaitPlan(2);
-            Assert.Equal(new[] { "杰克", "砾" }, manual.Owned);
+            modes.SelectedIndex = 3;
+            AwaitPlan(5);
+            Assert.DoesNotContain("杰克", manual.Owned);
         }
         finally { host.Close(); }
+
+        void ToggleGreyThroat()
+        {
+            deploy.FocusOperator("灰喉");
+            var groups = (Panel)deploy.FindName("PoolGroups");
+            var card = groups.Children.OfType<System.Windows.Controls.Primitives.UniformGrid>()
+                .SelectMany(grid => grid.Children.OfType<Grid>()).Single(g => g.ToolTip?.ToString()?.StartsWith("灰喉 ·") == true);
+            card.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice,0,System.Windows.Input.MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            deploy.ShowPage(false);
+        }
 
         void AwaitPlan(int count)
         {
@@ -80,11 +110,16 @@ internal static class RoundRoutesViewTests
             while (ReferenceEquals(previous, deploy.CurrentPlan) || deploy.CurrentPlan is not { } plan || plan.Placed.Count + plan.Bench.Count != count)
             {
                 Assert.True(timer.Elapsed < TimeSpan.FromSeconds(6), $"推荐阵容未更新到 {count} 人");
-                var frame = new System.Windows.Threading.DispatcherFrame();
-                var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
-                tick.Tick += (_, _) => { tick.Stop(); frame.Continue = false; };
-                tick.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
+                Pump(25);
             }
+        }
+
+        static void Pump(int milliseconds)
+        {
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var tick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
+            tick.Tick += (_, _) => { tick.Stop(); frame.Continue = false; };
+            tick.Start(); System.Windows.Threading.Dispatcher.PushFrame(frame);
         }
     }
 
@@ -349,7 +384,12 @@ internal static class RoundRoutesViewTests
         var unknown = new FieldMark(new(2,1),2,new(100,200),[],null);
         var gravel = new FieldMark(new(7,-1),2,new(500,400),[],"砾");
         deploy.ShowLiveRoster(new("desert_crates",1,[new(unknown,1,null,null,false,false),new(gravel,2,"砾","砾",false,false),
-            new(new(new(0,2),1,new(450,350),[],null),3,"陨星",null,false,false) { FromPurchaseList = true } ]));
+            new(new(new(0,2),1,new(450,350),[],null),3,"陨星",null,false,false) { FromPurchaseList = true } ])
+            { Observations = [new(Guid.Empty, new(new DateTimeOffset(2026,11,20,17,2,0,TimeSpan.FromHours(8)), "识别原帧", []), "desert_crates", 1, [], []) { UncertainSlots = [new(3,1)] }] });
+        Assert.Contains(canvas.Children.OfType<Border>(), tile => tile.ToolTip?.ToString() == "B6 · 占用待确认");
+        Assert.Equal("上次识别：第 1 回合 17:02", ((TextBlock)deploy.FindName("LastFieldRead")).Text);
+        var automaticField = (CheckBox)deploy.FindName("AutomaticFieldToggle");
+        Assert.False(automaticField.IsChecked);
         Assert.False(((ListBox)deploy.FindName("FieldCountList")).IsEnabled);
         var bench = (System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("BenchRow");
         Assert.Equal(10,bench.Children.Count);
@@ -359,6 +399,26 @@ internal static class RoundRoutesViewTests
         Assert.Contains(canvas.Children.OfType<Border>(),t=>t.ToolTip?.ToString()?.Contains("身份待确认")==true);
         Assert.True(((Button)deploy.FindName("ReadFieldButton")).IsEnabled);
         Save("live-field");
+        var hint=new FieldMemoryLocation(7,"星极",new(2,2));
+        deploy.ShowLiveRoster(new("desert_crates",9,[new LiveUnit(unknown,20,null,null,false,false){Suggestion=hint}])
+            {Unlocated=[hint]});
+        var grid=(System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("OperatorGrid");
+        var row=(DockPanel)((Border)grid.Children[0]).Child;
+        var button=((StackPanel)row.Children[^1]).Children.OfType<Button>().Single();
+        Assert.Equal("确认星极",button.Content);
+        var pending=((WrapPanel)deploy.FindName("ChecksRow")).Children.OfType<TextBlock>()
+            .Single(t=>t.Text.Contains("上次 C5"));
+        Assert.Contains(pending.ContextMenu.Items.OfType<MenuItem>(),item=>Equals(item.Header,"已出售，移除本局记录"));
+        ((Border)grid.Children[0]).BringIntoView();
+        host.UpdateLayout();
+        Assert.InRange(button.TranslatePoint(new Point(),surface).Y,0,surface.ActualHeight-button.ActualHeight);
+        Save("memory");
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Contains("候选已变化",((TextBlock)deploy.FindName("LiveMessage")).Text);
+        ((Button)deploy.FindName("ReadFieldButton")).BringIntoView();
+        automaticField.IsChecked = true;
+        automaticField.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+        Save("automatic-field");
         deploy.ShowLiveRoster(new("desert_crates",1,[
             new(new(new(0,3),1,new(450,350),[],"地灵"),8,"地灵",null,false,false),
             new LiveUnit(new(new(1,3),1,new(520,350),[],null),9,"艾丝黛尔",null,false,false) { FromPurchaseList = true }

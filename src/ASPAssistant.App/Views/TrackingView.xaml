@@ -96,8 +96,11 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal">
+                    <ContentPresenter Content="{Binding Operator}" ContentTemplate="{StaticResource TrackingTierBadge}" />
                     <controls:Avatar x:Name="ring" Width="34" Height="34" VerticalAlignment="Center" Margin="2,0,0,0"
                                      Text="{Binding Name}" Source="{Binding IconPath}" Ring="{DynamicResource FinalBrush}" />
+                    </StackPanel>
                     <StackPanel Grid.Column="1" Margin="8,0,2,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource TextPrimaryBrush}" />

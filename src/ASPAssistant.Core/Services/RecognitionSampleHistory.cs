@@ -9,6 +9,12 @@ public sealed record SampleFrame(DateTimeOffset Time, string Step, byte[] Image)
 public sealed record RecognitionSample(int? Round, string Kind, string Result, DateTimeOffset Started, SampleFrame[] Frames)
 {
     public sealed record MarkedCase(string Label, int? Round, string Result, int? InputFrame, string Expected);
+    internal string? StoragePath { get; init; }
+    internal RecognitionSample[] Records { get; init; } = [];
+    public string Note { get; internal set; } = "";
+    internal string? ExportedNote { get; set; }
+    public IReadOnlyList<RecognitionSample> GameRecords => Records;
+    public bool Pending => ExportedNote != Note;
     public MarkedCase[] Cases { get; init; } = [];
     public int? InputFrame { get; init; }
     public string[] Actions { get; init; } = [];

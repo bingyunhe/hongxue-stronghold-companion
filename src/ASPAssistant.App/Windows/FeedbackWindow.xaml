@@ -43,6 +43,16 @@
                             <TextBlock Text="复现步骤与预期结果" Margin="0,12,0,5" />
                             <TextBox x:Name="StepsBox" Style="{StaticResource DialogTextBox}" Height="70" AcceptsReturn="True"
                                      MaxLength="6000" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" AutomationProperties.Name="复现步骤与预期结果" />
+                            <StackPanel x:Name="BatchPanel" Visibility="Collapsed" Margin="0,8,0,2">
+                                <Expander x:Name="GamePicker" Expanded="OnBatchSelection" Collapsed="OnBatchSelection">
+                                    <Expander.Header><TextBlock Text="选择对局" Foreground="{DynamicResource TextPrimaryBrush}"/></Expander.Header>
+                                    <StackPanel>
+                                        <Button Content="全选" HorizontalAlignment="Left" Click="OnSelectAllGames" Style="{StaticResource SmallActionButton}"/>
+                                        <StackPanel x:Name="GameChecks" />
+                                    </StackPanel>
+                                </Expander>
+                                <TextBlock x:Name="BatchSummary" TextWrapping="Wrap" Margin="0,4"/>
+                            </StackPanel>
                             <ComboBox x:Name="EventChoice" DisplayMemberPath="Label" Visibility="Collapsed" Margin="0,10,0,0"
                                       AutomationProperties.Name="按回合和时间选择识别记录" SelectionChanged="OnEventChanged" />
                             <TextBlock x:Name="RecognitionText" TextWrapping="Wrap" Margin="0,12,0,8" FontSize="11"

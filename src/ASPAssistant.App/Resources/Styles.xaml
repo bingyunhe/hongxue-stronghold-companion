@@ -770,6 +770,42 @@
          Use inside a ToolTip whose DataContext is the Operator:
          <ContentControl Content="{Binding}" ContentTemplate="{StaticResource OperatorDetailsTemplate}" /> -->
     <converters:TierToRomanConverter x:Key="DetailsTierToRoman" />
+    <DataTemplate x:Key="TrackingTierBadge">
+        <Border x:Name="badge" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                Background="{DynamicResource NeutralTintBrush}" MinWidth="19" Height="19" Margin="0,0,4,0" VerticalAlignment="Center">
+            <TextBlock x:Name="numeral" Text="{Binding Tier, Converter={StaticResource DetailsTierToRoman}}" FontSize="12"
+                       FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondaryBrush}" />
+        </Border>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding}" Value="{x:Null}"><Setter TargetName="badge" Property="Visibility" Value="Collapsed" /></DataTrigger>
+            <DataTrigger Binding="{Binding Tier}" Value="2">
+                <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource AvailableBrush}" />
+                <Setter TargetName="badge" Property="Background" Value="{DynamicResource AvailableTintBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Tier}" Value="3">
+                <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                <Setter TargetName="badge" Property="Background" Value="#4277AFDD" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Tier}" Value="4">
+                <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                <Setter TargetName="badge" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Tier}" Value="5">
+                <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource WarningTextBrush}" />
+                <Setter TargetName="badge" Property="Background" Value="{DynamicResource WarningTintBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Tier}" Value="6">
+                <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                <Setter TargetName="badge" Property="Background" Value="{DynamicResource DangerSoftBrush}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding IsCustom}" Value="True">
+                <Setter TargetName="badge" Property="MinWidth" Value="31" />
+                <Setter TargetName="numeral" Property="Text" Value="Ⅴ/Ⅵ" />
+                <Setter TargetName="badge" Property="ToolTip" Value="自选干员共用五阶和六阶候选" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
     <converters:InverseBooleanConverter x:Key="FilterNotConverter" />
     <converters:LocalPathToImageConverter x:Key="DetailsLocalImage" />
     <BooleanToVisibilityConverter x:Key="DetailsBoolToVis" />

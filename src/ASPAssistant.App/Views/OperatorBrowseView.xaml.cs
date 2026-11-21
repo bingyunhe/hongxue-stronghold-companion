@@ -1,5 +1,7 @@
 // Modified for ASP Assistant Arknights on 2026-11-13; see NOTICE.
+using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -9,6 +11,9 @@ using ASPAssistant.Core.Models;
 using ASPAssistant.Core.ViewModels;
 
 namespace ASPAssistant.App.Views;
+
+public sealed record CatalogTier(int Name, int ItemCount);
+public sealed record CatalogRow(int Columns, Operator[] Operators);
 
 public partial class OperatorBrowseView : UserControl
 {
@@ -27,17 +32,75 @@ public partial class OperatorBrowseView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnViewDataContextChanged;
+        SizeChanged += (_, args) => LayoutLabel.Visibility = args.NewSize.Width < 320 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OnViewDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        if (e.OldValue is OperatorBrowseViewModel old)
+            PropertyChangedEventManager.RemoveHandler(old, OnFiltered, nameof(old.MatchedCount));
         if (e.NewValue is OperatorBrowseViewModel vm)
+        {
+            PropertyChangedEventManager.AddHandler(vm, OnFiltered, nameof(vm.MatchedCount));
             AvailabilityFilterList.SelectedIndex = vm.SelectedAvailabilityFilter switch
             {
-                Core.ViewModels.AvailabilityFilter.Available => 1,
-                Core.ViewModels.AvailabilityFilter.Unavailable => 2,
+                AvailabilityFilter.Available => 1,
+                AvailabilityFilter.Unavailable => 2,
                 _ => 0
             };
+        }
+        RebuildRows();
+    }
+
+    private int _columns = 1;
+
+    private void OnFiltered(object? sender, PropertyChangedEventArgs e) => RebuildRows();
+
+    private void RebuildRows()
+    {
+        var rows = new List<object>();
+        if (DataContext is OperatorBrowseViewModel vm)
+            foreach (var tier in vm.FilteredOperators.GroupBy(op => op.Tier).OrderBy(group => group.Key))
+            {
+                if (vm.SelectedOperatorSource != OperatorSourceFilter.Custom)
+                    rows.Add(new CatalogTier(tier.Key, tier.Count()));
+                foreach (var operators in tier.Chunk(_columns))
+                    rows.Add(new CatalogRow(_columns, operators));
+            }
+        OperatorListControl.ItemsSource = rows;
+    }
+
+    private void OnCycleLayout(object sender, RoutedEventArgs e)
+    {
+        var scroll = FindVisualChildren<ScrollViewer>(OperatorListControl).FirstOrDefault();
+        OperatorCard? anchorCard = null;
+        if (scroll is { VerticalOffset: > 0 })
+            anchorCard = FindVisualChildren<OperatorCard>(scroll).FirstOrDefault(card =>
+            {
+                var y = card.TranslatePoint(new Point(), scroll).Y;
+                return y + card.ActualHeight > 0 && y < scroll.ViewportHeight;
+            });
+        var anchor = anchorCard?.DataContext as Operator;
+        var anchorY = anchorCard?.TranslatePoint(new Point(), scroll).Y ?? 0;
+        _columns = _columns % 3 + 1;
+        var (current, next) = _columns switch { 2 => ("双列", "紧凑"), 3 => ("紧凑", "单列"), _ => ("单列", "双列") };
+        LayoutLabel.Text = current;
+        LayoutLines.Data = _columns switch
+        {
+            2 => Geometry.Parse("M6.5,1 V10"),
+            3 => Geometry.Parse("M4.5,1 V10 M8.5,1 V10"),
+            _ => null
+        };
+        LayoutButton.ToolTip = $"当前{current}，点击切换到{next}";
+        AutomationProperties.SetName(LayoutButton, $"干员排列，当前{current}");
+        RebuildRows();
+        if (anchor is null) return;
+        var target = OperatorListControl.Items.OfType<CatalogRow>().First(row => row.Operators.Contains(anchor));
+        var index = OperatorListControl.Items.IndexOf(target);
+        FindVisualChildren<VirtualizingStackPanel>(OperatorListControl).First().BringIndexIntoViewPublic(index);
+        OperatorListControl.UpdateLayout();
+        if (OperatorListControl.ItemContainerGenerator.ContainerFromIndex(index) is FrameworkElement row && scroll != null)
+            scroll.ScrollToVerticalOffset(scroll.VerticalOffset + row.TranslatePoint(new Point(), scroll).Y - anchorY);
     }
 
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject

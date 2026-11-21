@@ -315,6 +315,18 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         }
     }, nameof(EnemyHp_FocusesRecognizedDifficulty));
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task OperatorCatalogue_CyclesLayouts(bool night)
+        => ui.RunAsync(() => OperatorCatalogueViewTests.VerifyLayouts(night), $"{nameof(OperatorCatalogue_CyclesLayouts)}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task TrackingTierBadge_UsesCatalogTiers(bool night)
+        => ui.RunAsync(() => TrackingStageViewTests.VerifyTierBadges(night), $"{nameof(TrackingTierBadge_UsesCatalogTiers)}-{night}");
+
     [Fact]
     public Task OperatorPicker_PreservesSelectionWhileScrolling() => ui.RunAsync(OperatorPickerTests.VerifySelection, nameof(OperatorPicker_PreservesSelectionWhileScrolling));
 
@@ -323,6 +335,20 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     [InlineData(true)]
     public Task LiveFieldPicker_SelectsFromRightEdge(bool night)
         => ui.RunAsync(() => OperatorPickerTests.VerifyLiveCorrection(night), $"{nameof(LiveFieldPicker_SelectsFromRightEdge)}-{night}");
+
+    [Theory]
+    [Trait("Category", "LocalScreenshot")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task LiveFieldPicker_RanksUnknownOnRequest(bool night)
+        => ui.RunAsync(() => OperatorPickerTests.VerifyRankedCorrection(night), $"{nameof(LiveFieldPicker_RanksUnknownOnRequest)}-{night}");
+
+    [Theory]
+    [Trait("Category", "LocalScreenshot")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task LiveFieldQuickMenu_UsesCapturedSnakeAndRejectsStaleClick(bool night)
+        => ui.RunAsync(() => OperatorPickerTests.VerifyRankedCorrection(night, true), $"{nameof(LiveFieldQuickMenu_UsesCapturedSnakeAndRejectsStaleClick)}-{night}");
 
     [Theory]
     [InlineData(false)]
@@ -676,6 +702,8 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         clientAvailable = false;
         links[0].RaiseEvent(new RoutedEventArgs(System.Windows.Documents.Hyperlink.ClickEvent));
         opened.Skip(1).Should().Equal(opened[0], invite);
+        links[1].RaiseEvent(new RoutedEventArgs(System.Windows.Documents.Hyperlink.ClickEvent));
+        opened.Last().Should().Be(mirror);
         dialog.ReportProgress(0.42);
         var bar = (System.Windows.Controls.ProgressBar)dialog.FindName("DialogProgress");
         var percent = (TextBlock)dialog.FindName("ProgressPercentText");

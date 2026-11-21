@@ -6,6 +6,8 @@ namespace ASPAssistant.Core.Services;
 /// <summary>Confirms a purchase from a stable named card, two empty frames and a funds decrease.</summary>
 public sealed class ShopPurchaseDetector
 {
+    private DateTimeOffset _lastOffer;
+    public DateTimeOffset ConfirmedOfferAt { get; private set; }
     private List<ShopItem> _cards = [];
     private ShopEconomy? _before;
     private int _width, _height, _stable, _emptyFrames;
@@ -24,13 +26,14 @@ public sealed class ShopPurchaseDetector
     public bool NeedsFundsRead(IReadOnlyList<ShopItem> cards, bool shopOpen)
     {
         if (!shopOpen) return false;
+        if (_shopHiddenAt.HasValue) return true;
         if (!SameRemainingCards(cards)) return true;
         if (cards.Count < _cards.Count) return !_purchasePending || _candidateFundsReads < CandidateFundsReadLimit;
         return _stable == 1;
     }
 
     public bool CanReuseHudLayout(IReadOnlyList<ShopItem> cards, int width, int height)
-        => width == _width && height == _height && SameRemainingCards(cards);
+        => !_shopHiddenAt.HasValue && width == _width && height == _height && SameRemainingCards(cards);
 
     private bool SameRemainingCards(IReadOnlyList<ShopItem> cards) => _before is not null && cards.Count <= _cards.Count
         && cards.All(c => _cards.Any(p => SameSlot(c, p) && c.Name == p.Name));
@@ -61,19 +64,22 @@ public sealed class ShopPurchaseDetector
     }
 
     public IReadOnlyList<string> Observe(byte[] image, IReadOnlyList<ShopItem> cards, bool shopOpen,
-        ShopEconomy? economy, IReadOnlySet<string> targets, bool freshFunds = true)
+        ShopEconomy? economy, IReadOnlySet<string> targets, bool freshFunds = true, DateTimeOffset? capturedAt = null)
     {
-        // Deployment briefly covers the shop after the first paid empty-slot observation.
-        // Resume only with a surviving named offer, on the same viewport and round.
-        if (!shopOpen && NeedsConfirmation && economy is { IsPreparation: true } && economy.Round == _before?.Round)
+        // The purchase animation can hide the shop before either empty-slot observation.
+        bool stableOffers = _stable >= 2 && !_purchasePending && _confirmedFunds.HasValue;
+        if (!shopOpen && (NeedsConfirmation || stableOffers) && economy is { IsPreparation: true } && economy.Round == _before?.Round)
         {
             _shopHiddenAt ??= Environment.TickCount64;
             if (Environment.TickCount64 - _shopHiddenAt <= 3500) return [];
         }
         if (_shopHiddenAt is long hidden)
         {
-            if (Environment.TickCount64 - hidden > 3500 || cards.Count == 0 ||
-                !SameRemainingCards(cards) || _pendingMoney != economy?.Money)
+            bool comparableFunds = NeedsConfirmation ? _pendingMoney == economy?.Money :
+                cards.Count == _cards.Count ? _confirmedFunds == economy?.Money :
+                cards.Count == _cards.Count - 1 && _confirmedFunds > economy?.Money;
+            if (Environment.TickCount64 - hidden > 3500 || !freshFunds || cards.Count == 0 ||
+                !SameRemainingCards(cards) || !comparableFunds)
                 Reset("offers-changed-while-hidden");
             _shopHiddenAt = null;
         }
@@ -160,6 +166,8 @@ public sealed class ShopPurchaseDetector
             var purchased = missing.Where((card, index) => targets.Contains(card.Name) &&
                 !missing.Take(index).Any(prior => SameSlot(prior, card))).Select(card => card.Name).ToList();
             AppLogger.Info("ShopPurchase", $"Confirmed [{string.Join(", ", purchased)}], money={beforeMoney}->{economy.Money}");
+            ConfirmedOfferAt = _lastOffer;
+            _lastOffer = capturedAt ?? DateTimeOffset.UtcNow;
             _cards = cards.ToList();
             _before = economy;
             _confirmedFunds = _lastFundsRead = economy.Money;
@@ -191,6 +199,7 @@ public sealed class ShopPurchaseDetector
             if (economy.Money is { } amount && _lastFundsRead == amount) _confirmedFunds = amount;
             _lastFundsRead = economy.Money;
         }
+        _lastOffer = capturedAt ?? DateTimeOffset.UtcNow;
         _cards = cards.ToList();
         _before = economy;
         _width = width; _height = height;

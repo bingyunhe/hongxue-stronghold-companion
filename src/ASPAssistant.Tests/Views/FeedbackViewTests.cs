@@ -40,12 +40,14 @@ internal static class FeedbackViewTests
         report = report with { Samples = samples.Freeze() };
         var owner = new Window { Width = 400, Height = 600, Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
         owner.Show();
-        var dialog = new FeedbackWindow(report, true) { Owner = owner, Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
+        var dialog = new FeedbackWindow(report) { Owner = owner, Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
         var contrast = new Dictionary<string, double>();
         try
         {
             dialog.Show(); Pump();
             var category = (ComboBox)dialog.FindName("CategoryBox");
+            category.SelectedIndex.Should().Be(0);
+            category.SelectedIndex = 1;
             category.SelectedIndex.Should().Be(1);
             var screenshot = (CheckBox)dialog.FindName("ScreenshotChoice");
             screenshot.IsChecked.Should().BeFalse();
@@ -131,7 +133,7 @@ internal static class FeedbackViewTests
             ((TextBox)dialog.FindName("PreviewBox")).Text.Should().Contain("应选中暴躁铁皮").And.Contain("应为折桠");
         }
         finally { dialog.Close(); owner.Close(); appearance.UiScale = 1; WindowUiScale.Refresh(appearance); }
-        var empty = new FeedbackWindow(new("运行信息", "无日志", null), false) { Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
+        var empty = new FeedbackWindow(new("运行信息", "无日志", null)) { Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
         try
         {
             empty.Show(); Pump();
@@ -140,6 +142,33 @@ internal static class FeedbackViewTests
             Save(empty, Path.Combine(output, $"{theme}-{night}-empty.png"));
         }
         finally { empty.Close(); }
+        var batchDir = Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));
+        try
+        {
+            FieldFeedback.Save(batchDir,Guid.NewGuid(),report.Samples[0]);
+            FieldFeedback.Save(batchDir,Guid.NewGuid(),report.Samples[0]);
+            var batch = new FeedbackWindow(report with { Samples = FieldFeedback.LoadGames(batchDir) })
+                { Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
+            try
+            {
+                batch.Show(); Pump();
+                var summary = (TextBlock)batch.FindName("BatchSummary");
+                summary.Text.Should().Contain("2 局 · 2 条记录");
+                var picker = (Expander)batch.FindName("GamePicker");
+                picker.IsExpanded = true;
+                var checks = (StackPanel)batch.FindName("GameChecks");
+                var first = (CheckBox)checks.Children[0];
+                first.IsChecked = false;
+                first.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                summary.Text.Should().Contain("1 局 · 1 条记录");
+                ((CheckBox)batch.FindName("ScreenshotChoice")).IsChecked = false;
+                summary.Text.Should().Contain("0 张截图");
+                picker.BringIntoView(); Pump();
+                Save(batch,Path.Combine(output,$"{theme}-{night}-batch.png"));
+            }
+            finally { batch.Close(); }
+        }
+        finally { Directory.Delete(batchDir,true); }
         VerifyAbout(theme, night, output);
         File.WriteAllText(Path.Combine(output, $"contrast-{theme}-{night}.json"), JsonSerializer.Serialize(contrast));
     }
@@ -165,7 +194,7 @@ internal static class FeedbackViewTests
             ((TabControl)panel.FindName("SettingsCategoryList")).SelectedIndex = 3;
             var about = (FrameworkElement)panel.FindName("AboutSettingsPage");
             about.BringIntoView(); Pump();
-            ((FrameworkElement)panel.FindName("RecognitionFeedbackButton")).BringIntoView(); Pump();
+            ((FrameworkElement)panel.FindName("FeedbackButton")).BringIntoView(); Pump();
             var title = (TextBlock)panel.FindName("FeedbackTitle");
             Ratio(((SolidColorBrush)title.Foreground).Color, Composite(((SolidColorBrush)((Border)((StackPanel)title.Parent).Parent).Background).Color,
                 ((SolidColorBrush)panel.FindResource("PanelBackgroundBrush")).Color)).Should().BeGreaterThanOrEqualTo(4.5);
@@ -177,9 +206,9 @@ internal static class FeedbackViewTests
             var project = (TextBlock)panel.FindName("ProjectAddressText");
             group.TranslatePoint(new Point(), about).Y.Should().BeGreaterThan(project.TranslatePoint(new Point(), about).Y);
             Save(panel, Path.Combine(output, $"{theme}-{night}-about.png"));
-            foreach (var name in new[] { "FeedbackButton", "RecognitionFeedbackButton" })
+            panel.FindName("RecognitionFeedbackButton").Should().BeNull();
             {
-                var button = (Button)panel.FindName(name);
+                var button = (Button)panel.FindName("FeedbackButton");
                 button.IsDescendantOf(about).Should().BeTrue();
                 Exception? error = null;
                 var closed = false;
@@ -192,7 +221,8 @@ internal static class FeedbackViewTests
                     feedback.Opacity = 0; feedback.ShowActivated = false;
                     try
                     {
-                        ((ComboBox)feedback.FindName("CategoryBox")).SelectedIndex.Should().Be(name == "RecognitionFeedbackButton" ? 1 : 0);
+                        var hasGames = FeedbackReport.Prepare().Samples.Any(s => s.IsGameReport);
+                        ((ComboBox)feedback.FindName("CategoryBox")).SelectedIndex.Should().Be(hasGames ? 1 : 0);
                         ((Button)panel.FindName("FeedbackButton")).IsEnabled.Should().BeFalse();
                     }
                     catch (Exception ex) { error = ex; }

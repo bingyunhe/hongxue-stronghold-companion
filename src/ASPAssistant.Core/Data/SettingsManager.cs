@@ -448,7 +448,10 @@ public class SettingsManager
             ?? throw new JsonException("干员拥有状态不能为空");
         if (state.Owned is null || state.Elite is null || state.Extra is null || state.Counts is null
             || state.Owned.Concat(state.Elite).Concat(state.Extra).Any(string.IsNullOrWhiteSpace)
-            || state.Counts.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value is < 1 or > 9))
+            || state.Counts.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value is < 1 or > 9)
+            || state.FieldCopies == null || state.ManualLimits == null
+            || state.FieldCopies.Any(p => string.IsNullOrWhiteSpace(p.Key) || p.Value < 1 || p.Value > state.CountOf(p.Key))
+            || state.ManualLimits.Any(p => string.IsNullOrWhiteSpace(p.Key) || p.Value is not {Count: >= 0 and <= 9}))
             throw new JsonException("干员拥有状态包含无效字段");
         return state;
     }

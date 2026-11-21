@@ -6,6 +6,243 @@ namespace ASPAssistant.Tests.Services;
 
 public class LiveFieldStateTests
 {
+    [Fact]
+    public void ReviewingANameWithTwoPossibleCopiesDoesNotAssignOrCreateAMember()
+    {
+        var state=State();
+        FieldMark Piece(int col,int row,byte shade) => Mark(col,row,1,shade) with
+            {Portrait=[shade,shade,shade],MemoryPatch=Enumerable.Repeat(shade*0x010101,340).ToArray()};
+        var bench=Piece(9,-1,20);
+        var board=Piece(2,3,85);
+        state.Observe("city",6,[bench,board],0);
+        foreach (var u in state.Roster.Units.ToArray()) Assert.True(state.Confirm(u.Id,u.Mark.Slot,"陨星",true));
+        var members=state.Roster.Units.Select(u=>u.MemberId!.Value).Order().ToArray();
+        var target=Piece(4,3,190);
+        state.Observe("city",10,[target],60000);
+        var current=Assert.Single(state.Roster.Units);
+        Assert.True(state.ConfirmReviewName(current.Id,target.Slot,"陨星"));
+        state.Observe("city",10,[target],61000);
+        var named=Assert.Single(state.Roster.Units);
+        Assert.Equal(current.Id,named.Id);
+        Assert.Equal("陨星",named.Name);
+        Assert.Null(named.MemberId);
+        Assert.Equal(members,state.Roster.Unlocated.Select(m=>m.Id).Order());
+        state.Observe("city",10,[target with {Slot=new(5,3)}],61200);
+        Assert.Null(Assert.Single(state.Roster.Units).Name);
+        Assert.False(state.ConfirmReviewName(current.Id,target.Slot,"陨星"));
+        var moved=Assert.Single(state.Roster.Units);
+        Assert.True(state.ConfirmReviewName(moved.Id,moved.Mark.Slot,"陨星"));
+        Assert.True(state.LimitMembers("陨星",0));
+        Assert.Empty(state.Roster.Units);
+        Assert.Empty(state.Roster.Unlocated);
+    }
+
+    [Trait("Category","LocalScreenshot")]
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public async Task ConfirmedBenchUnitOffersReviewBeforeFollowingAnUnreadBadge(bool accept,bool repeat)
+    {
+        const string name="艾雅法拉";
+        var data=Path.Combine(AppContext.BaseDirectory,"data");
+        var maps=(await ASPAssistant.Core.Data.GarrisonBoardStore.LoadAsync(data))!;
+        var reader=new LiveFieldReader(data,maps);
+        var board=new BoardRecognizer(maps);
+        var state=new LiveFieldState(new Dictionary<string,int>{{name,4}});
+        FieldSlot source=new(8,-1),dest=new(2,2); // 整备区右起第 2 席、C5
+        Scan("7",7,0);
+        var seat=Assert.Single(state.Roster.Units,u=>u.Mark.Slot==source);
+        Assert.True(state.Confirm(seat.Id,source,name,false));
+        long member=state.Roster.Units.Single(u=>u.Mark.Slot==source).MemberId!.Value;
+        Scan("9",9,400000);
+        var unit=Assert.Single(state.Roster.Units,u=>u.Mark.Slot==dest);
+        Assert.Null(unit.Name);
+        Assert.Equal(new FieldMemoryLocation(member,name,source),unit.Suggestion);
+        if (accept) Assert.True(state.AcceptSuggestion(unit.Id,dest,member));
+        if (repeat) Scan("9-repeat",9,428000);
+        Scan("10",10,600000);
+        var later=Assert.Single(state.Roster.Units,u=>u.Mark.Slot==dest);
+        Assert.Equal(0,later.Mark.Tier);
+        Assert.Equal(accept?name:null,later.Name);
+        Assert.Equal(accept?(long?)member:null,later.MemberId);
+        Assert.Null(later.Suggestion);
+        if (accept) Assert.Equal(unit.Id,later.Id);
+        Assert.DoesNotContain(state.Roster.Units,u=>u.MemberId==member && u.Mark.Slot!=dest);
+
+        void Scan(string sample,int round,long now)
+        {
+            var file=Path.Combine(AppContext.BaseDirectory,"TestData","Board",$"short-field-r{sample}.png");
+            var pixels=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(file)))!;
+            var match=board.Recognize(pixels)!;
+            state.Observe(match.Map.Id,round,reader.Read(pixels,match,true,true),now);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CrossZoneHintRequiresOneAvailableCopyAndOneVisuallySupportedDestination(bool toBench)
+    {
+        var state=State();
+        var seat=Mark(toBench?2:8,toBench?2:-1,1,30) with {Portrait=[30,30,30],MemoryPatch=Enumerable.Repeat(0x1e1e1e,340).ToArray()};
+        var dest=seat with {Slot=toBench?new(8,-1):new(2,2), ShapeCandidates=[new("陨星",1,.60),new("烈夏",1,.51)]};
+        state.Observe("city",7,[seat],0);
+        var unit=Assert.Single(state.Roster.Units);
+        Assert.True(state.Confirm(unit.Id,seat.Slot,"陨星",false));
+        long member=Assert.Single(state.Roster.Units).MemberId!.Value;
+        state.Observe("city",8,[seat,dest],10000);
+        Assert.Null(state.Roster.Units.Single(u=>u.Mark.Slot==dest.Slot).Suggestion);
+        state.Observe("city",9,[dest,dest with {Slot=new(3,dest.Slot.Row)}],20000);
+        Assert.All(state.Roster.Units,u=>{Assert.Null(u.Name);Assert.Null(u.Suggestion);});
+        state.Observe("city",9,[dest with { ShapeCandidates=[new("烈夏",1,.65),new("陨星",1,.59)] }],22000);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+        state.Observe("city",9,[dest with {MemoryPatch=Enumerable.Repeat(0xc8c8c8,340).ToArray()}],22500);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+        state.Observe("palace",9,[dest],23000);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+        state.Observe("city",9,[dest],24000);
+        var suggestion=Assert.Single(state.Roster.Units);
+        Assert.Null(suggestion.Name);
+        Assert.Equal(member,suggestion.Suggestion!.Id);
+        state.RecordConfirmedPurchases(["陨星","陨星"]);
+        state.Observe("city",9,[dest],25000);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+        Assert.False(state.AcceptSuggestion(suggestion.Id,dest.Slot,member));
+        state.LimitMembers("陨星",1);
+        state.Observe("city",9,[dest],26000);
+        Assert.Equal(member,Assert.Single(state.Roster.Units).Suggestion!.Id);
+        Assert.True(state.LimitMembers("陨星",0));
+        Assert.False(state.AcceptSuggestion(suggestion.Id,dest.Slot,member));
+        state.Observe("city",10,[dest],100000);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HiddenTierCannotCarryAcrossAReplacementOrACompetingPosition(bool replacement)
+    {
+        var state=State();
+        var original=Mark(2,2,1,35) with {Portrait=[35,35,35],MemoryPatch=Enumerable.Repeat(0x232323,340).ToArray()};
+        state.Observe("city",9,[original],0);
+        var prior=Assert.Single(state.Roster.Units);
+        Assert.True(state.Confirm(prior.Id,original.Slot,"陨星",true));
+        var hidden=original with {Tier=0};
+        state.Observe("city",10,[hidden],60000);
+        Assert.Equal(prior.Id,Assert.Single(state.Roster.Units).Id);
+        Assert.Equal("陨星",Assert.Single(state.Roster.Units).Name);
+        List<FieldMark> marks=replacement
+            ? [hidden with {MemoryPatch=Enumerable.Repeat(0xd0d0d0,340).ToArray()}]
+            : [hidden,hidden with {Slot=new(3,2)}];
+        state.Observe("city",11,marks,120000);
+        Assert.All(state.Roster.Units,u=>{Assert.Null(u.Name);Assert.Null(u.MemberId);});
+    }
+
+    [Fact]
+    public void TwoConfirmedCopiesOfTheSameNameDoNotOfferAnArbitraryBenchIdentity()
+    {
+        var state=State();
+        var a=Mark(8,-1,1,35) with {Portrait=[35,35,35],MemoryPatch=Enumerable.Repeat(0x232323,340).ToArray()};
+        var b=a with {Slot=new(6,-1)};
+        state.Observe("city",7,[a,b],0);
+        foreach (var unit in state.Roster.Units)
+            Assert.True(state.Confirm(unit.Id,unit.Mark.Slot,"陨星",true));
+        var dest=a with {Slot=new(2,2),ShapeCandidates=[new("陨星",1,.62),new("烈夏",1,.50)]};
+        state.Observe("city",9,[dest],120000);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+        Assert.Equal(2,state.Roster.Unlocated.Count);
+        state.Clear();
+        state.Observe("city",1,[dest],140000);
+        Assert.Null(Assert.Single(state.Roster.Units).Name);
+        Assert.Null(Assert.Single(state.Roster.Units).Suggestion);
+    }
+
+    [Trait("Category","LocalScreenshot")]
+    [Fact]
+    public async Task RedFloorVerifiedMembersFollowTheCameraAndTheirNewCells()
+    {
+        var data=Path.Combine(AppContext.BaseDirectory,"data");
+        var maps=(await ASPAssistant.Core.Data.GarrisonBoardStore.LoadAsync(data))!;
+        var board=new BoardRecognizer(maps);
+        var reader=new LiveFieldReader(data,maps);
+        var state=new LiveFieldState(new Dictionary<string,int>{{"摆渡人",1},{"星极",2},{"雪猎",2}});
+        foreach(int round in new[]{1,2,4,9})
+        {
+            var path=Path.Combine(AppContext.BaseDirectory,"TestData","Board",$"redfloor-memory-r{round}.png");
+            var pixels=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(path)))!;
+            var match=board.Recognize(pixels)!;
+            var marks=reader.Read(pixels,match,true,true);
+            state.Observe(match.Map.Id,round,marks,round*60000);
+            if(round==1) Confirm("C7","摆渡人",false);
+            if(round==4) { Confirm("C5","星极",true); Confirm("C3","雪猎",false); }
+        }
+        foreach(var (slot,name) in new[]{("B7","摆渡人"),("C6","星极")})
+        {
+            var target=state.Roster.Units.Single(u=>u.Mark.Slot.ToString()==slot);
+            Assert.True(target.Name==name,$"{slot}: {target.Name}, suggestion={target.Suggestion}, unlocated={string.Join(',',state.Roster.Unlocated)}");
+            Assert.Single(state.Roster.Units,u=>u.Name==name);
+        }
+        var city=Path.Combine(AppContext.BaseDirectory,"TestData","Board","city-expanded-a6-174304.png");
+        var otherPixels=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(city)))!;
+        var otherBoard=board.Recognize(otherPixels)!;
+        state.Observe(otherBoard.Map.Id,10,reader.Read(otherPixels,otherBoard,true,true),600000);
+        Assert.DoesNotContain(state.Roster.Units.Where(u=>!u.Mark.Slot.Bench),u=>u.MemberId!=null);
+        void Confirm(string slot,string name,bool manual)
+        {
+            var unit=state.Roster.Units.Single(u=>u.Mark.Slot.ToString()==slot);
+            Assert.True(state.Confirm(unit.Id,unit.Mark.Slot,name,manual));
+        }
+    }
+
+    [Fact]
+    public void AmbiguousCopiesRequireOneCurrentConfirmationAndSaleRemovesTheMemory()
+    {
+        var state=State();
+        var sample=Mark(0,2,1,30) with { Portrait=new byte[]{60,70,90} };
+        state.Observe("city",1,[sample],0);
+        var first=Assert.Single(state.Roster.Units);
+        Assert.True(state.Confirm(first.Id,sample.Slot,"地灵",true));
+        state.Observe("city",2,[],12000);
+        var memory=Assert.Single(state.Roster.Unlocated);
+        var left=sample with {Slot=new(1,2)};
+        var right=sample with {Slot=new(2,2)};
+        state.Observe("city",2,[left,right],20000);
+        Assert.All(state.Roster.Units,u=>{Assert.Null(u.Name);Assert.Equal(memory,u.Suggestion);});
+        var a=state.Roster.Units.Single(u=>u.Mark.Slot==left.Slot);
+        var b=state.Roster.Units.Single(u=>u.Mark.Slot==right.Slot);
+        Assert.True(state.AcceptSuggestion(a.Id,left.Slot,memory.Id));
+        Assert.False(state.AcceptSuggestion(b.Id,right.Slot,memory.Id));
+        Assert.Empty(state.Roster.Unlocated);
+        Assert.True(state.LimitMembers("地灵",0));
+        state.Observe("city",3,[left with {Portrait=new byte[]{200,210,220},StandaloneName="陨星"}],30000);
+        Assert.Equal("陨星",Assert.Single(state.Roster.Units).Name);
+        Assert.DoesNotContain(state.Roster.Units,u=>u.Name=="地灵" || u.Suggestion!=null);
+        Assert.Empty(state.Roster.Unlocated);
+        state.Clear();
+        Assert.False(state.AcceptSuggestion(a.Id,left.Slot,memory.Id));
+    }
+    [Fact]
+    public void ReplacingAnOccupiedCellDoesNotEraseThePreviousMemberOrNameItsReplacement()
+    {
+        var state=State();
+        var old=Mark(2,2,1,60) with {Portrait=[10,20,30],MemoryPatch=Enumerable.Repeat(0x182838,340).ToArray()};
+        var other=old with {Portrait=[190,180,170],MemoryPatch=Enumerable.Repeat(0xc8b8a8,340).ToArray()};
+        state.Observe("city",1,[old],0);
+        state.Confirm(state.Roster.Units[0].Id,old.Slot,"地灵",true);
+        state.Observe("city",1,[other],200);
+        var replacement=Assert.Single(state.Roster.Units);
+        Assert.Null(replacement.Name);
+        Assert.Null(replacement.Suggestion);
+        var original=Assert.Single(state.Roster.Unlocated);
+        state.Confirm(replacement.Id,other.Slot,"陨星",false);
+        state.Observe("city",2,[other,old with {Slot=new(3,2)}],9000);
+        Assert.Empty(state.Roster.Unlocated);
+        Assert.Equal(original.Id,state.Roster.Units.Single(u=>u.Name=="地灵").MemberId);
+        Assert.True(state.LimitMembers("地灵",0));
+        Assert.Equal("陨星",Assert.Single(state.Roster.Units).Name);
+    }
+
     private static LiveFieldState State() => new(new Dictionary<string,int> { ["砾"]=2, ["陨星"]=1, ["烈夏"]=1, ["地灵"]=1 });
     private static FieldMark Mark(int col,int row,int tier,byte shade,string? sprite=null) =>
         new(new(col,row),tier,new(50,80),Enumerable.Repeat(shade,90).ToArray(),sprite);
@@ -121,6 +358,21 @@ public class LiveFieldStateTests
         state.Shop(frame, [survivor, Card("陨星", .40), Card(second, .53)], Hud(4), true, 100);
         state.Shop(frame, [survivor], Hud(0), true, 200);
         return state;
+    }
+
+    [Fact]
+    public void ConfirmedPairUsesBothShapesAndRequiresAFreshObservation()
+    {
+        using var black=new Bitmap(320,180);
+        var state=BuyPair(BmpPixels.TryRead(ImageBytes.Encode(black))!);
+        var left=Mark(0,3,1,50) with { ShapeCandidates=[new("陨星",1,.69),new("烈夏",1,.58)] };
+        var right=Mark(1,3,1,150) with { ShapeCandidates=[new("烈夏",1,.68),new("陨星",1,.60)] };
+        state.Observe("map",1,[left,right],7300);
+        state.Observe("map",1,[left,right],7800);
+        Assert.All(state.Roster.Units,u=>Assert.Null(u.Name));
+        var fresh=Mark(0,3,1,53) with { ShapeCandidates=[..left.ShapeCandidates] };
+        state.Observe("map",1,[fresh,right],8100);
+        Assert.Equal(new[]{"陨星","烈夏"},state.Roster.Units.OrderBy(u=>u.Mark.Slot.Col).Select(u=>u.Name));
     }
 
     [Fact] public void MissedBenchAndDelayedSpriteResolveTheBoardAndManualReviewCanReverseThePair()

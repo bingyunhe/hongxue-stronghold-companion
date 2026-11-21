@@ -219,6 +219,18 @@ public sealed class BmpPixels
         return _data[i+2] << 16 | _data[i+1] << 8 | _data[i];
     }
 
+    internal byte[] RegionDigest(int left,int top,int right,int bottom)
+    {
+        left=Math.Max(left,0); right=Math.Min(right,Width);
+        using var hash=System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        for (int y=Math.Max(top,0);y<Math.Min(bottom,Height);y++)
+        {
+            int offset=_offset+(_bottomUp?Height-1-y:y)*_stride+left*_bytesPerPixel;
+            hash.AppendData(_data,offset,(right-left)*_bytesPerPixel);
+        }
+        return hash.GetHashAndReset();
+    }
+
     internal int Gray(int x, int y)
     {
         int i = _offset + (_bottomUp ? Height - 1 - y : y) * _stride + x * _bytesPerPixel;

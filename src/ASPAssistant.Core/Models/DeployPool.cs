@@ -12,6 +12,9 @@ public sealed class DeployPoolState
     [JsonPropertyName("elite")] public List<string> Elite { get; set; } = [];
     /// <summary>Owned copies beyond one (the same operator can be on the field more than once); absent = 1.</summary>
     [JsonPropertyName("counts")] public Dictionary<string, int> Counts { get; set; } = [];
+    // Copies supported only by the board. Correcting one name can retract these, while preserving a shop/manual acquisition.
+    [JsonPropertyName("fieldCopies")] public Dictionary<string, int> FieldCopies { get; set; } = [];
+    [JsonPropertyName("manualLimits")] public Dictionary<string, PoolLimit> ManualLimits { get; set; } = [];
     /// <summary>Added by hand (not tracked); listed under 其他 until removed.</summary>
     [JsonPropertyName("extra")] public List<string> Extra { get; set; } = [];
     [JsonPropertyName("fieldCount")] public int FieldCount { get; set; } = 8;
@@ -20,6 +23,7 @@ public sealed class DeployPoolState
     [JsonPropertyName("manualMap")] public string? ManualMap { get; set; }
     /// <summary>Draw the plan on the game window (off until the player turns it on).</summary>
     [JsonPropertyName("showInGame")] public bool ShowInGame { get; set; }
+    [JsonPropertyName("automaticLiveField")] public bool AutomaticLiveField { get; set; }
 
     public bool IsOwned(string name) => Owned.Contains(name);
     public bool IsElite(string name) => Elite.Contains(name);
@@ -50,6 +54,8 @@ public sealed class DeployPoolState
 }
 
 public enum DeployPoolGroupKind { Final, Transition, Extension, Other }
+
+public sealed record PoolLimit(int Count, DateTimeOffset ChangedAt);
 
 public sealed record DeployPoolItem(string Name, Operator? Operator, string Sub, bool Owned, bool Elite, bool Removable, int Count = 0)
 {

@@ -43,6 +43,7 @@ public partial class OcrScannerService : IDisposable
     private readonly ShopStateStabilizer _stabilizer = new();
     private readonly ShopPurchaseDetector _purchases = new();
     private ShopEconomy? _purchaseEconomy;
+    public (DateTimeOffset OfferedAt, int? Round) LastPurchase { get; private set; }
     public Func<IReadOnlySet<string>>? PurchaseTargets { get; init; }
     public event Action<IReadOnlyList<string>, long, int>? PurchasesDetected;
     public int RunRevision { get { lock (_runLock) return _runRevision; } }
@@ -420,9 +421,10 @@ public partial class OcrScannerService : IDisposable
             if (automaticPurchases && PurchaseTargets is not null)
                 lock (_runLock) forceFundsRead = _purchases.NeedsFundsRead(rawItems, _shopReader.IsShopOpen);
             ShopEconomy? economy = null;
+            string? observedMode = null;
             stageStart = elapsed.ElapsedMilliseconds;
             if (rawItems.Count > 0 || _shopReader.IsShopOpen)
-                economy = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, forceFundsRead, rawItems);
+                (economy, observedMode) = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, forceFundsRead, rawItems);
             if (forceFundsRead)
                 AppLogger.Info("ShopPurchase", $"Funds read: capture={captureMs} ms, shopOcr={shopMs} ms, hud={elapsed.ElapsedMilliseconds - stageStart} ms");
             // Opening and closing the enemy panel hides the shop for several capture ticks.
@@ -446,7 +448,8 @@ public partial class OcrScannerService : IDisposable
                 {
                     if (runRevision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)) return;
                     if (economy is not null) _purchaseEconomy = economy;
-                    purchased = _purchases.Observe(screenshot, rawItems, _shopReader.IsShopOpen, _purchaseEconomy, names, freshFunds: economy is not null);
+                    purchased = _purchases.Observe(screenshot, rawItems, _shopReader.IsShopOpen, _purchaseEconomy, names, freshFunds: economy is not null,
+                        capturedAt: DateTimeOffset.UtcNow.AddMilliseconds(frameTick - Environment.TickCount64));
                     confirm = economy is not null && _purchases.NeedsConfirmation && rawItems.Count > 0 && EconomyReader is not null;
                     purchaseEconomy = _purchaseEconomy;
                 }
@@ -480,13 +483,23 @@ public partial class OcrScannerService : IDisposable
                 }
                 if (purchased.Count > 0)
                 {
+                    lock (_runLock)
+                    {
+                        if (runRevision!=_runRevision || !IsCurrentCapture(connection,captureRevision)) return;
+                        LastPurchase = (_purchases.ConfirmedOfferAt, purchaseEconomy?.Round);
+                        (_liveState??=new(FieldTiers)).RecordConfirmedPurchases(purchased);
+                    }
                     samples.Step(purchaseCheck!.Value, "已确认购买 " + string.Join("、", purchased));
                     PurchasesDetected?.Invoke(purchased, captureRevision, runRevision);
                 }
             }
             if (!IsCurrentCapture(connection, captureRevision)) return;
             ObserveBoard(boardMatch);
-            if (!shopOccluded && LiveReader is not null && boardMatch is not null && !LiveFieldReader.IsDragging(pixels!) && IsCurrentCapture(connection, captureRevision) &&
+            bool readClosedHud = !observedEnemyFrame && RoundEnemyReader != null && boardMatch != null &&
+                !shopOpenThisScan && rawItems.Count == 0;
+            if (readClosedHud)
+                (economy, observedMode) = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, false, rawItems, hudOnly: true);
+            if (AutomaticLiveField && !shopOccluded && LiveReader is not null && boardMatch is not null && !LiveFieldReader.IsDragging(pixels!) && IsCurrentCapture(connection, captureRevision) &&
                 (economy ?? CurrentEconomy) is { Round: int fieldRound, IsPreparation: true } fieldHud)
             {
                 var fieldWallet = economy;
@@ -495,7 +508,7 @@ public partial class OcrScannerService : IDisposable
                 if (fieldWallet == null && needsBalance && shopOpenThisScan && EconomyReader != null)
                     fieldWallet = fieldHud with { Money = await EconomyReader.ReadMoneyAsync(screenshot,imgWidth,imgHeight) };
                 var previousRoster = LiveRoster;
-                ObserveField(screenshot, pixels!, boardMatch, fieldRound, rawItems, fieldWallet, shopOpenThisScan, frameTick, runRevision, connection, captureRevision, false);
+                ObserveField(screenshot, pixels!, boardMatch, fieldRound, rawItems, fieldWallet, shopOpenThisScan, frameTick, runRevision, connection, captureRevision, false, fieldHud.Mode, observedMode != null, false);
                 RecordFieldPurchases(previousRoster, LiveRoster, screenshot, fieldWallet?.Money);
             }
             else if (!shopOccluded && LiveReader != null && pixels != null && shopOpenThisScan && economy is { IsPreparation:true, Round:int shopRound })
@@ -508,7 +521,7 @@ public partial class OcrScannerService : IDisposable
                     {
                         _liveState ??= new(FieldTiers);
                         _liveState.Shop(pixels,rawItems,economy,true,frameTick);
-                        updated = _liveState.PublishPurchases(shopRound);
+                        updated = _automaticLiveField && _liveState.PublishPurchases(shopRound);
                     }
                 }
                 if (updated)
@@ -525,8 +538,8 @@ public partial class OcrScannerService : IDisposable
             {
                 // Funds-only reads can still carry a previous frame's round and phase.
                 var roundHud = forceFundsRead ? null : economy;
-                if (!shopOpenThisScan && rawItems.Count == 0)
-                    roundHud = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, false, rawItems, hudOnly: true);
+                if (!readClosedHud && !shopOpenThisScan && rawItems.Count == 0)
+                    (roundHud, _) = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, false, rawItems, hudOnly: true);
                 await ObserveRoundEnemiesAsync(screenshot, roundHud, boardMatch is not null || shopOpenThisScan, connection, runRevision, captureRevision, frameTick, preview);
                 observedEnemyFrame = true;
             }
@@ -628,15 +641,15 @@ public partial class OcrScannerService : IDisposable
         }
     }
 
-    private async Task<ShopEconomy?> ReadEconomyAsync(byte[] screenshot, int width, int height, GameConnectionService? connection, int revision, long captureRevision, bool forceFundsRead, IReadOnlyList<ShopItem> cards, bool hudOnly = false)
+    private async Task<(ShopEconomy? Value, string? ObservedMode)> ReadEconomyAsync(byte[] screenshot, int width, int height, GameConnectionService? connection, int revision, long captureRevision, bool forceFundsRead, IReadOnlyList<ShopItem> cards, bool hudOnly = false)
     {
-        if (EconomyReader is null) return null;
+        if (EconomyReader is null) return default;
         bool calibrationDue;
         ShopEconomy? previous;
         lock (_runLock)
         {
             calibrationDue = DateTime.UtcNow >= _nextEconomyRead;
-            if (revision != _runRevision || !forceFundsRead && !calibrationDue) return null;
+            if (revision != _runRevision || !forceFundsRead && !calibrationDue) return default;
             previous = forceFundsRead && !calibrationDue && _purchases.CanReuseHudLayout(cards, width, height)
                 ? _purchaseEconomy : null;
         }
@@ -646,7 +659,8 @@ public partial class OcrScannerService : IDisposable
             : await EconomyReader.ReadAsync(screenshot, width, height);
         // A closed shop has no prices. Do not treat a false OCR round outside preparation as a new round.
         if (hudOnly && !read.IsPreparation) read = read with { Round = null, Mode = null };
-        return PublishEconomyReading(read, connection, revision, captureRevision, fullHud: previous is null);
+        var result = PublishEconomyReading(read, connection, revision, captureRevision, fullHud: previous is null);
+        return (result, previous == null ? result?.Mode : null);
     }
 
     private ShopEconomy? PublishEconomyReading(ShopEconomy read, GameConnectionService? connection,
@@ -675,7 +689,9 @@ public partial class OcrScannerService : IDisposable
             RecognitionDiagnostics.Samples.ClearRecent();
             _economy.Reset();
             _liveState?.Clear();
+            _otherViewState = null;
             _reviewBoard = null;
+            _reviewNames = null;
             _fieldGame = Guid.NewGuid();
             _fieldObservations = [];
             _roundEnemyState.Reset();

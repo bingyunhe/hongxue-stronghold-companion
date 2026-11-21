@@ -19,6 +19,29 @@ namespace ASPAssistant.Tests.Views;
 
 internal static class TrackingStageViewTests
 {
+    public static void VerifyTierBadges(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var data = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data"));
+        var defaults = data.LoadOperatorsAsync().GetAwaiter().GetResult();
+        var custom = data.LoadCustomOperatorsAsync().GetAwaiter().GetResult().First();
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.SetResourceReference(Panel.BackgroundProperty, "CardBackgroundBrush");
+        foreach (var op in defaults.GroupBy(o=>o.Tier).OrderBy(g=>g.Key).Select(g=>g.First()).Append(custom))
+            panel.Children.Add(new ContentPresenter { Content=op, ContentTemplate=(DataTemplate)panel.FindResource("TrackingTierBadge") });
+        var host = new Window { Content=panel, Width=220, Height=58, WindowStyle=WindowStyle.None,
+            Left=-20000, Top=-20000, ShowActivated=false, ShowInTaskbar=false };
+        host.SetResourceReference(Control.BackgroundProperty, "CardBackgroundBrush");
+        try
+        {
+            host.Show(); Pump();
+            Assert.Equal(new[]{"Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","Ⅴ/Ⅵ"},
+                Descendants<TextBlock>(panel).Select(text=>text.Text));
+            Capture(host, $"tier-badges-Closure-{night}");
+        }
+        finally { host.Close(); }
+    }
+
     public static void Verify(GameShopTheme theme, bool night)
     {
         ThemeManager.Apply(theme, night);

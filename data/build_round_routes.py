@@ -211,7 +211,9 @@ def generate(bundle, gamedata, revision):
                             for side in ([[], extra] if extra else [[]]):
                                 groups.append(group_record(group["key"] if group else "", fixed + sum(selected, []) + side))
                 levels[level_id] = {"maps": board_data, "groups": groups}
-        modes[definition["name"]] = {"maps": valid_maps, "inactive": definition["inactiveEnemyKey"] or [], "rounds": rounds}
+        boss_rounds = [int(number) for number, entries in battles.items() if any(b["bossId"] for b in entries)]
+        modes[definition["name"]] = {"maps": valid_maps, "inactive": definition["inactiveEnemyKey"] or [],
+                                     "rounds": rounds, "bossRounds": boss_rounds}
     motion = {e["Key"]: e["Value"][0]["enemyData"]["motion"]["m_value"] for e in enemy_db["enemies"]}
     bounties = json.loads(Path(__file__).with_name("bounties.json").read_bytes())["entries"]
     bounty_motion = {b["title"]: motion[Path(b["icon"]).stem] for b in bounties}

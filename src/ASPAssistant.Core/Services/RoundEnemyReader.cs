@@ -247,6 +247,11 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
         bool clippedBounty = layout.Scrolled && layout.HasBountyHeading && sections.FirstOrDefault().Name == "敌人" && bountyNames is not null;
         bool continuation = inherited is not null || clippedBounty;
         if (sections.Length == 0 && !continuation) return null;
+        // Bounties precede the enemy section. Only its heading at the top of a fresh panel
+        // identifies an ordinary roster; a scrolled bounty continuation can also say “敌人”.
+        bool singlePage = routes?.IsKnownNonBossRound(mode, round) == true && !layout.HasBountyHeading &&
+            !layout.Scrolled && previousPage?.Bounties.Length is not > 0 && sections.Length == 1 &&
+            sections[0].Name == "敌人" && sections[0].Box.Y < layout.Title.Bottom;
 
         double scale = Math.Min(frame.Width / 1920d, frame.Height / 1080d);
         var area = layout.Names;
@@ -286,8 +291,8 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
         }
         finally { names.UnlockBits(data); }
         bands.RemoveAll(b => b.Bottom - b.Top < 12 * scale);
-        if (bands.Count == 0) return new([], [], !layout.Scrolled && !layout.BottomUnknown,
-            !layout.MoreBelow && !layout.BottomUnknown, true, null, 0);
+        if (bands.Count == 0) return new([], [], singlePage || !layout.Scrolled && !layout.BottomUnknown,
+            singlePage || !layout.MoreBelow && !layout.BottomUnknown, true, null, 0);
 
         if (stillRequested?.Invoke() == false) return null;
         var words = await ocr.RecognizeRegionAsync(ImageBytes.Encode(names), 0, 0, names.Width, names.Height);
@@ -342,9 +347,9 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
             (kind == "悬赏" ? bounties : kind == "领袖" ? leaders : enemies).Add(name);
         }
         return new(enemies.Distinct(StringComparer.Ordinal).ToArray(), bounties.Distinct(StringComparer.Ordinal).ToArray(),
-            (!layout.Scrolled || clippedBounty && bounties.Count > 0 &&
+            singlePage || (!layout.Scrolled || clippedBounty && bounties.Count > 0 &&
                 layout.ThumbTop - title.Top < 64 * scale && layout.ThumbBottom - layout.ThumbTop > .8 * title.Height) && !layout.BottomUnknown,
-            !layout.MoreBelow && !layout.BottomUnknown,
+            singlePage || !layout.MoreBelow && !layout.BottomUnknown,
             unread || sections.Any(s => s.Name == "敌人") && enemies.Count == 0,
             sections.Length > 0 ? sections[^1].Name : inherited, retries)
         { BountyLanes = LocateBountyLanes(frame, bounties), Leaders = leaders.Distinct().ToArray(), UnreadTailAnchor = unread && !validAfterUnread && enemies.Count > 0

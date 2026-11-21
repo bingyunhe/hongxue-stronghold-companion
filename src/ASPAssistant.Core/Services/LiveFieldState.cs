@@ -8,18 +8,23 @@ public sealed record LiveUnit(FieldMark Mark, long Id, string? Name, string? Pur
     internal bool FromPair { get; init; }
     internal string? RepeatedSprite { get; init; }
     public bool FromPurchaseList { get; init; }
+    public long? MemberId { get; internal init; }
+    internal FieldMark? NameOnlySample { get; init; }
+    public FieldMemoryLocation? Suggestion { get; init; }
     public string IdentitySource => Name == null ? "身份待确认" : Manual ? "手动指定" : Final ? "游戏详情已核实"
-        : FromPair ? "购买名单与棋子外观匹配" : FromPurchaseList ? "购买名单唯一匹配" : Purchase != null ? "购买与棋子外观匹配" : "棋子外观匹配";
+        : MemberId.HasValue ? "本局外观与站位匹配" : FromPair ? "购买名单与棋子外观匹配" : FromPurchaseList ? "购买名单唯一匹配" : Purchase != null ? "购买与棋子外观匹配" : "棋子外观匹配";
 }
 public sealed record LiveRoster(string? Map, int? Round, IReadOnlyList<LiveUnit> Units)
 {
     public IReadOnlyList<string> Bought { get; init; } = [];
     public FieldObservation[] Observations { get; init; } = [];
+    public IReadOnlyList<FieldMemoryLocation> Unlocated { get; init; } = [];
 }
+public sealed record FieldMemoryLocation(long Id,string Name,FieldSlot LastSlot);
 internal sealed record FieldPurchase(string Name, double ShopX, bool Confirmed);
 
 /// <summary>Only this game's units own corrections. A slot is never a persistent identity.</summary>
-internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
+internal sealed partial class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
 {
     public LiveRoster Roster { get; private set; } = new(null, null, []);
     private LiveRoster _observed = new(null, null, []);
@@ -52,22 +57,35 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
     private long? _hiddenAt;
     private int? _boughtRound;
     private readonly List<string> _bought = [];
+    private readonly Dictionary<string,int> _confirmedCopies = [];
     private readonly Dictionary<long, (LiveUnit Unit, long At)> _missing = [];
     private readonly HashSet<long> _partialLoss = [];
-    private readonly Dictionary<long,(string Name, FieldMark Mark)> _verifiedLooks = [];
-    private bool _lookChanged;
 
     public void Clear()
     {
         Roster = _observed = new(null, null, []);
         _offerBaseline = null; _offerBaselineTick = null;
         _batches.Clear(); _inferred.Clear(); _purchasesChanged = false;
-        _bought.Clear(); _boughtRound = null; _selectedCard = null;
-        CloseShop(); _pending.Clear(); _missing.Clear(); _partialLoss.Clear(); _verifiedLooks.Clear();
+        _bought.Clear(); _confirmedCopies.Clear(); _boughtRound = null; _selectedCard = null;
+        CloseShop(); _pending.Clear(); _missing.Clear(); _partialLoss.Clear(); _members.Clear(); _memoryChoices.Clear();
     }
 
     public bool NeedsBalance(IReadOnlyList<ShopItem> cards) =>
         _wallet == null || cards.Count < _shop.Count;
+    internal HashSet<string> KnownReviewNames() => _members.Values.Select(m=>m.Name)
+        .Concat(_confirmedCopies.Where(p=>p.Value>0).Select(p=>p.Key)).ToHashSet();
+
+    internal string[] ReviewShapeCandidates(FieldMark mark)
+    {
+        // Purchase counts describe this observed batch only. Use unused copies
+        // to break close review ranks without excluding gifts or untracked buys.
+        return mark.ShapeCandidates.OrderByDescending(c=>
+        {
+            int bought=_boughtRound==Roster.Round?_bought.Count(n=>n==c.Name):0;
+            int located=Roster.Units.Count(u=>u.Name==c.Name);
+            return c.Score+(bought>located || Roster.Unlocated.Any(u=>u.Name==c.Name) ? .025 : 0);
+        }).Take(3).Select(c=>c.Name).ToArray();
+    }
     public void HideShop(long now) => _hiddenAt ??= now;
     private void CloseShop() { _shop.Clear(); _wallet = null; _awaitingDebit = null; _earlyDebitAt = 0; _hiddenAt = null; }
     public void Shop(BmpPixels frame, IReadOnlyList<ShopItem> cards, ShopEconomy? current, bool open, long now)
@@ -146,6 +164,11 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         _shop = cards.ToList(); _wallet = current;
     }
 
+    internal void RecordConfirmedPurchases(IReadOnlyList<string> names)
+    {
+        foreach (var name in names) _confirmedCopies[name]=_confirmedCopies.GetValueOrDefault(name)+1;
+    }
+
     public bool PublishPurchases(int round)
     {
         if (_boughtRound != round || Roster.Round != round || Roster.Bought.SequenceEqual(_bought)) return false;
@@ -165,7 +188,7 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
     {
         bool baseline = _observed.Map == map;
         bool changed = !baseline || _observed.Round != round;
-        if (!baseline) { _batches.Clear(); _inferred.Clear(); _verifiedLooks.Clear(); }
+        if (!baseline) { _batches.Clear(); _inferred.Clear(); _memoryChoices.Clear(); }
         if (!baseline || Roster.Round != round || now - _purchaseAt > 4000) _pending.Clear();
         var occupied = baseline ? Roster.Units.Select(u => u.Mark.Slot).ToHashSet() : [];
         var old = baseline ? _observed.Units.ToDictionary(u => u.Mark.Slot) : [];
@@ -179,31 +202,22 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         long previousMaxId = _nextId;
         var next = new List<LiveUnit>();
         var added = new List<FieldMark>();
-        if (_verifiedLooks.Count > 0)
+        MatchMemory(marks);
+        if (_memoryChoices.Count>0)
+            marks=marks.Select(m=>_memoryChoices.TryGetValue(m.Slot,out var choice) && choice.Strong ?
+                m with { StandaloneName=choice.Member.Name } : m).ToList();
+        // A confirmed purchase can corroborate a visually located low-profile unit.
+        // If copies compete for the same evidence, leave them for review.
+        foreach (var group in marks.Where(m=>m.LowPose!=null && m.StandaloneName==null).GroupBy(m=>m.LowPose!.Name))
         {
-            bool sameView=!_lookChanged && marks.Count==old.Count && marks.All(m=>
-                old.TryGetValue(m.Slot,out var prior) && ReferenceEquals(prior.Mark.Portrait,m.Portrait));
-            _lookChanged=false;
-            marks = marks.ToList();
-            for (int i=0;i<marks.Count;i++)
+            if (group.Count()!=1 || _confirmedCopies.GetValueOrDefault(group.Key)<=
+                marks.Count(m=>m.StandaloneName==group.Key || old.TryGetValue(m.Slot,out var u) && u.Final && u.Name==group.Key))
+                continue;
+            var m=group.First();
+            if (m.LowPose!.Score>=.77 && (!old.TryGetValue(m.Slot,out var previous) || !previous.Final || previous.Name==group.Key))
             {
-                var mark=marks[i];
-                if (mark.Portrait.Length==0) continue;
-                if (sameView)
-                {
-                    marks[i]=mark with { StandaloneName=old[mark.Slot].Mark.StandaloneName };
-                    continue;
-                }
-                var nearest=_verifiedLooks.Values.Where(v=>v.Mark.Tier==mark.Tier && v.Mark.Slot.Bench==mark.Slot.Bench)
-                    .Select(v=>(v.Name, v.Mark, Error:Difference(mark.Portrait,v.Mark.Portrait)))
-                    .GroupBy(v=>v.Name).Select(g=>g.MinBy(v=>v.Error)).OrderBy(v=>v.Error).Take(2).ToArray();
-                if (nearest.Length==0 || nearest[0].Error>16 || nearest.Length==2 && nearest[1].Error-nearest[0].Error<6) continue;
-                var best=nearest[0];
-                if (mark.StandaloneName==best.Name || mark.StandaloneName!=null && best.Error>9) continue;
-                // A single reference cannot disambiguate two lookalikes on adjacent cells.
-                if (marks.Any(other=>other.Slot!=mark.Slot && other.Slot.Bench==mark.Slot.Bench && other.Tier==mark.Tier &&
-                    other.Portrait.Length!=0 && Difference(other.Portrait,best.Mark.Portrait)<best.Error+5)) continue;
-                marks[i]=mark with { StandaloneName=best.Name };
+                marks=marks.ToList();
+                marks[marks.IndexOf(m)]=m with { StandaloneName=group.Key };
             }
         }
         string? Identity(LiveUnit u) => u.Final ? u.Name : _inferred.GetValueOrDefault(u.Id) ?? u.Name;
@@ -214,6 +228,7 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
             if (sources.Length != 1 || sources[0].Mark.Slot == mark.Slot ||
                 marks.Count(m => m.StandaloneName == mark.StandaloneName) != 1) continue;
             var source = sources[0];
+            if (source.NameOnlySample!=null) continue;
             // A newly deployed copy can be the only one whose name is readable.
             // Keep the original identity if its still-occupied tile looks unchanged.
             if (marks.Any(m => m.Slot == source.Mark.Slot && m.Tier == source.Mark.Tier &&
@@ -222,17 +237,15 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         }
         foreach (var mark in marks)
         {
-            if (old.TryGetValue(mark.Slot, out var previous) && previous.Mark.Tier == mark.Tier &&
-                !moving.ContainsValue(previous.Id) && (mark.StandaloneName == null || !moving.ContainsKey(mark.StandaloneName)) &&
-                (Difference(previous.Mark.Appearance, mark.Appearance) < 46 || mark.SpriteName != null &&
-                 (previous.Name == mark.SpriteName || previous.Mark.SpriteName == mark.SpriteName || _inferred.GetValueOrDefault(previous.Id) == mark.SpriteName) ||
-                 (previous.Purchase != null || previous.Manual || _inferred.GetValueOrDefault(previous.Id) != null) && mark.SpriteName == null &&
-                 now-_lastObservation <= 1200))
+            if (old.TryGetValue(mark.Slot, out var previous) && !moving.ContainsValue(previous.Id) &&
+                (mark.StandaloneName == null || !moving.ContainsKey(mark.StandaloneName)) &&
+                SameOccupant(previous,mark,marks,now))
             {
                 old.Remove(mark.Slot);
                 var observed = Reconcile(previous, mark);
                 changed |= previous.Name != observed.Name || (_batches.Count > 0 &&
-                    (previous.RepeatedSprite != observed.RepeatedSprite || !ReferenceEquals(previous.Mark.Scores, mark.Scores)));
+                    (previous.RepeatedSprite != observed.RepeatedSprite || !ReferenceEquals(previous.Mark.Scores, mark.Scores) ||
+                     !ReferenceEquals(previous.Mark.ShapeCandidates,mark.ShapeCandidates)));
                 next.Add(observed);
             }
             else added.Add(mark);
@@ -247,7 +260,7 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         var edges = new Dictionary<FieldSlot, long[]>();
         foreach (var mark in added)
         {
-            var candidates = _missing.Values.Where(v => v.Unit.Mark.Tier == mark.Tier &&
+            var candidates = _missing.Values.Where(v => v.Unit.NameOnlySample==null && v.Unit.Mark.Tier == mark.Tier && CanCarry(v.Unit,mark) &&
                 (v.Unit.Mark.Slot != mark.Slot || _partialLoss.Contains(v.Unit.Id) ||
                  !mark.Slot.Bench && now - v.At <= 1200 && mark.StandaloneName is string name &&
                  Identity(v.Unit) == name && Difference(v.Unit.Mark.Appearance, mark.Appearance) < 5 &&
@@ -288,6 +301,7 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
         if (old.Count >= 2 && !_purchasesChanged && now - _lastObservation <= 4000 && _batches.Count > 0)
             _batches[^1].FollowMoves(old.Values, next, previousMaxId);
         _lastObservation = now;
+        BindMemory(next,map);
         _observed = new(map, round, next) { Bought = _boughtRound == round ? _bought.ToArray() : [] };
         if (_offerBaselineTick == now)
         {
@@ -295,6 +309,25 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
             _offerBaselineTick = null;
         }
         Publish(changed || old.Count != 0 || added.Count != 0, samplePose);
+    }
+
+    private bool SameOccupant(LiveUnit previous,FieldMark mark,List<FieldMark> marks,long now)
+    {
+        if (previous.NameOnlySample is {} confirmed)
+            return (mark.StandaloneName==null || mark.StandaloneName==previous.Name) &&
+                (confirmed.Tier==mark.Tier || mark.Tier==0 || confirmed.Tier==0) &&
+                confirmed.Camera==mark.Camera && confirmed.MemoryPatch.Length>0 && mark.MemoryPatch.Length>0 &&
+                FieldMemoryAppearance.Distance(confirmed.MemoryPatch,mark.MemoryPatch)<24 &&
+                FieldMemoryAppearance.Distance(previous.Mark.MemoryPatch,mark.MemoryPatch)<24;
+        if (mark.Tier==0 && previous.MemberId is long id && previous.Mark.MemoryPatch.Length>0 &&
+            _members[id].Samples.Any(s=>s.Tier!=0 && s.Slot==mark.Slot))
+            return KeepsConfirmedPosition(_members[id],previous.Mark,mark,marks);
+        if (previous.Mark.Tier!=mark.Tier || !CanCarry(previous,mark)) return false;
+        return Difference(previous.Mark.Appearance,mark.Appearance)<46 ||
+            mark.SpriteName!=null && (previous.Name==mark.SpriteName || previous.Mark.SpriteName==mark.SpriteName ||
+                _inferred.GetValueOrDefault(previous.Id)==mark.SpriteName) ||
+            (previous.Purchase!=null || previous.Manual || _inferred.GetValueOrDefault(previous.Id)!=null) &&
+                mark.SpriteName==null && now-_lastObservation<=1200;
     }
 
     // Only retain identities along edges required in every maximum matching.
@@ -346,10 +379,12 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
                 }
             }
         }
-        Roster = _inferred.Count == 0 ? _observed : _observed with
+        var located=_observed.Units.Where(u=>u.MemberId.HasValue).Select(u=>u.MemberId!.Value).ToHashSet();
+        Roster = _observed with
         {
-            Units = _observed.Units.Select(u => !u.NeedsReview && _inferred.TryGetValue(u.Id, out var name)
-                ? u with { Name = name, FromPurchaseList = name != null, FromPair = name != null && _batches.Any(b=>b.PairIdentified(u.Id)) } : u).ToArray()
+            Unlocated = _members.Values.Where(m=>!located.Contains(m.Id)).Select(m=>m.Location).ToArray(),
+            Units = _inferred.Count==0 ? _observed.Units : _observed.Units.Select(u => !u.Final && !u.MemberId.HasValue && !u.NeedsReview && _inferred.TryGetValue(u.Id, out var name)
+                ? u with { Name = name, Suggestion=name!=null?null:u.Suggestion, FromPurchaseList = name != null, FromPair = name != null && _batches.Any(b=>b.PairIdentified(u.Id)) } : u).ToArray()
         };
     }
 
@@ -365,22 +400,34 @@ internal sealed class LiveFieldState(IReadOnlyDictionary<string, int> tiers)
 
     public void ReviewFailed(long id, FieldSlot slot)
     {
-        _observed = _observed with { Units = _observed.Units.Select(u => u.Id == id && u.Mark.Slot == slot && !u.Final
+        _observed = _observed with { Units = _observed.Units.Select(u => u.Id == id && u.Mark.Slot == slot && !u.Final && u.MemberId == null
             ? u with { Name = null, Purchase = null, NeedsReview = true } : u).ToArray() };
         Publish(true);
+    }
+
+    internal bool ConfirmReviewName(long id,FieldSlot slot,string name)
+    {
+        var current=Roster.Units.FirstOrDefault(u=>u.Id==id && u.Mark.Slot==slot);
+        if (current is not { Name:null } || !tiers.ContainsKey(name)) return false;
+        if (!_members.Values.Any(m=>m.Name==name) && _confirmedCopies.GetValueOrDefault(name)<=1 &&
+            !Roster.Units.Any(u=>u.Id!=id && u.Name==name))
+            return Confirm(id,slot,name,true);
+        _observed=_observed with {Units=_observed.Units.Select(u=>u.Id==id
+            ? u with { Name=name, Final=true, Manual=true, MemberId=null, Suggestion=null, NeedsReview=false, NameOnlySample=u.Mark }
+            : u).ToArray()};
+        Publish(true);
+        return true;
     }
 
     public bool Confirm(long id, FieldSlot slot, string name, bool manual, FieldMark? beforeClick = null)
     {
         var u = _observed.Units.FirstOrDefault(x => x.Id == id && x.Mark.Slot == slot);
         if (u == null || u.Manual && !manual || !tiers.ContainsKey(name)) return false;
-        _lookChanged=true;
         var sample=beforeClick ?? u.Mark;
-        if (sample.Slot==slot && sample.Tier==u.Mark.Tier && sample.Portrait.Length>0)
-            _verifiedLooks[id]=(name,sample);
-        else _verifiedLooks.Remove(id);
+        long member=Remember(u,name,sample);
         _observed = _observed with { Units = _observed.Units.Select(x => x.Id == id
-            ? x with { Name = name, Final = true, Manual = manual, NeedsReview = false } : x).ToArray() };
+            ? x with { Name = name, MemberId=member, NameOnlySample=null, Suggestion=null, Final = true, Manual = manual, NeedsReview = false }
+            : x.Suggestion?.Id==member ? x with { Suggestion=null } : x).ToArray() };
         Publish(true);
         return true;
     }

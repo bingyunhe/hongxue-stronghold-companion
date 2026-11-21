@@ -17,6 +17,8 @@ internal sealed class AssistantTray : IDisposable
     private readonly List<(Window Window, IntPtr Handle)> _hiddenWindows = [];
     private NotifyIconData _icon;
     private bool _added;
+    private bool _focusHideRequested;
+    private bool _hiddenByFocus;
     public event Action? VisibilityChanged;
 
     public AssistantTray(SidePanelWindow panel, Window overlay)
@@ -37,11 +39,25 @@ internal sealed class AssistantTray : IDisposable
         if (ExtractIconEx(Path.Combine(AppContext.BaseDirectory, "HongxueCompanion.exe"), 0, null, icons, 1) == 1)
             _icon.Icon = icons[0];
         panel.ToggleAssistantVisibilityRequested += Toggle;
+        panel.FocusHideRequested += OnFocusHideRequested;
     }
 
     public void Toggle()
     {
         if (_panel.IsAssistantHidden) { Restore(); return; }
+        Hide(false);
+    }
+
+    private void OnFocusHideRequested(bool hide)
+    {
+        if (_focusHideRequested == hide) return;
+        _focusHideRequested = hide;
+        if (hide && !_panel.IsAssistantHidden) Hide(true);
+        else if (!hide && _hiddenByFocus) Restore();
+    }
+
+    private void Hide(bool forFocus)
+    {
         if (!AddIcon())
         {
             _panel.ShowToast("无法创建托盘图标，助手保持显示，请稍后重试");
@@ -55,6 +71,7 @@ internal sealed class AssistantTray : IDisposable
             if (window == _overlay || (!window.IsVisible && window != _panel)) continue;
             _hiddenWindows.Add((window, new WindowInteropHelper(window).Handle));
         }
+        _hiddenByFocus = forFocus;
         _panel.IsAssistantHidden = true;
         foreach (var window in _hiddenWindows) ShowWindow(window.Handle, 0);
         VisibilityChanged?.Invoke();
@@ -63,6 +80,7 @@ internal sealed class AssistantTray : IDisposable
     public void Restore()
     {
         if (!_panel.IsAssistantHidden) return;
+        _hiddenByFocus = false;
         _panel.IsAssistantHidden = false;
         foreach (var window in _hiddenWindows)
         {
@@ -119,6 +137,7 @@ internal sealed class AssistantTray : IDisposable
     public void Dispose()
     {
         _panel.ToggleAssistantVisibilityRequested -= Toggle;
+        _panel.FocusHideRequested -= OnFocusHideRequested;
         if (!_source.IsDisposed) _source.RemoveHook(WndProc);
         RemoveIcon();
         if (_icon.Icon != IntPtr.Zero) DestroyIcon(_icon.Icon);

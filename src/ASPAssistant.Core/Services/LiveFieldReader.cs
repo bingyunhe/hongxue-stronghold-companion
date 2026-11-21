@@ -17,7 +17,13 @@ public sealed record FieldMark(FieldSlot Slot, int Tier, Point Foot, byte[] Appe
     internal double Tile { get; init; }
     internal string? StandaloneName { get; init; }
     internal byte[] Portrait { get; init; } = [];
+    internal int[] MemoryPatch { get; init; } = [];
+    internal (double X,double Y)? ShapeCenter { get; init; }
+    internal BoardCamera Camera { get; init; }
     internal Dictionary<string,double>? PurchasePoseScores { get; set; }
+    internal FieldShapeLibrary.Candidate[] ShapeCandidates { get; init; } = [];
+    internal FieldShapeLibrary.Candidate? LowPose { get; init; }
+    internal byte[]? BenchShapeDigest { get; init; }
 }
 internal sealed record FieldBadge(double X, double Y, int Tier, double Score, double Size);
 public sealed partial class LiveFieldReader
@@ -25,16 +31,34 @@ public sealed partial class LiveFieldReader
     private readonly List<(int Tier, int Size, double[] Values, double[] Fine, double[] Lower, double[] LowerFine)> _templates = [];
     private readonly GarrisonBoardData _maps;
     private readonly Lazy<FieldSpriteLibrary> _sprites;
+    private readonly Lazy<FieldShapeLibrary> _shapes;
     private readonly Lazy<Dictionary<string,byte[][]>> _purchasePoses;
     private sealed record BoardAppearance(string Name, int Tier, int[][] Samples);
     private readonly BoardAppearance[] _boardAppearances;
+    private sealed record CityFieldReference(Dictionary<string, int[]> Empty, BoardAppearance[] Looks, BoardAppearance[] TopRowLooks)
+    {
+        public Dictionary<string, byte[]> ReviewHeads { get; init; } = [];
+    }
+    private readonly CityFieldReference _cityField;
+    private readonly (string Name, double[] Head)[] _reviewHeads;
     public LiveFieldReader(string directory, GarrisonBoardData maps)
     {
         _maps = maps;
         using var boardFile = File.OpenRead(Path.Combine(directory, "template", "field-board-appearances.json"));
         _boardAppearances = System.Text.Json.JsonSerializer.Deserialize<BoardAppearance[]>(boardFile)!;
+        using var cityFile = File.OpenRead(Path.Combine(directory, "template", "city-expanded-field.json"));
+        _cityField = System.Text.Json.JsonSerializer.Deserialize<CityFieldReference>(cityFile)!;
+        _reviewHeads = _cityField.ReviewHeads.Select(entry =>
+        {
+            if (entry.Value.Length != 7 * 7 * 3)
+                throw new InvalidDataException($"Invalid review head sample for {entry.Key}");
+            var head = Array.ConvertAll(entry.Value, value => (double)value);
+            NormalizeHead(head);
+            return (entry.Key, head);
+        }).ToArray();
         _purchasePoses = new(() => LoadPurchasePoses(Path.Combine(directory, "template", "field-purchase-poses.json")));
         _sprites = new(() => new FieldSpriteLibrary(Path.Combine(directory, "template", "field-sprites.bin")));
+        _shapes = new(() => new FieldShapeLibrary(Path.Combine(directory, "template", "field-shapes.bin")));
         for (int tier = 1; tier <= 6; tier++)
         {
             using var image = new Bitmap(Path.Combine(directory, "template", $"field-tier-{tier}.png"));
@@ -99,6 +123,9 @@ public sealed partial class LiveFieldReader
         CancellationToken cancellation, Dictionary<FieldSlot, SlotReading>? readings)
     {
         var marks = new List<FieldMark>();
+        var unanchored = new HashSet<FieldSlot>();
+        var phantoms = new HashSet<FieldSlot>();
+        var anchors = new List<(double X,double Y)>();
         double scale = frame.Width / 1920d;
         bool expanded = board.Camera == BoardCamera.Expanded;
         var projection = _maps.Cameras[board.Camera];
@@ -111,67 +138,93 @@ public sealed partial class LiveFieldReader
             Inspect(new(cell.Col, cell.Row), center.X * frame.Width - tile * (expanded ? .4 : .35),
                 center.Y * frame.Height - (expanded ? 110 : 116 - 2 * cell.Row) * scale, tile);
         }
+        // A model in the next row can extend over this cell. Compare against the
+        // independently detected neighbours before accepting a foreground-only mark.
+        foreach (var slot in unanchored)
+        {
+            var center = projection.Project(slot.Col + .5,slot.Row + .5);
+            double x = center.X * frame.Width, y = center.Y * frame.Height;
+            if (!marks.Any(m => m.Slot.Row == slot.Row + 1 && !unanchored.Contains(m.Slot) &&
+                Math.Abs(m.Foot.X-x) < m.Tile*.5 && y <= m.Foot.Y && y >= m.Foot.Y-m.Tile)) continue;
+            marks.RemoveAll(m => m.Slot == slot);
+            if (readings != null) readings[slot] = readings[slot] with { Decision = SlotReading.Uncertain };
+        }
         for (int col = 0; col < 10; col++)
             Inspect(new(col, -1), (expanded ? 254 + col * 121.2 : 170 + col * 149.5) * scale,
                 (expanded ? 609 : 798) * frame.Height / 1080d, (expanded ? 121.2 : 149.5) * scale);
+        InspectShapes(frame,board,marks,anchors,phantoms,identify,force,cancellation,readings);
         cancellation.ThrowIfCancellationRequested();
+        for (int i=0;i<marks.Count;i++)
+            if (marks[i].MemoryPatch.Length==0 && marks[i].Portrait.Length!=0)
+                marks[i]=marks[i] with { MemoryPatch=FieldMemoryAppearance.Sample(frame,marks[i]),Camera=board.Camera };
         if (identify) { _previous = marks.ToDictionary(m => m.Slot); _map = board.Map.Id; }
         return marks;
 
         void Inspect(FieldSlot slot, double x, double y, double tile)
         {
             cancellation.ThrowIfCancellationRequested();
-            var badge = ReadBadge(frame, frame.Width, frame.Height, x, y, !slot.Bench, expanded, out var bounds);
-            void Trace(string reason) { if (readings != null) readings[slot] = new(bounds, reason); }
             // The covenant HUD can cover the entire badge in row A. Look for a known
             // head and torso relative to the tile, independently of that overlay.
             BoardAppearance? boardLook = null;
             double boardError = 0;
+            var center = projection.Project(slot.Col + .5, slot.Row + .5);
+            double cx = center.X * frame.Width, cy = center.Y * frame.Height;
+            bool city = expanded && !slot.Bench && board.Map.Id == "city";
+            bool anchored = false;
+            bool foreground = city && ChangedFromEmpty(frame, cx, cy, tile,
+                board.Map.At(new(slot.Col, slot.Row)) == BoardCellType.High, slot.Row == 0, _cityField.Empty[slot.ToString()], out anchored);
+            var badge = ReadBadge(frame, frame.Width, frame.Height, x, y, !slot.Bench, expanded, out var bounds);
+            int badgeTier = badge is { Score: >= .76 } ? badge.Tier : 0;
+            void Trace(string reason) { if (readings != null) readings[slot] = new(bounds, reason) { BadgeTier = badgeTier }; }
             if (!slot.Bench && (badge != null || expanded && slot.Row == 0))
             {
-                var center = projection.Project(slot.Col + .5, slot.Row + .5);
-                boardLook = MatchBoardAppearance(frame, center.X * frame.Width, center.Y * frame.Height,
-                    tile, expanded && slot.Row == 0 ? null : badge?.Tier, out boardError);
+                boardLook = MatchBoardAppearance(_boardAppearances, frame, cx, cy, tile,
+                    expanded && slot.Row == 0 ? null : badge?.Tier, out boardError);
                 if (boardLook != null && badge?.Tier != boardLook.Tier)
                     badge = null;
             }
-            if (badge is null && boardLook is null) { Trace("角标与已知棋盘外观均未匹配"); return; }
+            if (badge is null && boardLook is null)
+            {
+                if (!foreground) { Trace("角标与已知棋盘外观均未匹配"); return; }
+                boardLook = MatchBoardAppearance(_boardAppearances, frame, cx, cy, tile, null, out boardError);
+            }
             if (badge != null && (badge.X + 90 * scale >= frame.Width || badge.Y + 151 * scale >= frame.Height ||
                 slot.Bench && HasSummonCount(frame, badge, scale))) { Trace("超出取样边界或整备区召唤物"); return; }
             var foot = new Point((int)((badge?.X ?? x) + 35 * scale), (int)((badge?.Y ?? y) + (slot.Bench ? 132 : 112) * scale));
-            var tier = boardLook?.Tier ?? badge!.Tier;
-            bool obscured = boardLook == null && (!HasUnitEvidence(frame, badge!, frame.Width, frame.Height, !slot.Bench)
+            if (!slot.Bench && badge is { Score: >= .76 })
+            {
+                double dx=(foot.X-cx)/tile+.085,dy=(foot.Y-cy)/tile+.11;
+                if (Math.Abs(dx)<.12 && Math.Abs(dy)<.12) anchors.Add((dx,dy));
+            }
+            var tier = boardLook?.Tier ?? badge?.Tier ?? 0; // Occupied without a readable tier badge.
+            bool obscured = boardLook == null && badge != null && (!HasUnitEvidence(frame, badge, frame.Width, frame.Height, !slot.Bench)
                 || tier == 4 && badge!.Score < .73);
-            if (obscured && tier != 1 && (slot.Bench || tier != 4)) { Trace("身体特征不足"); return; }
-            if (!slot.Bench && tier == 4 && IsPhantom(frame, foot, tile)) { Trace("幻影过滤"); return; }
-            Trace("检测到占用");
-            var appearance = new byte[5 * 6 * 3];
-            for (int r = 0; r < 6; r++)
-                for (int c = 0; c < 5; c++)
-                {
-                    var color = frame.Color(Math.Clamp(foot.X + (int)((c - 2) * .075 * tile), 0, frame.Width - 1),
-                        Math.Clamp(foot.Y - (int)((.28 + .075 * r) * tile), 0, frame.Height - 1));
-                    int i = (r * 5 + c) * 3;
-                    appearance[i] = (byte)(color >> 16); appearance[i+1] = (byte)(color >> 8); appearance[i+2] = (byte)color;
-                }
+            if (obscured && !anchored && tier != 1 && (slot.Bench || tier != 4))
+            {
+                if (!TryBenchShape()) Trace(city ? SlotReading.Uncertain : "身体特征不足");
+                return;
+            }
+            if (!slot.Bench && tier == 4 && IsPhantom(frame, foot, tile)) { phantoms.Add(slot); Trace("幻影过滤"); return; }
+            if (city && boardLook == null && (foreground || tier is 1 or 3))
+            {
+                boardLook = MatchBoardAppearance(_cityField.Looks, frame, cx, cy, tile, badge?.Tier, out boardError);
+                if (boardLook == null && slot.Row == 0)
+                    boardLook = MatchBoardAppearance(_cityField.TopRowLooks, frame, cx, cy, tile, badge?.Tier, out boardError);
+                if (boardLook != null) tier = boardLook.Tier;
+            }
+            if (foreground && !anchored && boardLook == null && badge == null) unanchored.Add(slot);
+            Trace(foreground ? "与空城区的脚下、身体区域均不同" : "检测到占用");
+            var appearance = BodySample(frame,foot,tile,false);
             if (identify && !force && _map == board.Map.Id && _previous.TryGetValue(slot, out var prior) &&
-                prior.Tier == tier && (boardLook == null || prior.StandaloneName == boardLook.Name) && LiveFieldState.Difference(prior.Appearance, appearance) < 5 &&
+                prior.Camera == board.Camera && prior.Tier == tier && (boardLook == null || prior.StandaloneName == boardLook.Name) && LiveFieldState.Difference(prior.Appearance, appearance) < 5 &&
                 (!obscured || prior.SpriteName is string known && prior.Scores![known] <= 23))
             {
                 marks.Add(prior with { Foot=foot, Appearance=appearance, Tile=tile });
                 return;
             }
             // Sample the center of the head and torso, away from neighboring weapons and floor edges.
-            var portrait = new byte[7*8*3];
-            for (int row=0; row<8; row++)
-                for (int col=0; col<7; col++)
-                {
-                    int px=Math.Clamp(foot.X+(int)Math.Round((col-3)*.05*tile),0,frame.Width-1);
-                    int py=Math.Clamp(foot.Y-(int)Math.Round((.31+row*.078)*tile),0,frame.Height-1);
-                    int rgb=frame.Color(px,py), i=(row*7+col)*3;
-                    portrait[i]=(byte)(rgb>>16); portrait[i+1]=(byte)(rgb>>8); portrait[i+2]=(byte)rgb;
-                }
-            if (!identify && !obscured)
+            var portrait=BodySample(frame,foot,tile,true);
+            if (!identify && (!obscured || anchored))
             {
                 marks.Add(new(slot,tier,foot,appearance,boardLook?.Name) { Tile=tile, Portrait=portrait });
                 return;
@@ -182,8 +235,22 @@ public sealed partial class LiveFieldReader
                     StandaloneName=boardLook.Name, Scores=new Dictionary<string,double> { [boardLook.Name]=boardError } });
                 return;
             }
+            if (tier == 0)
+            {
+                marks.Add(new(slot, tier, foot, appearance, null) { Tile = tile, Portrait = portrait });
+                return;
+            }
             var name = _sprites.Value.Match(frame,foot,tile,tier,slot.Bench,out var scores,out var patch);
-            if (obscured && (name == null || scores[name] > 23)) { Trace("遮挡且身份匹配不足"); return; }
+            if (obscured && (name == null || scores[name] > 23))
+            {
+                if (anchored)
+                {
+                    Trace("本格脚下及身体有独立前景，身份待复核");
+                    marks.Add(new(slot,tier,foot,appearance,null) { Tile=tile, Portrait=portrait });
+                }
+                else if (!TryBenchShape()) Trace(city ? SlotReading.Uncertain : "遮挡且身份匹配不足");
+                return;
+            }
             if (!identify)
             {
                 marks.Add(new(slot,tier,foot,appearance,null) { Tile=tile, Portrait=portrait });
@@ -218,14 +285,138 @@ public sealed partial class LiveFieldReader
                 if (agrees || distinctive || sparseAndDense) independent=best.Key;
             }
             marks.Add(mark with { StandaloneName=independent });
+
+            bool TryBenchShape()
+            {
+                if (!slot.Bench || badge is not { Score: >= .76 }) return false;
+                // Includes the full matcher crop and its blur border in either camera.
+                var digest=identify?frame.RegionDigest((int)(foot.X-tile*1.1),(int)(foot.Y-tile*2.05),
+                    (int)Math.Ceiling(foot.X+tile*1.15),(int)Math.Ceiling(foot.Y+tile*.5)):null;
+                if (identify && !force && _map==board.Map.Id && _previous.TryGetValue(slot,out var previous) &&
+                    previous.Camera==board.Camera && previous.Foot==foot && previous.Tile==tile && previous.Tier==tier &&
+                    digest.AsSpan().SequenceEqual(previous.BenchShapeDigest))
+                {
+                    marks.Add(previous);
+                    Trace("整备席角标与人物轮廓相符");
+                    return true;
+                }
+                var fits=_shapes.Value.Match(frame,foot.X+.05*tile,foot.Y+.039*tile,tile,tier,cancellation);
+                if (fits.Length<2 || fits[0].Score<.65 || fits[0].Score-fits[1].Score<.11) return false;
+                marks.Add(new(slot,tier,foot,BodySample(frame,foot,tile,false),null)
+                {
+                    Tile=tile,Portrait=BodySample(frame,foot,tile,true),
+                    StandaloneName=identify?Accepted(fits)?.Name:null,ShapeCandidates=identify?fits:[],BenchShapeDigest=digest
+                });
+                Trace("整备席角标与人物轮廓相符");
+                return true;
+            }
         }
     }
-    private BoardAppearance? MatchBoardAppearance(BmpPixels pixels, double cx, double cy, double tile, int? tier, out double best)
+    private static bool ChangedFromEmpty(BmpPixels frame, double cx, double cy, double tile, bool high, bool topRow, int[] empty, out bool anchored)
+    {
+        ReadOnlySpan<int> columns = [-22, -13, -4, 5, 14, 23];
+        ReadOnlySpan<int> rows = [-6, -13, -20, -30, -39, -48, -57, -66];
+        int radius = Math.Max(1, (int)Math.Round(tile * .018));
+        int index = 0, feet = 0, body = 0;
+        int footBands = 0, torsoBands = 0, upperBody = 0;
+        foreach (int row in rows)
+        {
+            int y = (int)Math.Round(cy + (row - (high ? 18 : 0)) * tile / 100);
+            int previous = 0, horizontalContrast = 0, changed = 0;
+            foreach (int col in columns)
+            {
+                int x = (int)Math.Round(cx + col * tile / 100);
+                int a = frame.Color(x-radius,y), b = frame.Color(x+radius,y);
+                int c = frame.Color(x,y-radius), d = frame.Color(x,y+radius);
+                int background = empty[index++], difference = 0, average = 0;
+                for (int shift = 0; shift <= 16; shift += 8)
+                {
+                    int value = (((a >> shift) & 255) + ((b >> shift) & 255) + ((c >> shift) & 255) + ((d >> shift) & 255)) / 4;
+                    average |= value << shift;
+                    if (col != columns[0]) horizontalContrast += Math.Abs(value - ((previous >> shift) & 255));
+                    difference += Math.Abs(value - ((background >> shift) & 255));
+                }
+                previous = average;
+                if (difference > 3 * 30) changed++;
+                if (row >= -20) { if (difference > 3 * 60) feet++; }
+                else if (difference > 3 * 38) body++;
+            }
+            // A neighbour can cover the feet or torso alone. Require foreground with
+            // lateral detail in multiple bands both at and above this cell's anchor.
+            if (changed >= 3 && horizontalContrast >= 5 * 3 * 20)
+            {
+                if (row >= -20) footBands++;
+                else torsoBands++;
+            }
+            if (row == -39) upperBody = body;
+            if (row == -20 && feet < 12 && footBands < 2) { anchored = false; return false; }
+        }
+        anchored = footBands >= 2 && torsoBands >= 2;
+        return anchored || feet >= 12 && (body >= 14 || topRow && feet >= 15 && upperBody >= 8);
+    }
+
+    internal string[] RankReviewCandidates(BmpPixels pixels, BoardMatch board, FieldSlot slot)
+    {
+        if (slot.Bench || board.Map.Id != "city" || board.Camera != BoardCamera.Expanded || _reviewHeads.Length == 0) return [];
+        var projection = _maps.Cameras[board.Camera];
+        var center = projection.Project(slot.Col + .5, slot.Row + .5);
+        double tile = (projection.Project(slot.Col + 1.5, slot.Row + .5).X - center.X) * pixels.Width;
+        int step = Math.Max(1, (int)Math.Round(tile * .035));
+        var best = new double[_reviewHeads.Length];
+        Span<double> patch = stackalloc double[7 * 7 * 3];
+        for (int dy = -step; dy <= step; dy += step)
+        for (int dx = -2 * step; dx <= 2 * step; dx += step)
+        {
+            int i = 0;
+            for (int row = -79; row < -44; row += 5)
+            for (int col = -16; col < 12; col += 4)
+            {
+                int x = (int)Math.Round(center.X * pixels.Width + col * tile / 100) + dx;
+                int y = (int)Math.Round(center.Y * pixels.Height + row * tile / 100) + dy;
+                int left = pixels.Color(x-1,y), right = pixels.Color(x+1,y);
+                int top = pixels.Color(x,y-1), bottom = pixels.Color(x,y+1);
+                for (int shift = 16; shift >= 0; shift -= 8)
+                    patch[i++] = (((left >> shift) & 255) + ((right >> shift) & 255) +
+                                  ((top >> shift) & 255) + ((bottom >> shift) & 255)) / 4;
+            }
+            NormalizeHead(patch);
+            for (int n = 0; n < _reviewHeads.Length; n++)
+            {
+                double correlation = 0;
+                var head = _reviewHeads[n].Head;
+                for (int j = 0; j < patch.Length; j++) correlation += patch[j] * head[j];
+                best[n] = Math.Max(best[n], correlation);
+            }
+        }
+        return Enumerable.Range(0, best.Length).Where(n => best[n] > 0)
+            .OrderByDescending(n => best[n]).Take(3).Select(n => _reviewHeads[n].Name).ToArray();
+    }
+
+    private static void NormalizeHead(Span<double> rgb)
+    {
+        double energy = 0;
+        for (int channel = 0; channel < 3; channel++)
+        {
+            double mean = 0;
+            for (int i = channel; i < rgb.Length; i += 3) mean += rgb[i];
+            mean /= rgb.Length / 3;
+            for (int i = channel; i < rgb.Length; i += 3)
+            {
+                rgb[i] -= mean;
+                energy += rgb[i] * rgb[i];
+            }
+        }
+        if (energy == 0) return;
+        double length = Math.Sqrt(energy);
+        for (int i = 0; i < rgb.Length; i++) rgb[i] /= length;
+    }
+
+    private static BoardAppearance? MatchBoardAppearance(BoardAppearance[] appearances, BmpPixels pixels, double cx, double cy, double tile, int? tier, out double best)
     {
         best = 22;
         BoardAppearance? match = null;
         int step = Math.Max(1, (int)Math.Round(tile * .035));
-        foreach (var look in _boardAppearances)
+        foreach (var look in appearances)
         {
             if (tier.HasValue && tier != look.Tier) continue;
             for (int dy = -step; dy <= step; dy += step)

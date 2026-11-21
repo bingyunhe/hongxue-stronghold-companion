@@ -39,18 +39,27 @@ public partial class OperatorPickerWindow : Window
     private readonly OperatorBrowseViewModel _filters = new();
     private readonly IReadOnlySet<string> _strategies;
     private readonly OperatorPickerContext? _context;
+    private readonly bool _hasReviewCandidates;
     private bool _onlyTargets;
     private Operator? _pressedOperator;
     private Point _pressPosition;
     public string? Result { get; private set; }
 
-    public OperatorPickerWindow(IEnumerable<Operator> operators, string current, IReadOnlySet<string> strategies, OperatorPickerContext? context = null)
+    public OperatorPickerWindow(IEnumerable<Operator> operators, string current, IReadOnlySet<string> strategies,
+        OperatorPickerContext? context = null, IReadOnlyList<string>? reviewCandidates = null)
     {
         _strategies = strategies;
         _context = context;
         var list = operators.OrderBy(op => op.Tier).ThenBy(op => op.Name, StringComparer.CurrentCulture).ToList();
         _effects = context is null ? new() : list.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => EffectFor(g.First(), context));
         InitializeComponent();
+        if (reviewCandidates is { Count: > 0 })
+        {
+            var ranks = reviewCandidates.Select((name, index) => (name, index)).ToDictionary(p => p.name, p => p.index);
+            list = list.OrderBy(o => ranks.GetValueOrDefault(o.Name, int.MaxValue)).ToList();
+            TitleMeta.Text = $"外观候选　{string.Join("、", reviewCandidates)}";
+            _hasReviewCandidates = true;
+        }
         WindowUiScale.PrepareCentered(this);
         var style = new Style(typeof(ListBoxItem), OperatorsList.ItemContainerStyle);
         style.Setters.Add(new Setter(IsEnabledProperty, new Binding { Converter = new FuncConverter(v => v is Operator o && Unavailable(o) is null) }));
@@ -180,6 +189,7 @@ public partial class OperatorPickerWindow : Window
     private void OnOperatorKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
+        if (_hasReviewCandidates && OperatorsList.SelectedItem == null && string.IsNullOrWhiteSpace(SearchBox.Text)) return;
         var op = OperatorsList.SelectedItem as Operator
                  ?? CollectionViewSource.GetDefaultView(OperatorsList.ItemsSource)?.Cast<Operator>().FirstOrDefault(o => Unavailable(o) is null);
         if (op is null) return;

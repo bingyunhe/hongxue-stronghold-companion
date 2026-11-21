@@ -15,6 +15,9 @@ public sealed record SidePanelPositionSettings
     /// </summary>
     public bool FreeMovement { get; init; } = true;
     public bool ForceTopmost { get; init; }
+    public bool HideOverlayWithAssistant { get; init; }
+    public bool FocusLossEnabled { get; init; }
+    public bool TrayOnFocusLoss { get; init; }
     public SidePanelPlacement? Placement { get; init; }
     public SidePanelOffset? FollowOffsetDip { get; init; }
 }

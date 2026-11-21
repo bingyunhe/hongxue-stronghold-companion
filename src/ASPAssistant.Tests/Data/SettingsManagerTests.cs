@@ -173,6 +173,19 @@ public class SettingsManagerTests : IDisposable
         appearance.Theme.Should().Be(GameShopTheme.Closure);
     }
 
+    [Fact]
+    public async Task DeployPoolRemembersAutomaticFieldRecognitionAfterUpgrade()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "deploy-pool.json"), """{"owned":["角峰"]}""");
+        var state = await _manager.LoadDeployPoolAsync();
+        Assert.False(state.AutomaticLiveField);
+        state.AutomaticLiveField = true;
+        await _manager.SaveDeployPoolAsync(state);
+        var restored = await new SettingsManager(_tempDir).LoadDeployPoolAsync();
+        Assert.True(restored.AutomaticLiveField);
+        Assert.Equal(["角峰"], restored.Owned);
+    }
+
     [Theory]
     [InlineData("{\"owned\":")]
     [InlineData("null")]

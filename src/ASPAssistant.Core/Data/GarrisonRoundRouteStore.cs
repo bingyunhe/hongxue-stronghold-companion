@@ -26,10 +26,14 @@ public sealed class GarrisonRoundRouteStore
     private sealed record Group(string Key, Dictionary<string, Dictionary<string, int>> Units);
     private sealed record Board(int? Grid, Dictionary<string, int> Routes);
     private sealed record Level(Dictionary<string, Board> Maps, Group[] Groups);
-    private sealed record Mode(HashSet<string> Maps, HashSet<string> Inactive, Dictionary<int, string[]> Rounds);
+    private sealed record Mode(HashSet<string> Maps, HashSet<string> Inactive, Dictionary<int, string[]> Rounds, HashSet<int>? BossRounds);
     private sealed record Dataset(Dictionary<string, string> BountyMotion, Dictionary<string, Mode> Modes, Dictionary<string, Level> Levels, GarrisonRoundPath[] Paths, string[][] Grids);
     private readonly Dataset _data;
     private readonly Dictionary<(string Mode, int Round), HashSet<string>> _rosters = [];
+
+    internal bool IsKnownNonBossRound(string? mode, int round) =>
+        mode is not null && _data.Modes.TryGetValue(mode, out var rules) && rules.Rounds.ContainsKey(round) &&
+        rules.BossRounds is { } bosses && !bosses.Contains(round);
 
     internal IReadOnlySet<string>? PossibleEnemies(string? mode, int round)
     {

@@ -36,6 +36,9 @@ shop-closure-round1-1600x1024.png) come from that project's test data.
 Round enemy panel layout and recognition draw on its RoundEnemyReader.
 Live field badge matching, tier icons and reduced sprite samples adapt its FieldReader
 and sprite templates at revision 16fea906 (Apache License 2.0).
+The compressed foreground pose samples in field-shapes.bin derive from
+StrongholdAssistant sprite-templates.bin.gz at revision 680869da90e1c481e387851bc3c5f4a30648acca.
+The original game artwork belongs to Hypergryph.
 Round-route matching uses enemy groups, gates and templates from the 路标档案馆
 Garrison Protocol spawn preview with permission (https://www.lubiao.wiki/tools/garrison-spawn-preview).
 Stage data comes from the zh_CN ArknightsGameData repository (Kengxxiao/ArknightsGameData).

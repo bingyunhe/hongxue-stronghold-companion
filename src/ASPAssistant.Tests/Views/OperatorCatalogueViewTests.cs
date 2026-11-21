@@ -70,6 +70,74 @@ internal static class OperatorCatalogueViewTests
         finally { host.Close(); }
     }
 
+    public static void VerifyLayouts(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var vm = new OperatorBrowseViewModel { SelectedOperatorSource = OperatorSourceFilter.Default };
+        var operators = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data")).LoadOperatorsAsync().GetAwaiter().GetResult();
+        vm.LoadOperators(operators);
+        var view = new OperatorBrowseView { DataContext = vm };
+        string? tracked = null, banned = null;
+        view.TrackingRequested += (name, _) => tracked = name;
+        view.BanToggleRequested += (name, _) => banned = name;
+        var host = new Window { Content = view, Width = 400, Height = 580, WindowStyle = WindowStyle.None,
+            ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
+        var button = (Button)view.FindName("LayoutButton");
+        void Layout() { Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle); view.UpdateLayout(); }
+        void Cycle() { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout(); }
+        try
+        {
+            host.Show();
+            for (int columns = 1; columns <= 3; columns++)
+            {
+                Layout();
+                var cards = Desc<OperatorCard>(view).ToList();
+                Assert.InRange(cards.Count, columns, vm.MatchedCount - 1);
+                var first = cards[0];
+                var location = first.TranslatePoint(new Point(), view);
+                for (int i = 0; i < columns; i++)
+                {
+                    Assert.Equal(columns, cards[i].CatalogColumns);
+                    Assert.Equal(location.Y, cards[i].TranslatePoint(new Point(), view).Y);
+                    if (i > 0) Assert.True(cards[i].TranslatePoint(new Point(), view).X > location.X);
+                }
+                Assert.True(cards[columns].TranslatePoint(new Point(), view).Y > location.Y);
+                Assert.Equal(columns == 3 ? Visibility.Collapsed : Visibility.Visible,
+                    ((ItemsControl)first.FindName("CovenantChips")).Visibility);
+                Save(view, GameShopTheme.Closure, night, $"layout-{columns}");
+                if (columns < 3) Cycle();
+            }
+            var items = (ItemsControl)view.FindName("OperatorListControl");
+            var scroll = Desc<ScrollViewer>(items).First();
+            scroll.ScrollToVerticalOffset(650); Layout();
+            for (int step = 0; step < 3; step++)
+            {
+                var anchor = Desc<OperatorCard>(items).First(c =>
+                {
+                    var y = c.TranslatePoint(new Point(), scroll).Y;
+                    return y + c.ActualHeight > 0 && y < scroll.ViewportHeight;
+                });
+                var op = anchor.DataContext;
+                var before = anchor.TranslatePoint(new Point(), scroll).Y;
+                Cycle();
+                var after = Desc<OperatorCard>(items).Single(c => ReferenceEquals(c.DataContext, op))
+                    .TranslatePoint(new Point(), scroll).Y;
+                Assert.InRange(Math.Abs(after - before), 0, 1);
+            }
+            vm.SearchText = "纯烬艾雅法拉"; Layout();
+            var selected = Desc<OperatorCard>(view).Single();
+            foreach (string name in new[] {"TrackButton", "BanButton"})
+                ((Button)selected.FindName(name)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(vm.SearchText, tracked); Assert.Equal(vm.SearchText, banned);
+            host.Width = 280; Layout();
+            Save(view, GameShopTheme.Closure, night, "compact-narrow");
+            Cycle();
+            Assert.Equal("纯烬艾雅法拉", vm.SearchText);
+            Assert.Equal(1, Desc<OperatorCard>(view).Single().CatalogColumns);
+        }
+        finally { host.Close(); }
+    }
+
     private static IEnumerable<T> Desc<T>(DependencyObject parent) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)

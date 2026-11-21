@@ -4,17 +4,25 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:ASPAssistant.App.Controls"
              xmlns:viewModels="clr-namespace:ASPAssistant.Core.ViewModels;assembly=HongxueCompanion.Core"
-             xmlns:componentModel="clr-namespace:System.ComponentModel;assembly=WindowsBase"
+             xmlns:views="clr-namespace:ASPAssistant.App.Views"
              Background="{DynamicResource PanelBackgroundBrush}">
     <UserControl.Resources>
-        <CollectionViewSource x:Key="OperatorsByTier" Source="{Binding FilteredOperators}">
-            <CollectionViewSource.SortDescriptions>
-                <componentModel:SortDescription PropertyName="Tier" Direction="Ascending" />
-            </CollectionViewSource.SortDescriptions>
-            <CollectionViewSource.GroupDescriptions>
-                <PropertyGroupDescription PropertyName="Tier" />
-            </CollectionViewSource.GroupDescriptions>
-        </CollectionViewSource>
+        <DataTemplate DataType="{x:Type views:CatalogTier}">
+            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TierGroupHeader}" />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type views:CatalogRow}">
+            <ItemsControl ItemsSource="{Binding Operators}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Rows="1" Columns="{Binding Columns}" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <controls:OperatorCard CatalogColumns="{Binding DataContext.Columns, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                               TrackingToggled="OnOperatorTrackingToggled" BanToggled="OnOperatorBanToggled" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DataTemplate>
 
         <ItemsPanelTemplate x:Key="ChipWrap"><WrapPanel /></ItemsPanelTemplate>
         <DataTemplate x:Key="ChipTemplate">
@@ -84,6 +92,17 @@
         <!-- 全部 / 本局可用 / 不可用 · 筛选 -->
         <DockPanel DockPanel.Dock="Top" Margin="10,0,10,0" LastChildFill="False">
             <ToggleButton x:Name="FilterToggle" DockPanel.Dock="Right" Style="{StaticResource FilterTogglePill}" Content="筛选" />
+            <Button x:Name="LayoutButton" DockPanel.Dock="Right" Style="{StaticResource SmallActionButton}"
+                    Margin="0,0,5,0" Padding="5,0" Height="26" MinWidth="0"
+                    ToolTip="当前单列，点击切换到双列" AutomationProperties.Name="干员排列，当前单列" Click="OnCycleLayout">
+                <StackPanel Orientation="Horizontal">
+                    <Grid Width="13" Height="11" VerticalAlignment="Center">
+                        <Rectangle RadiusX="2" RadiusY="2" Stroke="{Binding Foreground, ElementName=LayoutButton}" />
+                        <Path x:Name="LayoutLines" Stroke="{Binding Foreground, ElementName=LayoutButton}" />
+                    </Grid>
+                    <TextBlock x:Name="LayoutLabel" Text="单列" Margin="4,0,0,0" />
+                </StackPanel>
+            </Button>
             <ListBox x:Name="AvailabilityFilterList" DockPanel.Dock="Left" Style="{StaticResource SegmentedListBox}"
                      SelectionChanged="OnAvailabilityFilterChanged">
                 <ListBoxItem Content="全部" />
@@ -170,11 +189,10 @@
             </ScrollViewer>
         </Border>
 
-        <!-- Operator list: single column, grouped by tier, virtualized (only rows on screen are built) -->
+        <!-- Operator list: virtualized rows grouped by tier -->
         <Grid Margin="0,4,0,0">
-            <ItemsControl x:Name="OperatorListControl" ItemsSource="{Binding Source={StaticResource OperatorsByTier}}"
+            <ItemsControl x:Name="OperatorListControl"
                           VirtualizingPanel.IsVirtualizing="True"
-                          VirtualizingPanel.IsVirtualizingWhenGrouping="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
                           VirtualizingPanel.ScrollUnit="Pixel">
                 <ItemsControl.Template>
@@ -187,33 +205,6 @@
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
-                <ItemsControl.GroupStyle>
-                    <GroupStyle>
-                        <GroupStyle.HeaderTemplate>
-                            <DataTemplate>
-                                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource TierGroupHeader}">
-                                    <ContentControl.Style>
-                                        <Style TargetType="ContentControl">
-                                            <Style.Triggers><DataTrigger Binding="{Binding DataContext.SelectedOperatorSource, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                        Value="{x:Static viewModels:OperatorSourceFilter.Custom}">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger></Style.Triggers>
-                                        </Style>
-                                    </ContentControl.Style>
-                                </ContentControl>
-                            </DataTemplate>
-                        </GroupStyle.HeaderTemplate>
-                        <GroupStyle.Panel>
-                            <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
-                        </GroupStyle.Panel>
-                    </GroupStyle>
-                </ItemsControl.GroupStyle>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <controls:OperatorCard TrackingToggled="OnOperatorTrackingToggled"
-                                               controls:OperatorCard.BanToggled="OnOperatorBanToggled" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
             </ItemsControl>
             <controls:EmptyState x:Name="EmptyFilterText" Icon="{StaticResource IconOperators}" Title="{Binding EmptyListMessage}">
                 <controls:EmptyState.Style>

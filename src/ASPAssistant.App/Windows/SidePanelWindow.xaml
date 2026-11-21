@@ -480,6 +480,15 @@
                                 <Border Style="{StaticResource SettingsCard}">
                                     <StackPanel>
                                         <DockPanel>
+                                            <CheckBox x:Name="HideOverlayWithAssistantToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center" AutomationProperties.Name="隐藏助手时隐藏覆盖层" />
+                                            <StackPanel Margin="0,0,8,0">
+                                                <TextBlock Text="隐藏助手时隐藏覆盖层" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="收起助手时一并隐藏游戏里的追踪标记和站位提示。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
                                             <CheckBox x:Name="AutomaticCurrentRunFiltersToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
                                                       AutomationProperties.Name="只看本局" />
                                             <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
@@ -665,9 +674,22 @@
                                                       VerticalAlignment="Center" AutomationProperties.Name="强制置顶" />
                                             <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
                                                 <TextBlock Text="强制置顶" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                                                <TextBlock Text="游戏运行时保持置顶，切换到其他窗口也不取消" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                <TextBlock Text="游戏运行时保持置顶。切到其他应用时优先使用失焦设置。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                             </StackPanel>
                                         </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
+                                            <CheckBox x:Name="FocusLossToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}"
+                                                      VerticalAlignment="Center" AutomationProperties.Name="失去游戏焦点" />
+                                            <StackPanel Margin="0,0,8,0">
+                                                <TextBlock Text="失去游戏焦点" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="切到其他应用时可让侧栏沉底或收进托盘，切回游戏时自动恢复。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <ComboBox x:Name="FocusLossSelector" Margin="0,6,0,0" AutomationProperties.Name="失焦时的操作" Visibility="Collapsed">
+                                            <ComboBoxItem Content="沉底" ToolTip="将侧栏置于所有普通窗口之后" />
+                                            <ComboBoxItem Content="隐藏" ToolTip="将助手收起到系统托盘" />
+                                        </ComboBox>
                                     </StackPanel>
                                 </Border>
 
@@ -771,10 +793,7 @@
                                         <TextBlock x:Name="FeedbackTitle" Text="遇到报错或识别问题？" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
                                         <TextBlock Text="填写问题、预览诊断内容并导出反馈包。截图由你选择附上。" FontSize="11" TextWrapping="Wrap"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,10" />
-                                        <WrapPanel>
-                                            <Button x:Name="FeedbackButton" Content="反馈与诊断" Click="OnOpenFeedback" Style="{StaticResource SmallActionButton}" Margin="0,0,8,4" />
-                                            <Button x:Name="RecognitionFeedbackButton" Content="识别有误" Click="OnOpenFeedback" Style="{StaticResource SmallActionButton}" Margin="0,0,0,4" />
-                                        </WrapPanel>
+                                        <Button x:Name="FeedbackButton" Content="反馈与诊断" Click="OnOpenFeedback" Style="{StaticResource SmallActionButton}" HorizontalAlignment="Left" Margin="0,0,0,4" />
                                     </StackPanel>
                                 </Border>
                                 <TextBlock x:Name="ProjectAddressText" HorizontalAlignment="Center" Margin="0,10,0,8" FontSize="12">

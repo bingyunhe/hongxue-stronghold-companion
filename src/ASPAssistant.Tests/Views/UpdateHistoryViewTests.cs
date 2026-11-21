@@ -20,11 +20,9 @@ internal static class UpdateHistoryViewTests
         var appearance = new SidebarAppearance(); WindowUiScale.Initialize(appearance);
         ThemeManager.Apply(theme, night);
         var entries = UpdateHistory.Load(Path.Combine(AppContext.BaseDirectory, "data", "update-history.json"));
-        entries.Should().HaveCount(19); entries[0].Version.Should().Be("v1.9.6"); entries[^1].Version.Should().Be("v1.0.0");
-        entries[0].Content.Should().Contain("32 MiB").And.Contain("1104531618");
-        entries[1].Content.Should().Contain("8 秒").And.Contain("地图模拟").And.Contain("Mirror酱");
-        entries[2].Content.Should().Contain("HongxueCompanion.exe").And.Contain("反馈与诊断").And.Contain("新增").And.Contain("修复").And.Contain("修改");
-        entries[3].Content.Should().Contain("单阶段支持最大15人");
+        entries.Should().HaveCount(20); entries[0].Version.Should().Be("v1.9.7"); entries[^1].Version.Should().Be("v1.0.0");
+        entries.Single(entry => entry.Version == "v1.9.4").Content.Should().Contain("HongxueCompanion.exe").And.Contain("反馈与诊断").And.Contain("新增").And.Contain("修复").And.Contain("修改");
+        entries.Single(entry => entry.Version == "v1.9.3").Content.Should().Contain("单阶段支持最大15人");
         entries.Should().OnlyContain(entry => !entry.Content.Contains("## 下载"));
         var directory = Path.Combine(TestOutput.Directory, "update-history"); Directory.CreateDirectory(directory);
         var window = new UpdateHistoryWindow(entries) { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
@@ -33,7 +31,7 @@ internal static class UpdateHistoryViewTests
             window.Show(); Pump();
             var list = (ItemsControl)window.FindName("HistoryItems");
             var expanders = Descendants<Expander>(list).ToArray();
-            expanders.Should().HaveCount(entries.Count); expanders[0].IsExpanded.Should().BeTrue();
+            expanders.Should().HaveCount(20); expanders[0].IsExpanded.Should().BeTrue();
             expanders.Skip(1).Should().OnlyContain(item => !item.IsExpanded);
             Save(window, Path.Combine(directory, $"{theme}-{night}-latest.png"));
             var toggle = Descendants<ToggleButton>(expanders[0]).First();
@@ -41,7 +39,8 @@ internal static class UpdateHistoryViewTests
             Descendants<ToggleButton>(expanders[1]).First().IsChecked = true; Pump(); expanders[1].IsExpanded.Should().BeTrue();
             Save(window, Path.Combine(directory, $"{theme}-{night}-previous.png"));
             expanders[0].IsExpanded = true; Pump(); expanders[1].IsExpanded.Should().BeTrue("versions fold independently");
-            var text = Descendants<TextBlock>(expanders[0]).First(item => item.Text == entries[0].Content);
+            var text = Descendants<TextBlock>(expanders[0]).First(item => item.Inlines.OfType<System.Windows.Documents.Hyperlink>().Any());
+            text.Inlines.OfType<System.Windows.Documents.Hyperlink>().Select(link => link.NavigateUri.Host).Should().Equal("qm.qq.com", "mirrorchyan.com");
             var background = ((SolidColorBrush)window.FindResource("CardBackgroundBrush")).Color;
             var ratio = Ratio(((SolidColorBrush)text.Foreground).Color, background);
             ratio.Should().BeGreaterThanOrEqualTo(4.5);
