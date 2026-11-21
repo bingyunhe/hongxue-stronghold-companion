@@ -14,12 +14,18 @@ namespace ASPAssistant.App.Windows;
 public partial class FeedbackWindow : Window
 {
     private FeedbackReport _report;
-    public FeedbackWindow(FeedbackReport report, bool recognitionProblem)
+    public FeedbackWindow(FeedbackReport report)
     {
         _report = report;
         InitializeComponent();
         WindowUiScale.PrepareCentered(this);
-        CategoryBox.SelectedIndex = recognitionProblem ? 1 : 0;
+        foreach (var game in report.Samples.Where(s => s.IsGameReport && s.GameRecords.Count > 0))
+        {
+            var check = new CheckBox { Content = game.Label, Tag = game, IsChecked = game.GameRecords.Any(r => r.Pending) };
+            check.Click += OnBatchSelection;
+            GameChecks.Children.Add(check);
+        }
+        CategoryBox.SelectedIndex = report.Samples.Any(s => s.IsGameReport) ? 1 : 0;
         CategoryBox.SelectionChanged += (_, _) => UpdateCategory();
         UpdateCategory();
     }
@@ -35,6 +41,9 @@ public partial class FeedbackWindow : Window
             EventChoice.SelectedIndex = 0;
             return;
         }
+        BatchPanel.Visibility = Visibility.Collapsed;
+        ExportButton.Content = "导出反馈包";
+        ExportButton.IsEnabled = true;
         _report = report with { Selected = null };
         EventChoice.ItemsSource = null;
         EventChoice.Visibility = Visibility.Collapsed;
@@ -66,6 +75,37 @@ public partial class FeedbackWindow : Window
             ScreenshotChoice.IsChecked = sample.Frames.Length > 0;
             if (string.IsNullOrWhiteSpace(DescriptionBox.Text)) DescriptionBox.Text = "棋盘识别标记";
         }
+        BatchPanel.Visibility = sample.IsGameReport && sample.GameRecords.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshBatch();
+    }
+
+    private RecognitionSample[] BatchRecords() => GameChecks.Children.OfType<CheckBox>()
+        .Where(c => !GamePicker.IsExpanded || c.IsChecked == true)
+        .SelectMany(c => ((RecognitionSample)c.Tag).GameRecords)
+        .Where(r => GamePicker.IsExpanded || r.Pending).ToArray();
+
+    private void OnSelectAllGames(object sender, RoutedEventArgs e)
+    {
+        foreach (CheckBox check in GameChecks.Children) check.IsChecked = true;
+        RefreshBatch();
+    }
+
+    private void OnBatchSelection(object sender, RoutedEventArgs e) => RefreshBatch();
+
+    private void RefreshBatch()
+    {
+        if (BatchPanel.Visibility != Visibility.Visible)
+        {
+            ExportButton.Content = "导出反馈包";
+            ExportButton.IsEnabled = true;
+            return;
+        }
+        var records = BatchRecords();
+        var frames = ScreenshotChoice.IsChecked == true ? records.SelectMany(r => r.Frames).ToArray() : [];
+        var bytes = frames.Sum(frame => (long)frame.Image.Length) + records.Sum(r => 512L + System.Text.Encoding.UTF8.GetByteCount(r.Result + r.Kind + r.Note + string.Join("",r.Actions)));
+        BatchSummary.Text = $"{records.Select(r => r.Game).Distinct().Count()} 局 · {records.Length} 条记录 · {frames.Length} 张截图 · 预计 {bytes/1024d:N0} KB";
+        ExportButton.Content = GamePicker.IsExpanded ? "导出所选对局" : "导出未导出记录";
+        ExportButton.IsEnabled = records.Length > 0;
     }
 
     private void OnMarkChanged(object sender, SelectionChangedEventArgs e)
@@ -79,7 +119,17 @@ public partial class FeedbackWindow : Window
     {
         int i = MarkChoice.SelectedIndex;
         if (i >= 0 && _report.Selected is { IsGameReport: true } sample)
+        {
+            if (sample.Cases[i].Expected == ExpectedBox.Text) return;
+            if (sample.GameRecords.Count > 0)
+            {
+                try { FieldFeedback.SetNote(sample,i,ExpectedBox.Text); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { StatusText.Text = "说明未能保存，请检查本地存储。"; return; }
+            }
             sample.Cases[i] = sample.Cases[i] with { Expected = ExpectedBox.Text };
+            RefreshBatch();
+        }
     }
 
     private void OnFrameChanged(object sender, SelectionChangedEventArgs e)
@@ -95,11 +145,13 @@ public partial class FeedbackWindow : Window
     private void OnTabChanged(object sender, SelectionChangedEventArgs e)
     {
         if (e.Source != FeedbackTabs || FeedbackTabs.SelectedIndex != 1) return;
-        PreviewBox.Text = _report.Preview(Category, DescriptionBox.Text, StepsBox.Text);
+        PreviewBox.Text = BatchPanel.Visibility == Visibility.Visible
+            ? BatchSummary.Text + "\n" + string.Join("\n",BatchRecords().Select(r => $"{r.Label} · {r.Result} {r.Note}"))
+            : _report.Preview(Category, DescriptionBox.Text, StepsBox.Text);
     }
 
     private void OnScreenshotChanged(object sender, RoutedEventArgs e)
-        => UpdateScreenshot();
+        { UpdateScreenshot(); RefreshBatch(); }
 
     private void UpdateScreenshot()
     {
@@ -146,9 +198,11 @@ public partial class FeedbackWindow : Window
         var steps = StepsBox.Text;
         var include = ScreenshotChoice.IsChecked == true;
         var report = _report;
+        var records = BatchPanel.Visibility == Visibility.Visible ? BatchRecords() : null;
+        IsEnabled = false;
         try
         {
-            await Task.Run(() => report.Export(dialog.FileName, category, description, steps, include));
+            await Task.Run(() => report.Export(dialog.FileName, category, description, steps, include, records));
             StatusText.Text = "反馈包已保存。可打开反馈页面，填写问题并手动附上 ZIP 文件。";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -156,7 +210,7 @@ public partial class FeedbackWindow : Window
             AppLogger.Warn("Feedback", $"Export failed: {ex.Message}");
             StatusText.Text = "保存失败，请选择新的文件名或可写目录。";
         }
-        finally { ExportButton.IsEnabled = true; }
+        finally { IsEnabled = true; RefreshBatch(); }
     }
 
     private void OnOpenIssue(object sender, RoutedEventArgs e)

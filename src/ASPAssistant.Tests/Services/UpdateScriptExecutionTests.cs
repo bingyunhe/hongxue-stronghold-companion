@@ -156,12 +156,50 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
             File.Exists(Path.Combine(app, "new-only.txt")).Should().BeFalse();
             await AssertStartedAsync(app, "old");
             (await File.ReadAllTextAsync(Path.Combine(root, "update.log"))).Should().Contain("rename attempt 10 failed");
+            Directory.Exists(Path.Combine(root, "staging")).Should().BeFalse();
+            (await File.ReadAllTextAsync(Path.Combine(root, "update.log"))).Should().Contain("ADB");
         }
         finally
         {
             await File.WriteAllTextAsync(Path.Combine(app, "release.hold"), "release");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await holder.WaitForExitAsync(timeout.Token);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExternalAdbLikeServiceSurvivesUpdateWhenStartedOutsideInstallation(bool inheritedInstall)
+    {
+        var (app, source) = await PrepareFilesAsync(_root, "模拟器 安装");
+        var earlier = Directory.CreateDirectory(Path.Combine(_root,"previous-staging")).FullName;
+        var earlierMarker = Path.Combine(earlier,"prior.txt");
+        await File.WriteAllTextAsync(earlierMarker,"prior");
+        var start = new ProcessStartInfo(Path.Combine(_root,"test-host.exe")) {
+            UseShellExecute = false, WorkingDirectory = inheritedInstall ? app : AdbGameScreens.WorkingDirectory
+        };
+        start.ArgumentList.Add("adb");
+        using var server = Process.Start(start)!;
+        try
+        {
+            await WaitForFileAsync(Path.Combine(_root,"held.ready"));
+            var result = await RunUpdateAsync(_root, app, source);
+            result.ExitCode.Should().Be(inheritedInstall ? 1 : 0, result.Output);
+            server.HasExited.Should().BeFalse();
+            Directory.Exists(Path.Combine(_root,"staging")).Should().BeFalse();
+            (await File.ReadAllTextAsync(earlierMarker)).Should().Be("prior");
+            await AssertStartedAsync(app, inheritedInstall ? "old" : "new");
+        }
+        finally
+        {
+            await File.WriteAllTextAsync(Path.Combine(_root,"release.hold"),"release");
+            await server.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        if (inheritedInstall)
+        {
+            (await RunUpdateAsync(_root,app,source)).ExitCode.Should().Be(0);
+            await AssertStartedAsync(app,"new");
         }
     }
 
@@ -335,7 +373,7 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
                     if (args.Length > 0) {
                         File.WriteAllText(Path.Combine(root, "held.ready"), "ready");
                         var wait = System.Diagnostics.Stopwatch.StartNew();
-                        while (!File.Exists(Path.Combine(root, "release.hold")) && wait.ElapsedMilliseconds < 30000)
+                        while (!File.Exists(Path.Combine(root, "release.hold")) && wait.ElapsedMilliseconds < (args[0] == "adb" ? 90000 : 30000))
                             System.Threading.Thread.Sleep(25);
                         return;
                     }

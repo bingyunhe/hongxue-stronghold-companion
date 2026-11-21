@@ -43,6 +43,9 @@ public partial class DeployView : UserControl
     private TrackingViewModel? _tracking;
     private SettingsManager? _settings;
     private DeployPoolState _state = new();
+    private DeployOwnership _ownership = null!;
+    private List<PlacementCandidate>? _frozenCandidates;
+    private bool _applyingField;
 
     private BoardMatch? _recognized;
     private PlacementPlan? _recommended;   // last planner output
@@ -77,7 +80,13 @@ public partial class DeployView : UserControl
         _replanTimer.Tick += (_, _) => { _replanTimer.Stop(); _ = ReplanAsync(); };
         ModeList.SelectedIndex = 2;
         FieldCountList.SelectedIndex = 0;
-        IsVisibleChanged += (_, _) => { if (IsVisible && _ready && _plan is null) ScheduleReplan(); };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) { _frozenCandidates = null; return; }
+            if (!_ready) return;
+            if (!ShowingLive && _roster.Units.Count > 0) _recommendationRoster ??= _roster;
+            if (_plan is null || !ShowingLive && !_recommendedPool.SequenceEqual(Candidates())) ScheduleReplan();
+        };
     }
 
     /// <summary>The plan to show in game (null when there is none, or the in-game display is off).</summary>
@@ -99,6 +108,8 @@ public partial class DeployView : UserControl
         _recognized = null;
         _lastSeen = null;
         _roster = new(null, null, []);
+        _recommendationRoster = null;
+        _frozenCandidates = null;
         _tracking!.StartNewRun();
         SetStatus(null);
         RefreshAll();
@@ -117,6 +128,7 @@ public partial class DeployView : UserControl
         _tracking = tracking;
         _settings = settings;
         _state = state;
+        _ownership = new(state);
         tracking.SetDeployPool(state);
         InGameToggle.IsChecked = showInGame;
         _suppressSelection = true;
@@ -166,7 +178,7 @@ public partial class DeployView : UserControl
     private GarrisonMap? _lastSeen;
 
     private GarrisonMap? CurrentMap =>
-        _state.ManualMap is { } id && _board?.Find(id) is { } manual ? manual : _recognized?.Map ?? (_roster.Map is { } liveMap ? _board?.Find(liveMap) : null) ?? _lastSeen;
+        _state.ManualMap is { } id && _board?.Find(id) is { } manual ? manual : _recognized?.Map ?? (DisplayRoster.Map is { } liveMap ? _board?.Find(liveMap) : null) ?? _lastSeen;
 
     private void OnMapChanged()
     {
@@ -205,7 +217,7 @@ public partial class DeployView : UserControl
     {
         if (_hooked is not null && _trackingHandler is not null) _hooked.CollectionChanged -= _trackingHandler;
         _hooked = _tracking?.TrackedOperators;
-        _trackingHandler = (_, _) => { if (_tracking?.StageTargetsUpdating != true) Dispatcher.BeginInvoke(() => { RefreshAll(); ScheduleReplan(); }); };
+        _trackingHandler = (_, _) => { if (!_applyingField && _tracking?.StageTargetsUpdating != true) Dispatcher.BeginInvoke(() => { RefreshAll(); ScheduleReplan(); }); };
         if (_hooked is not null) _hooked.CollectionChanged += _trackingHandler;
     }
 
@@ -213,18 +225,9 @@ public partial class DeployView : UserControl
         DeployPoolBuilder.Build(_tracking?.DisplayOperators ?? [], _operators, _state);
 
     /// <summary>Owned operators; a duplicated operator gives one candidate per copy (keys 冻河, 冻河#2…).</summary>
-    private List<PlacementCandidate> Candidates() => Candidates(_roster);
-
-    private List<PlacementCandidate> Candidates(LiveRoster roster)
-    {
-        var counts = _state.Owned.Distinct().Where(_operators.ContainsKey)
-            .ToDictionary(name => name, _state.CountOf);
-        foreach (var group in roster.Units.Where(u => u.Name is not null && _operators.ContainsKey(u.Name))
-                     .GroupBy(u => u.Name!).OrderBy(g => g.Key, StringComparer.Ordinal))
-            counts[group.Key] = Math.Max(counts.GetValueOrDefault(group.Key), group.Count());
-        return [.. counts.SelectMany(entry => Enumerable.Range(0, entry.Value)
-            .Select(k => new PlacementCandidate(entry.Key, _state.IsElite(entry.Key), k)))];
-    }
+    private List<PlacementCandidate> Candidates() => _frozenCandidates ?? _state.Owned.Distinct().Where(_operators.ContainsKey)
+        .SelectMany(name => Enumerable.Range(0, _state.CountOf(name))
+            .Select(copy => new PlacementCandidate(name, _state.IsElite(name), copy))).ToList();
 
     private static string NameOf(string key) => PlacementKeys.NameOf(key);
     /// <summary>Display name of a key: 冻河#2 → 冻河②.</summary>
@@ -373,6 +376,7 @@ public partial class DeployView : UserControl
             : stale ? " · 暂时没看到棋盘" : "";
         MapSubline.Text = $"{level}{camera}" + (finals.Count > 0 ? " · " + string.Join(" + ", covs) : " · 还没有追踪阵容");
         if (ShowingLive) { SetLiveSummary(); return; }
+        LastFieldRead.Visibility = Visibility.Collapsed;
         PoolMeta.ToolTip = null;
         int owned = Candidates().Count;
         PoolSummary.Text = _plan is null ? "整备区" : $"整备区 · {_plan.Bench.Count} 人";
@@ -578,6 +582,15 @@ public partial class DeployView : UserControl
 
         if (ShowingLive)
         {
+            if (_roster.Observations.LastOrDefault() is { } observation && observation.Map == map.Id)
+                foreach (var slot in observation.UncertainSlots.Where(slot => !VisibleUnits.Any(u => u.Mark.Slot == slot)))
+                {
+                    var uncertain = LiveTile(null);
+                    uncertain.Child = Text("…",13,"TextPrimaryBrush",bold:true,center:true);
+                    uncertain.SetResourceReference(Border.BackgroundProperty,"WarningTintBrush");
+                    uncertain.ToolTip = $"{slot} · 占用待确认";
+                    Place(uncertain, CellX(map,slot.Col)+1,T+slot.Row*S+1);
+                }
             foreach (var unit in VisibleUnits.Where(u => !u.Mark.Slot.Bench))
                 Place(LiveTile(unit), CellX(map, unit.Mark.Slot.Col) + 1, T + unit.Mark.Slot.Row * S + 1);
             return;
@@ -1096,6 +1109,9 @@ public partial class DeployView : UserControl
     private void OnModeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelection || !_ready || ModeList.SelectedIndex < 0) return;
+        if (ShowingLive) _frozenCandidates = null;
+        _recommendationRoster = ShowingLive ? null : _recommendationRoster ?? _roster;
+        _planCts?.Cancel();
         FieldCountList.IsEnabled = !ShowingLive;
         FieldCountList.Opacity = ShowingLive ? .48 : 1;
         _reviewSlot = false;
@@ -1118,6 +1134,8 @@ public partial class DeployView : UserControl
 
     private void OnRecompute(object sender, RoutedEventArgs e)
     {
+        _frozenCandidates = null;
+        _recommendationRoster = ShowingLive ? null : _roster;
         _dirty = false;
         _ = ReplanAsync();
     }
@@ -1134,6 +1152,12 @@ public partial class DeployView : UserControl
 
     public void ShowPage(bool showPool)
     {
+        if (!showPool && _page == Page.Pool && !ShowingLive)
+        {
+            _recommendationRoster = _roster;
+            _frozenCandidates = null;
+            ScheduleReplan();
+        }
         _page = showPool ? Page.Pool : Page.Main;
         _pickingMap = false;
         RefreshAll();
@@ -1248,7 +1272,7 @@ public partial class DeployView : UserControl
         PoolTrackedCount.Text = $"{tracked.Count(i => i.Owned)}/{tracked.Count}";
         PoolStageRow.Visibility = _tracking.StageChoices.Count > 0 || tracked.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var trackedShown = tracked.Where(Match).ToList();
-        AddCards(trackedShown, PoolTrackedBody);
+        AddCards(trackedShown, PoolTrackedBody, showTier:true);
         int shown = trackedShown.Count;
         foreach (var g in groups)
         {
@@ -1276,7 +1300,7 @@ public partial class DeployView : UserControl
             if (g.Kind == DeployPoolGroupKind.Extension && !_extensionExpanded && !searching && !_ownedOnly) continue;
             if (g.Kind != DeployPoolGroupKind.Extension)
             {
-                AddCards(items, PoolGroups);
+                AddCards(items, PoolGroups, showTier:g.Kind==DeployPoolGroupKind.Transition);
                 continue;
             }
             // 扩展池: a rail of tier tiles (people per tier, a dot when one is owned); each tile unfolds its tier.
@@ -1304,12 +1328,12 @@ public partial class DeployView : UserControl
             PoolGroups.Children.Add(Text(searching ? $"没有找到“{_poolQuery}”，可以用“＋ 添加”加入其他干员" : "还没有已拥有的干员", 11, "TextSecondaryBrush", margin: new Thickness(2, 6, 0, 0)));
     }
 
-    private void AddCards(IReadOnlyList<DeployPoolItem> items, Panel target, bool animate = false)
+    private void AddCards(IReadOnlyList<DeployPoolItem> items, Panel target, bool animate = false, bool showTier = false)
     {
         var grid = new UniformGrid { Columns = 2 };
         foreach (var item in items)
         {
-            var card = (FrameworkElement)PoolCard(item);
+            var card = (FrameworkElement)PoolCard(item,showTier);
             grid.Children.Add(card);
             if (animate) RiseIn(card, grid.Children.Count, dy: 4);
         }
@@ -1361,7 +1385,7 @@ public partial class DeployView : UserControl
         return tile;
     }
 
-    private UIElement PoolCard(DeployPoolItem item)
+    private UIElement PoolCard(DeployPoolItem item,bool showTier)
     {
         var root = new Grid { Margin = new Thickness(0, 0, 4, 4), Cursor = Cursors.Hand, Height = 40, Background = Brushes.Transparent };
         root.Children.Add(new Border
@@ -1371,6 +1395,9 @@ public partial class DeployView : UserControl
             Background = item.Owned ? (Brush)FindResource("AccentSoftBrush") : Brushes.Transparent,
         });
         var dock = new DockPanel { Margin = new Thickness(7, 0, 6, 0) };
+        if (showTier && item.Tier is >=1 and <=6)
+            dock.Children.Add(new ContentPresenter { Content=item.Operator, ContentTemplate=(DataTemplate)FindResource("TrackingTierBadge"),
+                VerticalAlignment=VerticalAlignment.Center });
         dock.Children.Add(new Avatar { Width = 24, Height = 24, Text = item.Name, Source = item.Operator?.IconPath, Small = true, Opacity = item.Owned ? 1 : 0.35, VerticalAlignment = VerticalAlignment.Center });
 
         // Right side: ✓ for one copy, − n + when the operator is owned more than once, × for hand-added.
@@ -1406,7 +1433,8 @@ public partial class DeployView : UserControl
             {
                 e.Handled = true;
                 _state.Extra.Remove(item.Name);
-                _state.SetOwned(item.Name, false);
+                SetManualCount(item.Name, 0);
+                _liveScanner?.LimitLiveMembers(item.Name, 0);
                 _tracking?.SyncDeployPool();
                 SaveState();
                 RefreshPool();
@@ -1432,6 +1460,7 @@ public partial class DeployView : UserControl
             elite.MouseLeftButtonUp += (_, e) =>
             {
                 e.Handled = true;
+                _frozenCandidates = null;
                 _state.SetElite(item.Name, !item.Elite);
                 _tracking?.SyncDeployPool();
                 SaveState();
@@ -1470,7 +1499,8 @@ public partial class DeployView : UserControl
         {
             if (e.Handled) return;
             _bouncePool = item.Name;
-            _state.SetOwned(item.Name, !item.Owned);
+            SetManualCount(item.Name, item.Owned ? 0 : 1);
+            if (item.Owned) _liveScanner?.LimitLiveMembers(item.Name, 0);
             ClearLocatedSearchAfterAcquisition(item.Name);
             _tracking?.SyncDeployPool();
             SaveState();
@@ -1492,10 +1522,18 @@ public partial class DeployView : UserControl
         return t;
     }
 
+    private void SetManualCount(string name, int count)
+    {
+        _frozenCandidates = null;
+        var context = _liveScanner?.OwnershipContext ?? default;
+        _ownership.SetManualCount(name, count, context.Round, context.Game);
+    }
+
     private void ChangeCount(string name, int delta)
     {
         _bouncePool = name;
-        _state.SetCount(name, _state.CountOf(name) + delta);
+        SetManualCount(name, _state.CountOf(name) + delta);
+        if (delta < 0) _liveScanner?.LimitLiveMembers(name, _state.CountOf(name));
         ClearLocatedSearchAfterAcquisition(name);
         _tracking?.SyncDeployPool();
         SaveState();
@@ -1566,7 +1604,7 @@ public partial class DeployView : UserControl
     {
         int level = _tracking?.TerminalLevel ?? 0;
         foreach (var entry in _tracking?.TrackedOperators.Where(t => t.IsStageActive && t.Type == TrackingType.Operator) ?? [])
-            if (!entry.ExpiredAt(level) && !_state.IsOwned(entry.Name)) _state.SetOwned(entry.Name, true);
+            if (!entry.ExpiredAt(level) && !_state.IsOwned(entry.Name)) SetManualCount(entry.Name, 1);
         if (_locatedSearch is { } name) ClearLocatedSearchAfterAcquisition(name);
         _tracking?.SyncDeployPool();
         SaveState();
@@ -1583,7 +1621,7 @@ public partial class DeployView : UserControl
         bool tracked = _tracking?.TrackedOperators.Any(t => t.Name == name) == true;
         bool extension = Groups().Any(g => g.Kind == DeployPoolGroupKind.Extension && g.Items.Any(i => i.Name == name));
         if (!tracked && !extension && !_state.Extra.Contains(name)) _state.Extra.Add(name);
-        _state.SetOwned(name, true);
+        SetManualCount(name, Math.Max(1, _state.CountOf(name)));
         _locatedSearch = null;
         PoolSearch.Clear();
         PoolFilterList.SelectedIndex = 0;
@@ -1594,24 +1632,32 @@ public partial class DeployView : UserControl
         ScheduleReplan();
     }
 
-    public void ApplyRecognizedPurchases(IReadOnlyList<string> names)
+    public void ApplyRecognizedPurchases(IReadOnlyList<string> names, DateTimeOffset? lastOffer = null, int? round = null)
     {
-        var changed = false;
+        bool changed = false, acquired = false;
+        bool freeze = !ShowingLive && IsVisible && _shownPage == Page.Main && _plan != null;
+        var previous = freeze ? Candidates() : null;
         foreach (var name in names)
         {
-            if (_operators.ContainsKey(name))
-            {
-                if (_state.IsOwned(name)) continue;
-                _state.SetOwned(name, true);
-                changed = true;
-            }
-            else _tracking!.RecordEquipmentPurchase(name);
+            if (!_operators.ContainsKey(name)) { _tracking!.RecordEquipmentPurchase(name); continue; }
+            int before = _state.CountOf(name);
+            changed |= _ownership.Purchase(name, lastOffer ?? DateTimeOffset.UtcNow, round, _liveScanner?.OwnershipContext.Game ?? default);
+            acquired |= before != _state.CountOf(name);
         }
         if (!changed) return;
-        _tracking!.SyncDeployPool();
         SaveState();
-        RefreshPool();
-        ScheduleReplan();
+        if (!acquired) return;
+        RefreshOwnership(previous);
+    }
+
+    private void RefreshOwnership(List<PlacementCandidate>? frozenCandidates)
+    {
+        if (frozenCandidates != null) _frozenCandidates = frozenCandidates;
+        _applyingField = true;
+        try { _tracking!.SyncDeployPool(); }
+        finally { _applyingField = false; }
+        if (_shownPage == Page.Pool) RefreshPool();
+        if (frozenCandidates == null) ScheduleReplan();
     }
 
     private static SolidColorBrush Frozen(Color c)

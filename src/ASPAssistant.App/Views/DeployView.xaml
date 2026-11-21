@@ -99,10 +99,23 @@
                     <Border x:Name="BoardCard" Style="{StaticResource DeployCard}" Padding="6,8,6,7">
                         <StackPanel>
                             <DockPanel Margin="2,0,2,5">
-                                <Button x:Name="ReadFieldButton" DockPanel.Dock="Right" VerticalAlignment="Top" Content="识别阵容"
-                                        Style="{StaticResource SmallActionButton}" Margin="4,0,0,0" Click="OnReadField" ToolTip="读取当前阵容；右键选择单格复核">
-                                    <Button.ContextMenu><ContextMenu><MenuItem Header="选择一格复核" Click="OnChooseFieldSlot" /></ContextMenu></Button.ContextMenu>
+                                <StackPanel DockPanel.Dock="Right" Margin="4,0,0,0">
+                                <Button x:Name="ReadFieldButton" VerticalAlignment="Top" Content="识别阵容"
+                                        Style="{StaticResource SmallActionButton}" Click="OnReadField" ToolTip="截取一帧识别阵容。右键可复核单格，或确认当前是自己的棋盘并同步。">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="选择一格复核" Click="OnChooseFieldSlot" />
+                                            <MenuItem Header="识别我的棋盘并同步" Click="OnReadOwnBoard" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
                                 </Button>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,3,0,0">
+                                    <CheckBox x:Name="AutomaticFieldToggle" Style="{StaticResource SwitchToggle}" AutomationProperties.Name="自动识别阵容"
+                                              Click="OnAutomaticFieldClick" ToolTip="实时识别阵容" />
+                                    <Label Target="{Binding ElementName=AutomaticFieldToggle}" Content="自动" Padding="3,0,0,0"
+                                           VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                </StackPanel>
+                                </StackPanel>
                                 <TextBlock x:Name="RoutePhaseNumber" DockPanel.Dock="Right" Margin="5,0,0,0"
                                            Visibility="Collapsed" FontSize="11" FontWeight="SemiBold"
                                            Foreground="{DynamicResource AccentBrush}" />
@@ -131,6 +144,8 @@
                                 <TextBlock x:Name="PoolMeta" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                            Foreground="{DynamicResource TextSecondaryBrush}" />
                             </DockPanel>
+                            <TextBlock x:Name="LastFieldRead" FontSize="10" Margin="0,2,0,0" Visibility="Collapsed"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" />
                             <UniformGrid x:Name="BenchRow" Columns="2" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>

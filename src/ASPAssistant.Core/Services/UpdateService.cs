@@ -520,13 +520,7 @@ public partial class UpdateService
         sb.AppendLine("        throw \"更新包不完整：缺少 $newExecutable\"");
         sb.AppendLine("    }");
         sb.AppendLine();
-        if (incremental)
-            sb.AppendLine("    if ((Test-Path -LiteralPath $stagingDir) -or (Test-Path -LiteralPath $backupDir)) { throw '此更新已执行过，请检查原备份或重新下载' }");
-        else
-        {
-            sb.AppendLine("    if (Test-Path -LiteralPath $stagingDir) { Remove-Item -LiteralPath $stagingDir -Recurse -Force }");
-            sb.AppendLine("    if (Test-Path -LiteralPath $backupDir) { Remove-Item -LiteralPath $backupDir -Recurse -Force }");
-        }
+        sb.AppendLine("    if ((Test-Path -LiteralPath $stagingDir) -or (Test-Path -LiteralPath $backupDir)) { throw '此更新已执行过，请检查原备份或重新下载' }");
         if (incremental)
         {
             sb.AppendLine("""
@@ -599,7 +593,18 @@ public partial class UpdateService
         sb.AppendLine("    Write-Log \"renamed current install to ${backupDir}: $renamedOld\"");
         sb.AppendLine();
         sb.AppendLine("    if (-not $renamedOld) {");
-        sb.AppendLine("        throw '安装目录仍被占用，未替换任何旧版文件。请完全退出辅助（含托盘图标），并关闭该目录的终端或预览后重试。'");
+        sb.AppendLine("""
+                    try {
+                        $stage = Get-Item -LiteralPath $stagingDir -Force
+                        if ($stage.FullName -eq $stagingDir -and $stage.Parent.FullName -eq $parentDir -and
+                            -not ($stage.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                            -not (Get-ChildItem -LiteralPath $stage.FullName -Recurse -Force -Attributes ReparsePoint | Select-Object -First 1)) {
+                            Remove-Item -LiteralPath $stage.FullName -Recurse -Force -ErrorAction Stop
+                            Write-Log 'removed staging directory from this attempt'
+                        } else { Write-Log 'staging cleanup skipped: unexpected path or link' }
+                    } catch { Write-Log "staging cleanup failed: $($_.Exception.Message)" }
+                    throw '安装目录仍被占用，未替换任何旧版文件。请关闭该目录的终端或预览。使用模拟器时，旧的 ADB 后台服务也可能占用目录，请在方便断开连接时退出相关工具并重启 Windows，再尝试更新。'
+            """);
         sb.AppendLine("    }");
         sb.AppendLine();
         sb.AppendLine("    try {");

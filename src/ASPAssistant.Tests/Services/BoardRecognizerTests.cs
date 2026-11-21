@@ -20,6 +20,85 @@ public class BoardRecognizerTests
 
     [Trait("Category", "LocalScreenshot")]
     [Theory]
+    [InlineData("city-round9-four-marks.png", "奥尔佳")]
+    [InlineData("city-expanded-d5-occupied.png", "折桠")]
+    public async Task CityReviewRanksA7WithoutAPurchaseShortlist(string image, string expected)
+    {
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        var reader = new LiveFieldReader(data, maps);
+        var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(Path.Combine(FrameDir, image))))!;
+        var match = new BoardRecognizer(maps).Recognize(pixels)!;
+        var ranked = reader.RankReviewCandidates(pixels, match, new(4, 0));
+        Assert.Equal(3, ranked.Distinct().Count());
+        Assert.Equal(expected, ranked[0]);
+        Assert.Empty(reader.RankReviewCandidates(pixels, match, new(4, -1)));
+    }
+
+    [Trait("Category", "LocalScreenshot")]
+    [Fact]
+    public async Task CityExpandedReadsBodyWithoutBadgeAndReleasesEmptyCells()
+    {
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        var reader = new LiveFieldReader(data, maps);
+        var board = new BoardRecognizer(maps);
+        using var occupied = new System.Drawing.Bitmap(Path.Combine(FrameDir, "manual-roster-round6.png"));
+        using var scaled = new System.Drawing.Bitmap(occupied, 1280, 720);
+        foreach (var frame in new[] { occupied, scaled })
+        {
+            var marks = Read(frame);
+            Assert.Equal("陨星", marks[new(1, 2)].StandaloneName);
+            Assert.Equal("地灵", marks[new(2, 1)].StandaloneName);
+            Assert.DoesNotContain(new FieldSlot(1, 1), marks.Keys);
+            Assert.DoesNotContain(new FieldSlot(3, 1), marks.Keys);
+        }
+        using var empty = new System.Drawing.Bitmap(Path.Combine(FrameDir, "city-expanded-empty-c4-b5.png"));
+        using var marked = new System.Drawing.Bitmap(Path.Combine(FrameDir, "city-expanded-a6-174304.png"));
+        var topRow = Read(marked);
+        Assert.Equal(6, topRow.Keys.Count(slot => !slot.Bench));
+        foreach (var (slot, name) in new (FieldSlot, string)[] {
+            (new(3,0),"烈夏"), (new(2,1),"地灵"), (new(4,1),"奥尔佳"),
+            (new(1,2),"陨星"), (new(2,2),"卡达"), (new(4,2),"“暴躁铁皮”") })
+            Assert.Equal(name, topRow[slot].StandaloneName);
+        Assert.Equal("烈夏", topRow[new(5, -1)].StandaloneName);
+        Assert.DoesNotContain(new FieldSlot(2, 0), topRow.Keys);
+        Assert.DoesNotContain(new FieldSlot(4, 0), topRow.Keys);
+        var cleared = Read(empty);
+        Assert.DoesNotContain(new FieldSlot(1, 2), cleared.Keys);
+        Assert.DoesNotContain(new FieldSlot(2, 1), cleared.Keys);
+        using var doubleLeto = new System.Drawing.Bitmap(Path.Combine(FrameDir, "manual-roster-round5.png"));
+        var fifth = Read(doubleLeto);
+        Assert.Equal("烈夏", fifth[new(3, 0)].StandaloneName);
+        Assert.Equal("烈夏", fifth[new(3, 1)].StandaloneName);
+        using var roundNine = new System.Drawing.Bitmap(Path.Combine(FrameDir, "city-round9-four-marks.png"));
+        var ninth = Read(roundNine);
+        Assert.Equal(new[] { "A6","A7","B6","B7","C5","C7","D4","D5" },
+            ninth.Keys.Where(s => !s.Bench).Select(s => s.ToString()).Order().ToArray());
+        Assert.Equal("地灵",ninth[new(2,3)].StandaloneName);
+        Assert.Equal("烈夏",ninth[new(1,3)].StandaloneName);
+        Assert.Equal("“暴躁铁皮”",ninth[new(4,2)].StandaloneName);
+        using var beforeMove = new System.Drawing.Bitmap(Path.Combine(FrameDir, "city-expanded-d5-occupied.png"));
+        using var afterMove = new System.Drawing.Bitmap(Path.Combine(FrameDir, "city-expanded-d5-cleared.png"));
+        var before = Read(beforeMove);
+        var after = Read(afterMove);
+        Assert.Contains(new FieldSlot(2, 3), before.Keys);
+        Assert.DoesNotContain(new FieldSlot(2, 3), after.Keys);
+        Assert.Equal("灰喉", before[new(3, 0)].StandaloneName);
+        Assert.Equal("折桠", after[new(3, 0)].StandaloneName);
+
+        Dictionary<FieldSlot,FieldMark> Read(System.Drawing.Bitmap frame)
+        {
+            var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(ImageBytes.Encode(frame)))!;
+            var match = board.Recognize(pixels)!;
+            Assert.Equal("city", match.Map.Id);
+            Assert.Equal(BoardCamera.Expanded, match.Camera);
+            return reader.Read(pixels, match, true, true).ToDictionary(mark => mark.Slot);
+        }
+    }
+
+    [Trait("Category", "LocalScreenshot")]
+    [Theory]
     [InlineData("snow_collapsed", "snow", BoardCamera.Collapsed)]
     [InlineData("desert_camo_expanded", "desert_camo", BoardCamera.Expanded)]
     [InlineData("palace_arrows_expanded", "palace_arrows", BoardCamera.Expanded)]

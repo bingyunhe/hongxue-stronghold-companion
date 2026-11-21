@@ -10,6 +10,68 @@ namespace ASPAssistant.Tests.Services;
 
 public sealed class RoundEnemyTests
 {
+    [Theory]
+    [InlineData("规程等级13", 5, "敌人", true)]
+    [InlineData("规程等级13", 5, "悬赏", false)]
+    [InlineData("规程等级13", 14, "敌人", false)]
+    [InlineData("极速模拟", 9, "领袖", false)]
+    public async Task OnlyOrdinaryRoundsFinishWithoutBottomEvidence(string mode, int round, string heading, bool singlePage)
+    {
+        using var panel = new Bitmap(1280, 720);
+        using (var graphics = Graphics.FromImage(panel))
+        {
+            graphics.FillRectangle(Brushes.White, 795, 80, 40, 12);
+            graphics.FillRectangle(Brushes.White, 862, 122, 46, 19);
+        }
+        var routes = await ASPAssistant.Core.Data.GarrisonRoundRouteStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory);
+        var reader = new RoundEnemyReader(new OversizedNameOcr { Heading = heading }, routes);
+        var layout = RoundEnemyReader.Inspect(panel, false) with { BottomUnknown = true };
+        var read = await reader.ReadAsync(ImageBytes.Encode(panel), panel, layout, mode: mode, round: round);
+        Assert.Equal(singlePage, read!.EndsAtBottom);
+        Assert.Equal(singlePage, read.StartsAtTop);
+    }
+
+    [Fact]
+    public async Task FifthRoundCapturedOrdinaryListReturnsWithoutScrolling()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_ORDINARY_REPLAY") is not { } directory) return;
+        using var ocr = new MaaOcrEngine(Path.Combine(AppContext.BaseDirectory, "data"));
+        var routes = await ASPAssistant.Core.Data.GarrisonRoundRouteStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory);
+        var hud = new ShopEconomy(5, 0, 0, false, "规程等级13", true);
+        var board = File.ReadAllBytes(Path.Combine(directory, "board.png"));
+        foreach (var image in new[] { "capture", "attachment" })
+        {
+            var panel = File.ReadAllBytes(Path.Combine(directory, image + ".png"));
+            var live = board;
+            using var connection = new GameConnectionService();
+            int clicks = 0, scrolls = 0, confirmations = 0;
+            using var scanner = new OcrScannerService(() =>
+            {
+                if (clicks == 2 && live == board) confirmations++;
+                return live;
+            }, new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+            {
+                RoundEnemyReader = new(ocr, routes), EconomyReader = new(ocr),
+                RoundEnemyScroll = (_, _, _, _) => { scrolls++; return false; },
+                SendCapturedClick = (_, _, _, _) => { live = ++clicks == 1 ? panel : board; return ClickResult.Sent; }
+            };
+            var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+            tracker.Observe(hud);
+            tracker.Observe(hud);
+            Assert.Null(scanner.RequestRoundEnemyRead());
+            Task Observe(byte[] frame) => scanner.ObserveRoundEnemiesAsync(frame, hud, true, connection,
+                scanner.RunRevision, connection.CaptureRevision, Environment.TickCount64);
+            await Observe(board);
+            await Observe(panel);
+            var info = scanner.CurrentRoundEnemies!;
+            Assert.Equal(["萨卡兹子裔战士", "萨卡兹子裔轰击者", "萨卡兹子裔责罚者"], info.Names);
+            Assert.True(info.HasCompleteList, image + " " + info.Hint);
+            Assert.Equal(0, scrolls);
+            Assert.Equal(2, clicks);
+            Assert.Equal(1, confirmations);
+        }
+    }
+
     [Fact]
     public async Task FourthRoundCapturedBountyPages()
     {
@@ -620,6 +682,112 @@ public sealed class RoundEnemyTests
     }
 
     [Fact]
+    [Trait("Category", "LocalScreenshot")]
+    public async Task LiveFieldSwitchFreezesTheLastSingleFrameRead()
+    {
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await ASPAssistant.Core.Data.GarrisonBoardStore.LoadAsync(data))!;
+        using var ocr = new MaaOcrEngine(data);
+        using var connection = new GameConnectionService(new() { Source = ASPAssistant.Core.Models.GameCaptureSource.Adb });
+        var samples = Path.Combine(AppContext.BaseDirectory, "TestData", "Board");
+        byte[]? frame = File.ReadAllBytes(Path.Combine(samples, "manual-roster-round5.png"));
+        int captures = 0;
+        using var scanner = new OcrScannerService(() => { captures++; return frame; }, new GarrisonOcrStrategy(),
+            new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+        {
+            EconomyReader = new(ocr), BoardRecognizer = new(maps), LiveReader = new(data, maps)
+        };
+        Assert.False(scanner.AutomaticLiveField);
+        await scanner.ScanNowAsync();
+        Assert.Empty(scanner.LiveRoster.Observations);
+        int before = captures;
+        Assert.Contains("上场", await scanner.ReadLiveFieldAsync());
+        Assert.Equal(1, captures - before);
+        var manual = scanner.LiveRoster.Observations.Last();
+        Assert.Equal(5, manual.Round);
+        frame = File.ReadAllBytes(Path.Combine(samples, "manual-roster-round6.png"));
+        var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+        var (width, height) = ImageBytes.GetDimensions(frame);
+        var hud = await scanner.EconomyReader.ReadPreparationAsync(frame, width, height);
+        Assert.Equal(6, hud.Round);
+        tracker.Observe(hud);
+        tracker.Observe(hud);
+        await scanner.ScanNowAsync();
+        Assert.Same(manual, scanner.LiveRoster.Observations.Last());
+        scanner.AutomaticLiveField = true;
+        await scanner.ScanNowAsync();
+        var automatic = scanner.LiveRoster.Observations.Last();
+        Assert.Equal(6, automatic.Round);
+        scanner.AutomaticLiveField = false;
+        await scanner.ScanNowAsync();
+        Assert.Same(automatic, scanner.LiveRoster.Observations.Last());
+        frame = null;
+        before = captures;
+        Assert.Contains("未取得", await scanner.ReadLiveFieldAsync());
+        Assert.Equal(1, captures - before);
+        Assert.Same(automatic, scanner.LiveRoster.Observations.Last());
+    }
+
+    [Theory]
+    [Trait("Category", "LocalScreenshot")]
+    [InlineData("C5")]
+    [InlineData("B7-hidden")]
+    [InlineData("B7-neighbor")]
+    [InlineData("C5-unknown")]
+    public async Task CityFieldReviewUsesConfirmedSlotAndSavesFailedClicks(string scenario)
+    {
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await ASPAssistant.Core.Data.GarrisonBoardStore.LoadAsync(data))!;
+        var dir = Path.Combine(AppContext.BaseDirectory, "TestData", "Board");
+        var board = File.ReadAllBytes(Path.Combine(dir, "city-expanded-a6-174304.png"));
+        var detail = File.ReadAllBytes(Path.Combine(dir, "city-c5-detail-1750.png"));
+        if (scenario == "C5-unknown")
+        {
+            using var stream = new MemoryStream(detail);
+            using var bitmap = new Bitmap(stream);
+            using (var g = Graphics.FromImage(bitmap)) g.FillRectangle(Brushes.Black,bitmap.Width*.38f,0,bitmap.Width*.62f,bitmap.Height);
+            detail = ImageBytes.Encode(bitmap);
+        }
+        using var ocr = new MaaOcrEngine(data);
+        using var connection = new GameConnectionService(new() { Source = ASPAssistant.Core.Models.GameCaptureSource.Adb });
+        var live = board;
+        var clicks = new List<Point>();
+        RecognitionSample? saved = null;
+        using var scanner = new OcrScannerService(() => live, new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+        {
+            EconomyReader = new(ocr), LiveReader = new(data,maps), BoardRecognizer = new(maps),
+            FieldTiers = new Dictionary<string,int> { ["卡达"]=1, ["奥尔佳"]=3, ["烈夏"]=1, ["地灵"]=1, ["陨星"]=1, ["“暴躁铁皮”"]=5 },
+            SaveFieldReview = (_, sample) => saved = sample,
+            SendCapturedClick = (_, point, _, _) =>
+            {
+                clicks.Add(point);
+                if (scenario != "B7-hidden") live = clicks.Count == 1 ? detail : board;
+                return ClickResult.Sent;
+            }
+        };
+        Assert.Contains("上场 6 人", await scanner.ReadLiveFieldAsync());
+        var slot = scenario.StartsWith("B7") ? new FieldSlot(4,1) : new FieldSlot(2,2);
+        var unit = scanner.LiveRoster.Units.Single(u => u.Mark.Slot == slot);
+        var result = await scanner.ReadLiveFieldAsync(unit);
+        if (scenario == "C5")
+        {
+            Assert.Contains("已核实为卡达", result);
+            Assert.Contains("已返回棋盘", result);
+            Assert.Equal(2, clicks.Count);
+            Assert.Null(saved);
+            return;
+        }
+        Assert.NotNull(saved);
+        Assert.Contains(saved.Frames, f => f.Step == "点击前" && f.Image.Length > 0);
+        Assert.Contains(saved.Frames, f => f.Step.Contains(slot.ToString()) && f.Image.Length > 0);
+        Assert.Contains(saved.Actions, a => a.Contains("点击 {X="));
+        Assert.Contains(scenario switch { "B7-hidden" => "panel-hidden", "B7-neighbor" => "focus=C5", _ => "focus=unknown" }, saved.Result);
+        Assert.Equal(scenario == "B7-hidden" ? 2 : 1, clicks.Count);
+        Assert.Equal(clicks.Count, clicks.Distinct().Count());
+        Assert.DoesNotContain(scanner.LiveRoster.Units, u => u.Mark.Slot == new FieldSlot(4,1) && u.Name == "卡达");
+    }
+
+    [Fact]
     public async Task ManualButtonsExpireWhileCaptureIsBlockedAndIgnoreLateResults()
     {
         var ocr = new OversizedNameOcr();
@@ -953,6 +1121,7 @@ public sealed class RoundEnemyTests
 
     private sealed class OversizedNameOcr(bool hasNames = true, int hudRound = 2) : IOcrEngine
     {
+        public string Heading { get; init; } = "敌人";
         public int Reads { get; private set; }
         public byte[]? NextRoundFrame { get; init; }
         public Func<Task>? WaitForRead { get; init; }
@@ -962,7 +1131,7 @@ public sealed class RoundEnemyTests
             Reads++;
             if (WaitForRead is not null) await WaitForRead();
             IReadOnlyList<OcrTextResult> result = y == 0 && w > 700 ? [new($"回合{(ReferenceEquals(png, NextRoundFrame) ? hudRound + 1 : hudRound)}", (450, 26, 40, 13)), new("休息一下", (631, 24, 54, 16))]
-                : x != 0 ? [new("敌人", (x + 15, y, 35, 16))]
+                : x != 0 ? [new(Heading, (x + 15, y, 35, 16))]
                 : !hasNames ? []
                 : w < 300 ? [new("措狗pro", (20, 3, 50, 36))]
                 : [new("猎狗pro", (20, 17, 76, 24))];

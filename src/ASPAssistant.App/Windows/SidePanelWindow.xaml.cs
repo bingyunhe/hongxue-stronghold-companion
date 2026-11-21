@@ -64,6 +64,10 @@ public partial class SidePanelWindow : Window
     private SidePanelPositionSettings _positionSettings;
     private RECT? _lastGameRect;
     private IntPtr _lastTopmostForeground;
+    private bool _atBottom;
+    private bool _hadGameWindow;
+    internal bool SuppressGameOverlay => IsAssistantHidden && _positionSettings.HideOverlayWithAssistant;
+    internal event Action<bool>? FocusHideRequested;
     private MainWindowCloseBehavior _closeBehavior;
     private bool _closeRequestPending;
     public GameShopTheme GameTheme { get; private set; }
@@ -173,6 +177,15 @@ public partial class SidePanelWindow : Window
         MultiLineupTrackingToggle.IsChecked = trackingVm.TrackMultipleLineups;
         FreeSidePanelMovementToggle.IsChecked = positionSettings.FreeMovement;
         ForceTopmostToggle.IsChecked = positionSettings.ForceTopmost;
+        HideOverlayWithAssistantToggle.IsChecked = positionSettings.HideOverlayWithAssistant;
+        FocusLossToggle.IsChecked = positionSettings.FocusLossEnabled;
+        FocusLossSelector.SelectedIndex = positionSettings.TrayOnFocusLoss ? 1 : 0;
+        FocusLossSelector.Visibility = positionSettings.FocusLossEnabled ? Visibility.Visible : Visibility.Collapsed;
+        HideOverlayWithAssistantToggle.Checked += OnVisibilitySettingChanged;
+        HideOverlayWithAssistantToggle.Unchecked += OnVisibilitySettingChanged;
+        FocusLossToggle.Checked += OnVisibilitySettingChanged;
+        FocusLossToggle.Unchecked += OnVisibilitySettingChanged;
+        FocusLossSelector.SelectionChanged += OnVisibilitySettingChanged;
         UiThemeSelector.SelectionChanged += OnUiThemeChanged;
         GameThemeSelector.SelectionChanged += OnGameThemeChanged;
         MultiLineupTrackingToggle.Checked += OnMultipleLineupsChanged;
@@ -666,6 +679,7 @@ public partial class SidePanelWindow : Window
 
     public void SetGameMinimized(bool minimized)
     {
+        if (_positionSettings.FocusLossEnabled) minimized = false;
         WindowState target;
         if (minimized)
         {
@@ -693,19 +707,39 @@ public partial class SidePanelWindow : Window
     public void UpdateTopmost(IntPtr game, IntPtr foreground)
     {
         var hwnd = new WindowInteropHelper(this).Handle;
-        var ownedFocus = foreground;
-        while (ownedFocus != IntPtr.Zero && ownedFocus != hwnd)
-            ownedFocus = User32.GetWindow(ownedFocus, 4); // GW_OWNER includes editor and selection dialogs.
-        var topmost = game != IntPtr.Zero && User32.IsWindow(game) && !User32.IsIconic(game)
+        // A WPF window can have a hidden native owner above the sidebar. Check the entire owner chain.
+        var owner = foreground == IntPtr.Zero ? IntPtr.Zero : User32.GetAncestor(foreground, 2);
+        while (owner != IntPtr.Zero && owner != hwnd && owner != game)
+            owner = User32.GetWindow(owner, 4);
+        bool ownFocus = owner != IntPtr.Zero && owner == hwnd;
+        bool gameExists = game != IntPtr.Zero && User32.IsWindow(game);
+        bool gameVisible = gameExists && !User32.IsIconic(game);
+        bool gameFocus = gameVisible && owner == game;
+        _hadGameWindow |= gameExists;
+        bool lost = _positionSettings.FocusLossEnabled && _hadGameWindow && !ownFocus && !gameFocus;
+        if (foreground != IntPtr.Zero || gameExists && !gameVisible || !_positionSettings.FocusLossEnabled)
+            FocusHideRequested?.Invoke(lost && _positionSettings.TrayOnFocusLoss);
+        if (lost && !_positionSettings.TrayOnFocusLoss && !IsAssistantHidden && WindowState == WindowState.Normal)
+        {
+            if (!_atBottom || Topmost)
+            {
+                _atBottom = true;
+                Topmost = false;
+                User32.SetWindowLayer(hwnd, new IntPtr(1)); // HWND_BOTTOM
+            }
+            return;
+        }
+        _atBottom = false;
+        var topmost = gameVisible && !lost
             && !IsAssistantHidden && WindowState == WindowState.Normal
-            && (_positionSettings.ForceTopmost || foreground == game || ownedFocus == hwnd);
+            && (_positionSettings.ForceTopmost || gameFocus || ownFocus);
         // A topmost game can move above us when focus changes; raise without activating, once per transition.
         var refreshLayer = topmost && _positionSettings.ForceTopmost && foreground != _lastTopmostForeground;
         _lastTopmostForeground = foreground;
         if (!refreshLayer && Topmost == topmost && ((User32.GetWindowLong(hwnd, User32.GWL_EXSTYLE) & 8) != 0) == topmost) return;
         Topmost = topmost;
         var insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
-        if (!topmost && ownedFocus != hwnd && foreground != IntPtr.Zero && User32.IsWindow(foreground)
+        if (!topmost && !ownFocus && foreground != IntPtr.Zero && User32.IsWindow(foreground)
             && (User32.GetWindowLong(foreground, User32.GWL_EXSTYLE) & 8) == 0)
             insertAfter = foreground;
         User32.SetWindowLayer(hwnd, insertAfter);
@@ -1160,6 +1194,18 @@ public partial class SidePanelWindow : Window
         _positionSettings = _positionSettings with { ForceTopmost = ForceTopmostToggle.IsChecked == true };
         TopmostPreferenceChanged?.Invoke();
         await SavePreferenceAsync(() => _settingsManager.SaveSidePanelPositionAsync(_positionSettings), ForceTopmostToggle);
+    }
+
+    private async void OnVisibilitySettingChanged(object sender, RoutedEventArgs e)
+    {
+        _positionSettings = _positionSettings with {
+            HideOverlayWithAssistant = HideOverlayWithAssistantToggle.IsChecked == true,
+            FocusLossEnabled = FocusLossToggle.IsChecked == true,
+            TrayOnFocusLoss = FocusLossSelector.SelectedIndex == 1
+        };
+        FocusLossSelector.Visibility = _positionSettings.FocusLossEnabled ? Visibility.Visible : Visibility.Collapsed;
+        TopmostPreferenceChanged?.Invoke();
+        await SavePreferenceAsync(() => _settingsManager.SaveSidePanelPositionAsync(_positionSettings), (UIElement)sender);
     }
 
     private async void OnResetSidePanelPosition(object sender, RoutedEventArgs e)

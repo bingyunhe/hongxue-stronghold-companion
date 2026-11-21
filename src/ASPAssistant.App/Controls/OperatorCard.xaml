@@ -30,6 +30,7 @@
             </ToolTip>
         </Border.ToolTip>
         <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -41,7 +42,7 @@
             <Border x:Name="TierRail" Width="3" Margin="0,11" CornerRadius="0,2,2,0" Background="{DynamicResource BorderBrush}" />
             <controls:Avatar x:Name="TrackingPortrait" Grid.Column="1" Width="34" Height="34" Margin="7,0,9,0" VerticalAlignment="Center"
                              Text="{Binding Name}" Source="{Binding IconPath}" />
-            <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,2,0">
+            <StackPanel x:Name="Identity" Grid.Column="2" VerticalAlignment="Center" Margin="0,0,2,0">
                 <TextBlock x:Name="NameText" Text="{Binding Name}" Foreground="{DynamicResource TextPrimaryBrush}"
                            FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
                 <!-- Covenant pills: core filled in the accent tint, additional neutral -->

@@ -168,6 +168,8 @@ public partial class TrackingViewModel : ObservableObject
             _deployPool.Owned.Clear();
             _deployPool.Elite.Clear();
             _deployPool.Counts.Clear();
+            _deployPool.FieldCopies.Clear();
+            _deployPool.ManualLimits.Clear();
         }
         ResetTerminalLevel();
         foreach (var entry in AllEntries.Where(e => e.IsAcquired).ToList())

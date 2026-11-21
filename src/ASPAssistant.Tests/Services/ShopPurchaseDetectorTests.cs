@@ -64,6 +64,44 @@ public class ShopPurchaseDetectorTests
     }
 
     [Theory]
+    [InlineData("purchase")]
+    [InlineData("refresh")]
+    [InlineData("round-change")]
+    [InlineData("name-missed")]
+    [InlineData("unchanged-funds")]
+    [InlineData("multiple-missing")]
+    [InlineData("expired")]
+    public async Task RoundEightWeiPurchaseAcrossHiddenShopRequiresMatchingSlots(string scenario)
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] offers = [Card("突袭手雷", .124), Card("风絮", .252), Card("维伊", .377),
+            Card("仇白", .504), Card("赫拉格", .633), Card("维伊", .757)];
+        var targets = new HashSet<string> { "维伊" };
+        var before = Frame();
+        var funds = Funds(2, 8);
+        var offeredAt = DateTimeOffset.UtcNow.AddSeconds(-5);
+        detector.Observe(before, offers, true, funds, targets, capturedAt: offeredAt);
+        detector.Observe(before, offers, true, funds, targets, capturedAt: offeredAt);
+        detector.Observe(before, [], false, funds, targets, freshFunds:false).Should().BeEmpty();
+        var remaining = offers.Where((_, i) => i != 2 && (scenario != "multiple-missing" || i != 5)).ToArray();
+        if (scenario == "refresh") remaining[1] = Card("卡达", .252);
+        if (scenario == "expired") await Task.Delay(3600);
+        detector.NeedsFundsRead(remaining,true).Should().BeTrue();
+        detector.CanReuseHudLayout(remaining,960,540).Should().BeFalse();
+        var after = scenario == "name-missed" ? before : Frame(false);
+        var paid = Funds(scenario == "unchanged-funds" ? 2 : 0, scenario == "round-change" ? 9 : 8);
+        detector.Observe(after,remaining,true,paid,targets).Should().BeEmpty();
+        var result = detector.Observe(after,remaining,true,paid,targets);
+        if (scenario == "purchase")
+        {
+            result.Should().Equal("维伊");
+            detector.ConfirmedOfferAt.Should().Be(offeredAt);
+        }
+        else result.Should().BeEmpty();
+        detector.Observe(after,remaining,true,paid,targets).Should().BeEmpty();
+    }
+
+    [Theory]
     [InlineData("same")]
     [InlineData("refresh")]
     [InlineData("round")]

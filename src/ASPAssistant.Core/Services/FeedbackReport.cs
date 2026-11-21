@@ -59,16 +59,48 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
             string.Concat(sample.Cases.Where(c => c.Expected.Length > 0).Select(c => $"\n{c.Label} · 玩家说明：{Sanitize(c.Expected)}")) :
             Recognition is { } frame ? $"时间：{frame.CapturedAt:O}\n来源：{frame.Source}\n{frame.Result}" : "暂无识别记录。") +
         $"\n\n近期日志：\n{(Selected is null ? Logs : string.Join("\n", Logs.Split('\n').Where(line =>
-            line.Contains("[LiveField]") || line.Contains("[RoundEnemy]") || line.Contains("[ShopPurchase]")).TakeLast(120)))}";
+            line.Contains("[LiveField]") || line.Contains("[RoundEnemy]") || line.Contains("[ShopPurchase]") || line.Contains("[DeployOwnership]")).TakeLast(120)))}";
 
-    public void Export(string path, string category, string description, string steps, bool includeScreenshot)
+    public void Export(string path, string category, string description, string steps, bool includeScreenshot, IReadOnlyList<RecognitionSample>? records = null)
     {
         string pending = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write))
-                WriteArchive(output, category, description, steps, includeScreenshot);
+                if (records == null) WriteArchive(output, category, description, steps, includeScreenshot);
+                else
+                {
+                    using var zip = new ZipArchive(output, ZipArchiveMode.Create);
+                    using (var writer = new StreamWriter(zip.CreateEntry("反馈说明.txt").Open(), Encoding.UTF8))
+                        writer.Write($"{Sanitize(category)}\n{Sanitize(description)}\n{Sanitize(steps)}\n{Environment}\n{ConnectionFailure}\n" +
+                                     string.Join("\n",Logs.Split('\n').Where(line => line.Contains("[LiveField]") || line.Contains("[RoundEnemy]") ||
+                                         line.Contains("[ShopPurchase]")).TakeLast(120)));
+                    foreach (var game in records.Select(r => r.Game).OfType<Guid>().Distinct())
+                    {
+                        var history = Logs.Split('\n').Where(line => line.Contains("[DeployOwnership]") && line.Contains(game.ToString("N"))).ToArray();
+                        if (history.Length == 0) continue;
+                        using var ledger = new StreamWriter(zip.CreateEntry($"对局-{game:N}/持有记录.txt").Open(), Encoding.UTF8);
+                        ledger.Write(string.Join("\n", history));
+                    }
+                    foreach (var record in records)
+                    {
+                        var folder = $"对局-{record.Game:N}/{Path.GetFileNameWithoutExtension(record.StoragePath)}/";
+                        var frames = new List<object>();
+                        if (includeScreenshot)
+                            foreach (var frame in record.Frames)
+                            {
+                                string file = $"{frames.Count + 1:00}.{frame.Extension}";
+                                using var stream = zip.CreateEntry(folder + file, CompressionLevel.NoCompression).Open();
+                                stream.Write(frame.Image);
+                                frames.Add(new { file, step = Sanitize(frame.Step), frame.Time });
+                            }
+                        using var manifest = zip.CreateEntry(folder + "recognition.json").Open();
+                        System.Text.Json.JsonSerializer.Serialize(manifest, new { record.Round, record.Started, kind = Sanitize(record.Kind),
+                            result = Sanitize(record.Result), expected = Sanitize(record.Note), actions = record.Actions.Select(Sanitize), record.InputFrame, frames });
+                    }
+                }
             File.Move(pending, path);
+            if (records is { Count: > 0 }) FieldFeedback.SaveStates(records,true);
         }
         finally { File.Delete(pending); }
     }

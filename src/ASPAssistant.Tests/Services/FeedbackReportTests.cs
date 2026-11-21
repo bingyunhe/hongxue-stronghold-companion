@@ -140,6 +140,40 @@ public sealed class FeedbackReportTests : IDisposable
     }
 
     [Fact]
+    public void BatchExportKeepsFailedAndEditedRecordsPending()
+    {
+        var now = DateTimeOffset.Now;
+        var sample = new RecognitionSample(6,"C5","待复核",now,[new(now,"棋盘",[1,2])]);
+        FieldFeedback.Save(_directory,Guid.NewGuid(),sample);
+        FieldFeedback.Save(_directory,Guid.NewGuid(),sample);
+        var games = FieldFeedback.LoadGames(_directory);
+        var records = games.SelectMany(g => g.GameRecords).ToArray();
+        var feedback = new FeedbackReport("测试", $"[DeployOwnership] 对局 {games[0].Game:N} 卡达 0 → 1\n[DeployOwnership] 对局 {games[1].Game:N} 维伊 1 → 1", null);
+        var path = Path.Combine(_directory,"两局.zip");
+        File.WriteAllText(path,"已有文件");
+        Assert.Throws<IOException>(() => feedback.Export(path,"识别有误","","",true,records));
+        Assert.All(FieldFeedback.LoadGames(_directory).SelectMany(g => g.GameRecords),r => Assert.True(r.Pending));
+        path = Path.Combine(_directory,"成功.zip");
+        feedback.Export(path,"识别有误","","",true,records);
+        using var archive = ZipFile.OpenRead(path);
+        Assert.Equal(2,archive.Entries.Count(e => e.Name == "recognition.json"));
+        Assert.Equal(2,archive.Entries.Count(e => e.Name == "01.png"));
+        using var history = new StreamReader(archive.GetEntry($"对局-{games[0].Game:N}/持有记录.txt")!.Open());
+        history.ReadToEnd().Should().Contain("卡达 0 → 1").And.NotContain("维伊");
+        Assert.NotNull(archive.GetEntry($"对局-{games[1].Game:N}/持有记录.txt"));
+        Assert.All(FieldFeedback.LoadGames(_directory).SelectMany(g => g.GameRecords),r => Assert.False(r.Pending));
+        FieldFeedback.SetNote(games[0],0,"卡达");
+        var edited = Assert.Single(FieldFeedback.LoadGames(_directory).SelectMany(g => g.GameRecords).Where(r => r.Pending));
+        Assert.Equal("卡达",edited.Note);
+        var corrected = Path.Combine(_directory,"补充.zip");
+        feedback.Export(corrected,"识别有误","","",false,[edited]);
+        using var second = ZipFile.OpenRead(corrected);
+        Assert.DoesNotContain(second.Entries,e => e.Name.EndsWith(".png"));
+        using var json = JsonDocument.Parse(second.Entries.Single(e => e.Name == "recognition.json").Open());
+        Assert.Equal("卡达",json.RootElement.GetProperty("expected").GetString());
+    }
+
+    [Fact]
     public void PreparationBoundsLargeLogsAndKeepsTheLatestFailure()
     {
         File.WriteAllText(AppLogger.LogFilePath!, new string('x', 3 * 1024 * 1024) + "\n[ERROR] latest failure\n");

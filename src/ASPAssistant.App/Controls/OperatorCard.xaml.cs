@@ -73,6 +73,35 @@ public partial class OperatorCard : UserControl
     private void OnAcquiredClick(object sender, RoutedEventArgs e)
         => RaiseEvent(new RoutedEventArgs(AcquiredEvent, this));
 
+    public static readonly DependencyProperty CatalogColumnsProperty = DependencyProperty.Register(
+        nameof(CatalogColumns), typeof(int), typeof(OperatorCard),
+        new PropertyMetadata(1, (card, args) => ((OperatorCard)card).ApplyCatalogLayout((int)args.NewValue)));
+
+    public int CatalogColumns
+    {
+        get => (int)GetValue(CatalogColumnsProperty);
+        set => SetValue(CatalogColumnsProperty, value);
+    }
+
+    private void ApplyCatalogLayout(int columns)
+    {
+        bool compact = columns == 3;
+        CardBorder.Height = columns switch { 1 => 53, 2 => 53, _ => 51 };
+        TierRail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        TrackingPortrait.Width = TrackingPortrait.Height = columns switch { 1 => 34, 2 => 26, _ => 30 };
+        TrackingPortrait.Margin = columns == 1 ? new Thickness(7, 0, 9, 0) : new Thickness(4, 0, 4, 0);
+        Grid.SetRowSpan(TrackingPortrait, compact ? 2 : 1);
+        NameText.FontSize = columns switch { 1 => 13, 2 => 12, _ => 11 };
+        Identity.VerticalAlignment = compact ? VerticalAlignment.Bottom : VerticalAlignment.Center;
+        CovenantChips.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetRow(ActionButtons, compact ? 1 : 0);
+        Grid.SetColumn(ActionButtons, compact ? 2 : 3);
+        ActionButtons.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Center;
+        ActionButtons.Margin = compact ? new Thickness(0, 0, 0, 2) : new Thickness(0, 0, 4, 0);
+        TrackButton.Width = BanButton.Width = columns == 1 ? 28 : 22;
+        TrackButton.Height = BanButton.Height = compact ? 20 : 28;
+    }
+
     public OperatorCard()
     {
         InitializeComponent();

@@ -7,9 +7,22 @@ namespace ASPAssistant.Core.Services;
 
 public static class AdbGameScreens
 {
+    // Native Maa discovery can create the shared ADB server before our first explicit command.
+    public static string WorkingDirectory { get; } = Directory.CreateDirectory(ChooseWorkingDirectory(
+        UpdateService.ResolveInstallationDirectory(AppContext.BaseDirectory), Path.GetTempPath())).FullName;
+
+    internal static string ChooseWorkingDirectory(string installation, string temp)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(installation));
+        var candidate = Path.GetFullPath(Path.Combine(temp, "HongxueCompanion-ADB"));
+        return candidate.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+            candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            ? Path.GetDirectoryName(root)! : candidate;
+    }
+
     public static string Run(string adbPath, IEnumerable<string> arguments)
     {
-        var start = new ProcessStartInfo(adbPath) { UseShellExecute = false, CreateNoWindow = true,
+        var start = new ProcessStartInfo(adbPath) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = WorkingDirectory,
             RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8 };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         using var process = new Process { StartInfo = start };

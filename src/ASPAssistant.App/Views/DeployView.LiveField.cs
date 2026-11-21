@@ -13,6 +13,8 @@ public partial class DeployView
 {
     private OcrScannerService? _liveScanner;
     private LiveRoster _roster = new(null, null, []);
+    private LiveRoster? _recommendationRoster;
+    private LiveRoster DisplayRoster => _recommendationRoster ?? _roster;
     private bool _reviewSlot;
     private bool _readingField;
     private bool ShowingLive => ModeList.SelectedIndex == 0;
@@ -22,14 +24,44 @@ public partial class DeployView
     public void ConnectLiveField(OcrScannerService scanner)
     {
         _liveScanner = scanner;
+        AutomaticFieldToggle.IsChecked = scanner.AutomaticLiveField = _state.AutomaticLiveField;
+        long appliedSequence = 0;
+        scanner.FieldOwnershipChanged += evidence =>
+        {
+            void Apply()
+            {
+                if (evidence.Sequence <= appliedSequence || !scanner.IsCurrentOwnership(evidence.Frame)) return;
+                appliedSequence = evidence.Sequence;
+                bool frozen = !ShowingLive && IsVisible && _shownPage == Page.Main && _plan != null;
+                var previous = frozen ? Candidates() : null;
+                if (!_ownership.Observe(evidence)) return;
+                SaveState();
+                RefreshOwnership(previous);
+            }
+            if (Dispatcher.CheckAccess()) Apply(); else Dispatcher.InvokeAsync(Apply);
+        };
         scanner.LiveFieldChanged += () => Dispatcher.InvokeAsync(() => ShowLiveRoster(scanner.LiveRoster));
+    }
+
+    private void OnAutomaticFieldClick(object sender, RoutedEventArgs e)
+    {
+        _state.AutomaticLiveField = AutomaticFieldToggle.IsChecked == true;
+        if (_liveScanner is not null) _liveScanner.AutomaticLiveField = _state.AutomaticLiveField;
+        SaveState();
     }
 
     internal void ShowLiveRoster(LiveRoster roster)
     {
+        if (_recommendationRoster is not null)
+        {
+            _roster = roster;
+            return;
+        }
         var previousMap = CurrentMap?.Id;
         var previous = _ready && !ShowingLive ? Candidates() : null;
         _roster = roster;
+        if (_ready && IsVisible && !ShowingLive && roster.Units.Count > 0)
+            _recommendationRoster = roster;
         if (previous is not null && (previousMap != CurrentMap?.Id || !previous.SequenceEqual(Candidates())))
         {
             _planCts?.Cancel();
@@ -44,6 +76,9 @@ public partial class DeployView
 
     private void SetLiveSummary()
     {
+        var last = _roster.Observations.LastOrDefault();
+        LastFieldRead.Visibility = last is null ? Visibility.Collapsed : Visibility.Visible;
+        LastFieldRead.Text = last is null ? "" : $"上次识别：第 {last.Round} 回合 {last.Frame.Time:HH:mm}";
         PoolSummary.Text = $"整备区 · {VisibleUnits.Count(u => u.Mark.Slot.Bench)} 人";
         PoolMeta.Text = $"上场 {VisibleUnits.Count(u => !u.Mark.Slot.Bench)}";
         if (_roster.Map == DisplayMap?.Id && _roster.Bought.Count > 0)
@@ -92,7 +127,15 @@ public partial class DeployView
         }
         OperatorGrid.Children.Clear();
         PlanPanel.Visibility = Visibility.Visible;
-        foreach (var unit in VisibleUnits.Where(u => !u.Mark.Slot.Bench))
+        foreach (var member in _roster.Unlocated)
+        {
+            var label=Text($"待定位 · {member.Name}（上次 {member.LastSlot}）",10,"TextSecondaryBrush",margin:new Thickness(2,0,5,0));
+            label.ToolTip="本局曾确认，当前位置待核实。右键可移除已出售的干员。";
+            label.ContextMenu=new ContextMenu();
+            AddForgetItem(label.ContextMenu,member.Id);
+            ChecksRow.Children.Add(label);
+        }
+        foreach (var unit in VisibleUnits.Where(u => !u.Mark.Slot.Bench || u.Suggestion!=null))
         {
             var name = unit.Name ?? "待复核";
             var op = unit.Name == null ? null : _operators.GetValueOrDefault(unit.Name);
@@ -102,7 +145,16 @@ public partial class DeployView
             DockPanel.SetDock(location,Dock.Right);
             content.Children.Add(location);
             var body = new StackPanel { Margin = new Thickness(5,0,0,0) };
-            body.Children.Add(Text(name,11,"TextPrimaryBrush",bold:true));
+            if (unit.Suggestion is {} hint)
+            {
+                var confirm=new Button { Content=$"确认{hint.Name}", HorizontalAlignment=HorizontalAlignment.Left,
+                    Padding=new Thickness(4,0,4,0), FontSize=11, ToolTip=$"将本格确认为{hint.Name}，上次位于 {hint.LastSlot}" };
+                confirm.SetResourceReference(StyleProperty,"SmallActionButton");
+                confirm.Click+=(_,e)=>{ e.Handled=true; ConfirmSuggestion(unit); };
+                body.Children.Add(confirm);
+                body.Children.Add(Text($"上次 {hint.LastSlot}",10,"TextSecondaryBrush"));
+            }
+            else body.Children.Add(Text(name,11,"TextPrimaryBrush",bold:true));
             if (op != null) body.Children.Add(Text(string.Join(" · ",op.CoreCovenants),9.5,"TextSecondaryBrush"));
             content.Children.Add(body);
             var card = new Border { Child=content, Padding=new Thickness(5,3,5,3), Margin=new Thickness(0,1,4,2),
@@ -133,25 +185,74 @@ public partial class DeployView
     private ContextMenu LiveMenu(LiveUnit unit)
     {
         var menu = new ContextMenu();
+        if (unit.Suggestion is {} hint)
+        {
+            var accept=new MenuItem { Header=$"确认{hint.Name}（上次 {hint.LastSlot}）" };
+            accept.Click+=(_,_)=>ConfirmSuggestion(unit);
+            menu.Items.Add(accept);
+        }
         var review = new MenuItem {Header="复核此格"};
+        if (unit.Name==null)
+        {
+            var quick=new List<MenuItem>();
+            menu.Opened+=async (_,_) =>
+            {
+                foreach (var old in quick) menu.Items.Remove(old);
+                quick.Clear();
+                if (_liveScanner is not {} scanner) return;
+                var names=await Task.Run(()=>scanner.GetLiveReviewCandidates(unit));
+                await menu.Dispatcher.InvokeAsync(() =>
+                {
+                    if (!menu.IsOpen || quick.Count>0) return;
+                    foreach (string name in names.Where(n=>n!=unit.Suggestion?.Name))
+                    {
+                        var item=new MenuItem { Header=$"确认{name}" };
+                        item.Click+=(_,_)=>{
+                            LiveMessage.Visibility=Visibility.Visible;
+                            LiveMessage.Text=scanner.ConfirmLiveReviewName(unit,name)
+                                ? $"{unit.Mark.Slot} 已确认 · {name}" : "该格候选已变化，请重新打开菜单";
+                        };
+                        menu.Items.Insert(menu.Items.IndexOf(review),item);
+                        quick.Add(item);
+                    }
+                });
+            };
+        }
         review.Click += async (_,_) => await ReadField(unit);
         menu.Items.Add(review);
         var correct = new MenuItem {Header="更换干员并记住"};
         correct.Click += (_,_) =>
         {
             var strategies = _operators.Values.Select(o => o.RequiredStrategyId).Where(s => s.Length > 0).ToHashSet();
-            var picker = new OperatorPickerWindow(_operators.Values, unit.Name ?? "", strategies)
+            var picker = new OperatorPickerWindow(_operators.Values, unit.Name ?? "", strategies,
+                reviewCandidates: _liveScanner?.GetLiveReviewCandidates(unit))
                 { Owner = Window.GetWindow(this) };
             picker.ClearSlotButton.Visibility = Visibility.Collapsed;
             picker.ShowDialog();
             if (picker.Result is not { Length: > 0 } name) return;
             LiveMessage.Visibility = Visibility.Visible;
-            LiveMessage.Text = _liveScanner?.SetLiveIdentity(unit.Id, unit.Mark.Slot, name) == true
+            LiveMessage.Text = _liveScanner?.SetLiveIdentity(unit, name) == true
                 ? $"本局已记住 · {unit.Mark.Slot} {name}" : "该干员已移动，请重新选择";
         };
         menu.Items.Add(correct);
+        if (unit.MemberId is long member) AddForgetItem(menu,member);
         AddFeedbackItem(menu, unit.Mark.Slot);
         return menu;
+    }
+
+    private void ConfirmSuggestion(LiveUnit unit)
+    {
+        LiveMessage.Visibility=Visibility.Visible;
+        LiveMessage.Text=_liveScanner?.ConfirmLiveSuggestion(unit)==true
+            ? $"本局已记住 · {unit.Mark.Slot} {unit.Suggestion!.Name}" : "该格候选已变化，请查看最新识别结果";
+    }
+
+    private void AddForgetItem(ContextMenu menu,long id)
+    {
+        var remove=new MenuItem {Header="已出售，移除本局记录"};
+        var displayed = _roster;
+        remove.Click+=(_,_)=>_liveScanner?.ForgetLiveMember(id, displayed);
+        menu.Items.Add(remove);
     }
 
     private void OnBoardFeedbackMenu(object sender, MouseButtonEventArgs e)
@@ -170,7 +271,7 @@ public partial class DeployView
 
     private void AddFeedbackItem(ContextMenu menu, FieldSlot slot)
     {
-        var roster = _roster;
+        var roster = DisplayRoster;
         var observation = roster.Observations.LastOrDefault();
         var item = new MenuItem { Header = ShowingLive ? "这格识别有误" : "标记推荐站位有误",
             IsEnabled = observation != null && observation.Map == DisplayMap?.Id };
@@ -187,7 +288,7 @@ public partial class DeployView
         };
         item.Click += async (_,_) =>
         {
-            var recommendation = $"视图：{mode} · 候选：{string.Join("、",Candidates(roster).Select(c => c.Key))}";
+            var recommendation = $"视图：{mode} · 候选：{string.Join("、",Candidates().Select(c => c.Key))}";
             if (plan != null) recommendation += $" · 方案地图：{plan.Map.Id} · 该方案计算时的候选：{string.Join("、",planPool.Select(c => c.Key))} · 上阵：{string.Join("、",plan.Placed.Select(p => p.Key + " " + p.CellCode))} · 替补：{string.Join("、",plan.Bench.Select(b => b.Name))}";
             else recommendation += " · 暂无已计算方案";
             var purchase = RecognitionDiagnostics.Samples.Freeze().FirstOrDefault(s => s.Game == observation!.Game &&
@@ -197,7 +298,7 @@ public partial class DeployView
             try
             {
                 await Task.Run(() => FieldFeedback.Save(observation!.Game,sample));
-                message = $"{slot} 已标记，可在「设置 → 关于 → 识别有误」补充并导出整局。";
+                message = $"{slot} 已记录";
             }
             catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
             { message = $"标记保存失败：{ex.Message}"; }
@@ -208,7 +309,8 @@ public partial class DeployView
     }
 
     private async void OnReadField(object sender,RoutedEventArgs e) => await ReadField(null);
-    private async Task ReadField(LiveUnit? unit)
+    private async void OnReadOwnBoard(object sender, RoutedEventArgs e) => await ReadField(null, ownBoard: true);
+    private async Task ReadField(LiveUnit? unit, bool ownBoard = false)
     {
         ModeList.SelectedIndex=0;
         if (_readingField || _liveScanner == null) return;
@@ -216,7 +318,7 @@ public partial class DeployView
         LiveMessage.Visibility=Visibility.Visible;
         ReadFieldButton.IsEnabled=false;
         LiveMessage.Text=unit == null ? "正在识别阵容…" : $"正在复核 {unit.Mark.Slot}…";
-        try { LiveMessage.Text=await _liveScanner.ReadLiveFieldAsync(unit); }
+        try { LiveMessage.Text=await _liveScanner.ReadLiveFieldAsync(unit, ownBoard); }
         finally { _readingField=false; ReadFieldButton.IsEnabled=true; }
     }
     private void OnChooseFieldSlot(object sender,RoutedEventArgs e)

@@ -136,16 +136,28 @@ internal sealed class FieldPurchaseBatch(LiveRoster before)
     {
         var l = left.Mark;
         var r = right.Mark;
-        if (l.Scores == null || r.Scores == null || !l.Scores.TryGetValue(a, out var la) ||
-            !l.Scores.TryGetValue(b, out var lb) || !r.Scores.TryGetValue(a, out var ra) ||
-            !r.Scores.TryGetValue(b, out var rb)) return;
-        la = WithPose(l, a, la);
-        lb = WithPose(l, b, lb);
-        ra = WithPose(r, a, ra);
-        rb = WithPose(r, b, rb);
-        double gap = lb + ra - la - rb;
-        string? vote = Math.Abs(gap) < 7 || (gap > 0 ? Math.Max(la,rb) : Math.Max(lb,ra)) > 64
-            ? null : gap > 0 ? a : b;
+        string? vote=null;
+        if (l.Scores!=null && r.Scores!=null && l.Scores.TryGetValue(a,out var la) &&
+            l.Scores.TryGetValue(b,out var lb) && r.Scores.TryGetValue(a,out var ra) && r.Scores.TryGetValue(b,out var rb))
+        {
+            la=WithPose(l,a,la); lb=WithPose(l,b,lb);
+            ra=WithPose(r,a,ra); rb=WithPose(r,b,rb);
+            double gap=lb+ra-la-rb;
+            if (Math.Abs(gap)>=7 && (gap>0?Math.Max(la,rb):Math.Max(lb,ra))<=64) vote=gap>0?a:b;
+        }
+        // Compare both possible assignments in the same score space. Two
+        // plausible poses must support the pairing over its reverse.
+        double? Shape(FieldMark mark,string name)=>mark.ShapeCandidates.FirstOrDefault(c=>c.Name==name)?.Score;
+        if (Shape(l,a) is double sla && Shape(l,b) is double slb &&
+            Shape(r,a) is double sra && Shape(r,b) is double srb)
+        {
+            double margin=sla+srb-slb-sra;
+            if (Math.Abs(margin)>=.12 && (margin>0?Math.Min(sla,srb):Math.Min(slb,sra))>=.65)
+            {
+                var visual=margin>0?a:b;
+                vote=vote==null || vote==visual ? visual : null;
+            }
+        }
         if (_leftId != left.Id || _rightId != right.Id || vote != _pairVote)
         {
             _leftId = left.Id; _rightId = right.Id;
@@ -166,7 +178,8 @@ internal sealed class FieldPurchaseBatch(LiveRoster before)
         }
 
         static bool Changed(FieldMark prior, FieldMark fresh) =>
-            !ReferenceEquals(prior.Scores, fresh.Scores) && !prior.Appearance.AsSpan().SequenceEqual(fresh.Appearance);
+            (!ReferenceEquals(prior.Scores,fresh.Scores) || !ReferenceEquals(prior.ShapeCandidates,fresh.ShapeCandidates))
+            && !prior.Appearance.AsSpan().SequenceEqual(fresh.Appearance);
     }
 
 }

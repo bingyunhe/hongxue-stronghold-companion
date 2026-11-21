@@ -20,6 +20,12 @@ public partial class UpdateHistoryWindow : Window
         public bool Expanded { get; set; } = expanded;
     }
 
+    private void OnEntryLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.TextBlock { DataContext: HistoryRow row } text)
+            ReleaseNoteLinks.Render(text, row.Entry.Content, ReleaseNoteLinks.Open, message => HintText.Text = message);
+    }
+
     private void OnClose(object sender, RoutedEventArgs e) => Close();
     private void OnTitleBarDrag(object sender, MouseButtonEventArgs e)
     {

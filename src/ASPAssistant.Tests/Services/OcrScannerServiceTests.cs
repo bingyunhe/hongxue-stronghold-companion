@@ -67,9 +67,10 @@ public class OcrScannerServiceTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task EnemyPanelTransitionPreservesPurchaseEvidenceButFoldingTheShopClearsIt(bool enemyPanel)
+    [InlineData(true, false, true)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    public async Task SameRoundPurchaseSurvivesAnEnemyPanelOrBriefShopFold(bool enemyPanel, bool prolongedFold, bool expectedPurchase)
     {
         var reader = CreateEconomyReader();
         int money = 4;
@@ -88,12 +89,13 @@ public class OcrScannerServiceTests
         var offers = _shopTexts;
         _shopTexts = [];
         await scanner.ScanNowAsync();
+        if (prolongedFold) await Task.Delay(3600);
         if (enemyPanel) state.EndConfirmation();
         _shopTexts = offers.Where(t => t.Text != "坚守盾牌").ToArray();
         money = 2;
         await scanner.ScanNowAsync();
         await scanner.ScanNowAsync();
-        if (enemyPanel) purchased.Should().Equal("坚守盾牌");
+        if (expectedPurchase) purchased.Should().Equal("坚守盾牌");
         else purchased.Should().BeEmpty();
     }
 

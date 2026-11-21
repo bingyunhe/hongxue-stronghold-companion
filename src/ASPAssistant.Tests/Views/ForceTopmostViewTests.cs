@@ -101,6 +101,8 @@ internal static class ForceTopmostViewTests
             Wait(() => surface.Opacity >= 0.99999 && surface.RenderTransform is TranslateTransform move && Math.Abs(move.X) < 0.01);
             ((TabControl)panel.FindName("SettingsCategoryList")).SelectedIndex = 1; Pump();
             var root = (Border)panel.FindName("SidebarRoot");
+            if (theme == GameShopTheme.Closure)
+                VerifyFocusSettings(panel, settings, gameHwnd, foreground, root, output, night);
             foreach (var scale in new[] { 0.75, 1.0, 1.5 })
             foreach (var width in new[] { 280, 400 })
             {
@@ -209,6 +211,67 @@ internal static class ForceTopmostViewTests
             File.WriteAllText(Path.Combine(output, $"timing-{theme}-{night}.json"), JsonSerializer.Serialize(timing));
         }
         finally { dialog.Close(); panel.Close(); game.Close(); other.Close(); Directory.Delete(folder, true); }
+    }
+
+    private static void VerifyFocusSettings(SidePanelWindow panel, SettingsManager settings, IntPtr game,
+        IntPtr other, FrameworkElement root, string output, bool night)
+    {
+        var focus=(CheckBox)panel.FindName("FocusLossToggle");
+        var mode=(ComboBox)panel.FindName("FocusLossSelector");
+        var overlaySwitch=(CheckBox)panel.FindName("HideOverlayWithAssistantToggle");
+        var tabs=(TabControl)panel.FindName("SettingsCategoryList");
+        var hwnd=new WindowInteropHelper(panel).Handle;
+        focus.IsChecked.Should().BeFalse();
+        overlaySwitch.IsChecked.Should().BeFalse();
+        mode.Visibility.Should().Be(Visibility.Collapsed);
+        using var normal=new HwndSource(new HwndSourceParameters("Second normal window") {
+            WindowStyle=unchecked((int)0x90000000), PositionX=-20000,PositionY=-20000,Width=20,Height=20 });
+        var overlay=new Window { ShowActivated=false,ShowInTaskbar=false,Opacity=0,Left=-20000,Top=-20000 };
+        var owned=new Window { Owner=panel,ShowActivated=false,ShowInTaskbar=false,Opacity=0,Left=-20000,Top=-20000 };
+        try
+        {
+            overlay.Show();
+            using var tray=new AssistantTray(panel,overlay);
+            focus.IsChecked=true; Wait(()=>focus.IsEnabled);
+            mode.SelectedIndex.Should().Be(0);
+            panel.UpdateTopmost(game,game);
+            panel.UpdateTopmost(game,other);
+            panel.Topmost.Should().BeFalse();
+            Above(other,hwnd).Should().BeTrue();
+            Above(normal.Handle,hwnd).Should().BeTrue();
+            User32.IsWindowVisible(hwnd).Should().BeTrue();
+            panel.UpdateTopmost(game,game); panel.Topmost.Should().BeTrue();
+            mode.BringIntoView(); Pump();
+            Save((FrameworkElement)VisualTreeHelper.GetParent(root),Path.Combine(output,$"focus-loss-{night}.png"));
+            mode.SelectedIndex=1; Wait(()=>mode.IsEnabled);
+            panel.UpdateTopmost(game,other);
+            panel.IsAssistantHidden.Should().BeTrue();
+            panel.SuppressGameOverlay.Should().BeFalse();
+            panel.UpdateTopmost(game,game);
+            panel.IsAssistantHidden.Should().BeFalse();
+            owned.Show(); panel.UpdateTopmost(game,new WindowInteropHelper(owned).Handle);
+            panel.IsAssistantHidden.Should().BeFalse();
+            owned.Close();
+            tabs.SelectedIndex=0; Pump();
+            overlaySwitch.IsChecked=true; Wait(()=>overlaySwitch.IsEnabled);
+            overlaySwitch.BringIntoView(); Pump();
+            Save((FrameworkElement)VisualTreeHelper.GetParent(root),Path.Combine(output,$"tracking-overlay-{night}.png"));
+            panel.UpdateTopmost(game,other); panel.SuppressGameOverlay.Should().BeTrue();
+            panel.UpdateTopmost(game,game); panel.SuppressGameOverlay.Should().BeFalse();
+            tray.Toggle();
+            panel.UpdateTopmost(game,other); panel.UpdateTopmost(game,game);
+            panel.IsAssistantHidden.Should().BeTrue();
+            panel.SuppressGameOverlay.Should().BeTrue();
+            tray.Restore();
+            var saved=Await(settings.LoadSidePanelPositionAsync());
+            saved.HideOverlayWithAssistant.Should().BeTrue();
+            saved.FocusLossEnabled.Should().BeTrue();
+            saved.TrayOnFocusLoss.Should().BeTrue();
+            focus.IsChecked=false; Wait(()=>focus.IsEnabled);
+            overlaySwitch.IsChecked=false; Wait(()=>overlaySwitch.IsEnabled);
+            tabs.SelectedIndex=1; Pump();
+        }
+        finally { owned.Close(); overlay.Close(); }
     }
 
     private static bool Above(IntPtr upper, IntPtr lower)

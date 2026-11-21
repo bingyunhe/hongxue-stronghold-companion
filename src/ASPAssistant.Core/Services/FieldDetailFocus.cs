@@ -74,7 +74,14 @@ internal sealed class FieldDetailFocus
         var image=Thumbnail(detail);
         if (_registeredDetail != null && image.AsSpan().SequenceEqual(_registeredDetail)) return _registration;
         int centerY=SelectionCenterY(image);
-        if (Math.Abs(centerY-H*.69)>H*.035) return LocateShifted(image,centerY);
+        if (Math.Abs(centerY-H*.69)>H*.035)
+        {
+            var shifted = LocateShifted(image,centerY);
+            if (shifted != null) return shifted;
+            if (LocateCenteredUnit(image,centerY) is { } unit)
+                _registration = (unit.Mark,unit.Zoom,centerY/(double)H);
+            return _registration;
+        }
         var ranked=new List<(FieldMark Mark,double Zoom,double Score,int Votes)>();
         var errors=new List<double>(_landmarks.Count);
         Span<int> diff = stackalloc int[27];
@@ -131,7 +138,7 @@ internal sealed class FieldDetailFocus
                 .GroupBy(r=>r.Mark.Slot).Select(g=>g.MinBy(r=>r.Error)).OrderBy(r=>r.Error).Take(2).ToArray();
             if(badges.Length==2 && badges[0].Error<=(cluster?23:25) && double.IsFinite(badges[1].Error) &&
                 badges[1].Error-badges[0].Error>=(cluster?8:4)) return (badges[0].Mark,badges[0].Zoom,.69);
-            if(cluster && LocateCenteredUnit(image) is { } centered) return (centered.Mark,centered.Zoom,.69);
+            if(cluster && LocateCenteredUnit(image,centerY) is { } centered) return (centered.Mark,centered.Zoom,centerY/(double)H);
         }
         return LocateShifted(image,centerY);
     }
@@ -235,7 +242,7 @@ internal sealed class FieldDetailFocus
     }
 
     // A selected operator's head and torso stay near the center even when skill stripes obscure the tile and badges.
-    private (FieldMark Mark,double Zoom)? LocateCenteredUnit(int[] image)
+    private (FieldMark Mark,double Zoom)? LocateCenteredUnit(int[] image, int centerY)
     {
         var ranks = new List<(FieldMark Mark,double Zoom,double Error)>();
         Span<int> errors=stackalloc int[56];
@@ -253,7 +260,7 @@ internal sealed class FieldDetailFocus
                     {
                         double ox=col*.065*tile, oy=-(.30+row*.082)*tile;
                         int x=(int)Math.Round(mark.Foot.X*_kx+ox), y=(int)Math.Round(mark.Foot.Y*_ky+oy);
-                        int tx=(int)Math.Round(W*.5+dx+ox*scale), ty=(int)Math.Round(H*.69+dy+oy*scale);
+                        int tx=(int)Math.Round(W*.5+dx+ox*scale), ty=(int)Math.Round(centerY+dy+oy*scale);
                         int a=_board[Math.Clamp(y,0,H-1)*W+Math.Clamp(x,0,W-1)], b=image[ty*W+tx];
                         errors[index++]=Math.Abs((a>>16)-(b>>16))+Math.Abs(((a>>8)&255)-((b>>8)&255))+Math.Abs((a&255)-(b&255));
                     }
@@ -272,6 +279,7 @@ internal sealed class FieldDetailFocus
     private double BadgeError(int[] detail, FieldMark selected, double zoom)
     {
         double total=0;
+        int visible=0;
         foreach(var mark in _marks)
         {
             // Reverse the badge-to-foot offset used by LiveFieldReader at the thumbnail scale.
@@ -280,7 +288,8 @@ internal sealed class FieldDetailFocus
             int x=(int)Math.Round(W*.5+(cx-selected.Foot.X*_kx)*zoom);
             int y=(int)Math.Round(H*.69+(cy-selected.Foot.Y*_ky)*zoom);
             if(bx<6 || bx>=W-6 || by<6 || by>=H-6 || x<W*.39 || x>W*.84 || y<H*.32 || y>H*.80)
-                return double.PositiveInfinity;
+                continue;
+            visible++;
             int best=int.MaxValue;
             for(int dy=-7;dy<=7;dy++)
             for(int dx=-7;dx<=7;dx++)
@@ -297,7 +306,7 @@ internal sealed class FieldDetailFocus
             }
             total+=best/49d;
         }
-        return total/_marks.Count;
+        return visible >= Math.Min(3,_marks.Count) ? total/visible : double.PositiveInfinity;
         static int Gray(int rgb) => (77*(rgb>>16)+150*((rgb>>8)&255)+29*(rgb&255))>>8;
     }
 }

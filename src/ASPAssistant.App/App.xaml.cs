@@ -168,6 +168,8 @@ public partial class App : Application
             Environment.GetEnvironmentVariable("ASPASSISTANT_SETTINGS_DIR"));
         // Program's named mutex excludes another app instance; the short-lived root launcher has the same file name.
         var configurationImport = ConfigurationArchive.ApplyPending(settingsDir);
+        // Maa starts external ADB processes internally. Set the inherited directory once before loading it.
+        Directory.SetCurrentDirectory(AdbGameScreens.WorkingDirectory);
 
         // Data layer
         var dataStore = new JsonDataStore(dataDir);
@@ -468,7 +470,7 @@ public partial class App : Application
             sidePanel.UpdateTopmost(_windowTracker.CurrentGameWindowHandle, foreground);
             var panelHandle = new System.Windows.Interop.WindowInteropHelper(sidePanel).Handle;
             var viewport = _windowTracker.CurrentViewport;
-            if (viewport is null || _windowTracker.IsGameMinimized
+            if (sidePanel.SuppressGameOverlay || viewport is null || _windowTracker.IsGameMinimized
                 || foreground != _windowTracker.CurrentGameWindowHandle && foreground != panelHandle)
             {
                 overlay.Hide();
@@ -509,7 +511,7 @@ public partial class App : Application
             Dispatcher.Invoke(() =>
             {
                 _sidePanel.ClearGamePosition();
-                _sidePanel.UpdateTopmost(IntPtr.Zero, Core.Interop.User32.GetForegroundWindow());
+                _sidePanel.UpdateTopmost(_windowTracker.CurrentGameWindowHandle, Core.Interop.User32.GetForegroundWindow());
                 _overlay.Hide();
             });
         };
@@ -521,7 +523,7 @@ public partial class App : Application
                 if (!_sidePanel.IsAssistantHidden) _sidePanel.SetGameMinimized(minimized);
                 if (minimized)
                 {
-                    _sidePanel.UpdateTopmost(IntPtr.Zero, Core.Interop.User32.GetForegroundWindow());
+                    _sidePanel.UpdateTopmost(_windowTracker.CurrentGameWindowHandle, Core.Interop.User32.GetForegroundWindow());
                     _overlay.Hide();
                     _overlay.UpdateShopItems([]);
                 }
@@ -561,7 +563,7 @@ public partial class App : Application
         _ocrScanner.PurchasesDetected += (names, captureRevision, runRevision) => Dispatcher.Invoke(() =>
         {
             if (captureRevision != captureService.Connection.CaptureRevision || runRevision != _ocrScanner.RunRevision) return;
-            deploy.ApplyRecognizedPurchases(names);
+            deploy.ApplyRecognizedPurchases(names, _ocrScanner.LastPurchase.OfferedAt, _ocrScanner.LastPurchase.Round);
         });
         void ApplyBoard(BoardMatch? match)
         {

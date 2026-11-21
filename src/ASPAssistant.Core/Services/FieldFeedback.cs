@@ -3,11 +3,22 @@ using System.Text.Json;
 
 namespace ASPAssistant.Core.Services;
 
-internal readonly record struct SlotReading(System.Drawing.Rectangle Bounds, string Decision);
+internal readonly record struct SlotReading(System.Drawing.Rectangle Bounds, string Decision)
+{
+    internal int BadgeTier { get; init; }
+    internal const string Uncertain = "占用待确认：本格脚下证据不足，可能被遮挡";
+}
 public sealed record FieldObservation(Guid Game, SampleFrame Frame, string Map, int Round,
     IReadOnlyList<LiveUnit> Units, IReadOnlyList<string> Bought)
 {
     internal IReadOnlyDictionary<FieldSlot,SlotReading> Readings { get; init; } = new Dictionary<FieldSlot,SlotReading>();
+    public FieldSlot[] UncertainSlots { get; init; } = [];
+    public bool PersonalBoard { get; init; }
+    internal bool PersonalRoster { get; init; }
+    internal int BoardRevision { get; init; }
+    internal GameConnectionService? Connection { get; init; }
+    internal long CaptureRevision { get; init; }
+    internal int RunRevision { get; init; }
     internal string Summary => $"{Map} 第{Round}回合 · 购入[{string.Join("、", Bought)}] · " +
         string.Join("；", Units.Select(u => $"{u.Mark.Slot} #{u.Id} {u.Name ?? "待复核"}（{u.IdentitySource}）"));
 }
@@ -25,7 +36,7 @@ public static class FieldFeedback
     {
         var current = roster.Observations[^1];
         var unit = roster.Units.FirstOrDefault(u => u.Mark.Slot == slot);
-        var result = $"{slot} · {(unit == null ? "显示为空" : $"#{unit.Id} {unit.Name ?? "待复核"} · {unit.IdentitySource}")}";
+        var result = $"{slot} · {(unit == null ? current.UncertainSlots.Contains(slot) ? "占用待确认" : "显示为空" : $"#{unit.Id} {unit.Name ?? "待复核"} · {unit.IdentitySource}")}";
         var actions = roster.Observations.Select(o => $"{o.Frame.Time:O} · {o.Summary}").ToList();
         for (int i = 1; i < roster.Observations.Length; i++)
         {
@@ -91,6 +102,45 @@ public static class FieldFeedback
         }
     }
 
+    private sealed record ExportState(string Note, string? Exported);
+    private static Dictionary<string, ExportState> ReadStates(string directory)
+    {
+        string path = Path.Combine(directory, "export-state.json");
+        return File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, ExportState>>(File.ReadAllBytes(path))! : [];
+    }
+
+    internal static void SaveStates(IReadOnlyList<RecognitionSample> records, bool exported)
+    {
+        lock (Gate)
+        {
+            var directory = Path.GetDirectoryName(records[0].StoragePath!)!;
+            var states = ReadStates(directory);
+            foreach (var sample in records)
+            {
+                string key = Path.GetFileName(sample.StoragePath!);
+                states.TryGetValue(key, out var prior);
+                states[key] = exported ? new(prior?.Note ?? sample.Note, sample.Note) : new(sample.Note, prior?.Exported);
+            }
+            foreach (var key in states.Keys.Where(k => !File.Exists(Path.Combine(directory,k))).ToArray()) states.Remove(key);
+            var path = Path.Combine(directory, "export-state.json");
+            var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllBytes(tmp, JsonSerializer.SerializeToUtf8Bytes(states));
+                File.Move(tmp,path,true);
+            }
+            finally { File.Delete(tmp); }
+            if (exported) foreach (var sample in records) sample.ExportedNote = sample.Note;
+        }
+    }
+
+    public static void SetNote(RecognitionSample game, int index, string value)
+    {
+        var record = game.Records[index];
+        SaveStates([record with { Note = value }],false);
+        record.Note = value;
+    }
+
     internal static RecognitionSample[] LoadGames() => LoadGames(DirectoryPath);
 
     internal static RecognitionSample[] LoadGames(string directory)
@@ -98,6 +148,7 @@ public static class FieldFeedback
         lock (Gate)
         {
             if (!Directory.Exists(directory)) return [];
+            var states = ReadStates(directory);
             var games = new Dictionary<string,List<RecognitionSample>>();
             foreach (var path in Directory.GetFiles(directory, "*.mark").Order(StringComparer.Ordinal))
             {
@@ -119,7 +170,9 @@ public static class FieldFeedback
                     if (parts.Length != 3 || !Guid.TryParseExact(parts[1],"N",out _)) throw new InvalidDataException("标记文件名称无效");
                     var key = parts[1];
                     if (!games.TryGetValue(key, out var list)) games.Add(key, list = []);
-                    list.Add(sample);
+                    states.TryGetValue(Path.GetFileName(path), out var state);
+                    list.Add(sample with { StoragePath = path, Game = Guid.ParseExact(key,"N"), Note = state?.Note ?? "", ExportedNote = state?.Exported });
+
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException)
                 { AppLogger.Warn("Feedback", "无法读取一份棋盘标记：" + ex.GetType().Name); }
@@ -127,8 +180,8 @@ public static class FieldFeedback
             return games.Values.OrderByDescending(g => g[^1].Started).Select(g => new RecognitionSample(null,
                 $"整局棋盘标记 · {g[0].Started.LocalDateTime:MM-dd} · {g.Count} 条", "可选择标记，补充实际姓名或站位后导出。",
                 g[0].Started, g.SelectMany((m,i) => m.Frames.Select(f => f with { Step = $"标记{i+1} · {m.Kind} · {f.Step}" })).ToArray())
-                { IsGameReport = true, Cases = g.Select((m,i) => new RecognitionSample.MarkedCase($"标记{i+1} · {m.Label}",m.Round,m.Result,
-                    m.InputFrame + g.Take(i).Sum(s => s.Frames.Length), "")).ToArray(),
+                { IsGameReport = true, Game = g[0].Game, Records = g.ToArray(), Cases = g.Select((m,i) => new RecognitionSample.MarkedCase($"标记{i+1} · {m.Label}",m.Round,m.Result,
+                    m.InputFrame + g.Take(i).Sum(s => s.Frames.Length), m.Note)).ToArray(),
                     Actions = g.SelectMany((m,i) => new[] { $"标记{i+1} · {m.Label} · {m.Result}" }.Concat(m.Actions)).ToArray() }).ToArray();
         }
     }

@@ -69,7 +69,7 @@
                                 </Expander.Header>
                                 <StackPanel>
                                     <TextBlock Text="{Binding Entry.Title}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,10" Foreground="{DynamicResource TextPrimaryBrush}" />
-                                    <TextBlock Text="{Binding Entry.Content}" FontSize="12" LineHeight="20" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                    <TextBlock Loaded="OnEntryLoaded" FontSize="12" LineHeight="20" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}" />
                                 </StackPanel>
                             </Expander>
                         </DataTemplate>
