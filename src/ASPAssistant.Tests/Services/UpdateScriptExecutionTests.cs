@@ -57,7 +57,7 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
             [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { $errors | ForEach-Object { [Console]::Error.WriteLine($_.Message) }; exit 1 }
             """);
-        var result = await RunPowerShellAsync(parser, root, script);
+        var result = await RunPowerShellAsync(parser, root, args: [script]);
         result.ExitCode.Should().Be(0, result.Output);
     }
 
@@ -467,16 +467,16 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
         var path = Path.Combine(root, "update.ps1");
         script = script.Replace("Write-Log \"update started (pid=$appPid)\"", prefix + "\nWrite-Log \"update started (pid=$appPid)\"");
         await File.WriteAllTextAsync(path, script, new UTF8Encoding(true));
-        var result = await RunPowerShellAsync(path, app);
-        if (File.Exists(Path.Combine(runtime, "new.running")))
+        return await RunPowerShellAsync(path, app, afterExit: async () =>
         {
+            if (!File.Exists(Path.Combine(runtime, "new.running"))) return;
             await File.WriteAllTextAsync(Path.Combine(runtime, "release.new"), "release");
             await WaitForFileAsync(Path.Combine(runtime, "new.exited"));
-        }
-        return result;
+        });
     }
 
-    private static async Task<(int ExitCode, string Output)> RunPowerShellAsync(string script, string workingDirectory, params string[] args)
+    private static async Task<(int ExitCode, string Output)> RunPowerShellAsync(
+        string script, string workingDirectory, Func<Task>? afterExit = null, params string[] args)
     {
         var start = new ProcessStartInfo(PowerShell)
         {
@@ -497,6 +497,8 @@ public class UpdateScriptExecutionTests(ITestOutputHelper output) : IAsyncLifeti
             await process.WaitForExitAsync();
             throw new TimeoutException("The isolated update test did not finish.");
         }
+        // The test host can inherit the output pipes and keep them open until released.
+        if (afterExit is not null) await afterExit();
         return (process.ExitCode, await output + await error);
     }
 
