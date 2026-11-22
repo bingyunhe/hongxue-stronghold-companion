@@ -15,6 +15,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  mirror_checksum:
+    name: Mirror package checksum
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 .github/scripts/test_mirror_checksum.py -v
+
   groups:
     name: Public tests (${{ matrix.group }})
     runs-on: windows-latest
@@ -81,7 +90,7 @@ jobs:
 
   test:
     name: Windows .NET tests
-    needs: groups
+    needs: [groups, mirror_checksum]
     if: always()
     runs-on: windows-latest
     timeout-minutes: 10
@@ -90,6 +99,7 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ needs.groups.result }}' -ne 'success') { throw 'A public test group failed, was cancelled, or was skipped.' }
+          if ('${{ needs.mirror_checksum.result }}' -ne 'success') { throw 'Mirror package checksum tests did not succeed.' }
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
