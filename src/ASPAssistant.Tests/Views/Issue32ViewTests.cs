@@ -34,7 +34,7 @@ internal static class Issue32ViewTests
             gate.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue();
             return [display];
         });
-        connection.RefreshDisplay(); connection.PendingDisplayRead!.GetAwaiter().GetResult(); connection.RefreshDisplay().Should().BeTrue();
+        connection.RefreshDisplay(waitForInitialDisplay: true).Should().BeTrue();
         var original = connection.CurrentDisplay;
         var revision = connection.CaptureRevision;
         gate.Reset();
@@ -56,7 +56,7 @@ internal static class Issue32ViewTests
         connection.CurrentDisplay.Should().Be(original);
         display = new(3, "300", "com.hypergryph.arknights", true);
         SetWindowText(third.Handle, "MuMu C · 游戏标签更新").Should().BeTrue();
-        connection.RefreshDisplay(); connection.PendingDisplayRead!.GetAwaiter().GetResult(); connection.RefreshDisplay().Should().BeTrue();
+        connection.RefreshDisplay(waitForInitialDisplay: true).Should().BeTrue();
         connection.CurrentDisplay.Should().Be(display);
         connection.FindGameWindow(third.Handle).Should().Be(third.Handle, "confirmed Android focus refreshes a changed desktop caption");
         connection.Settings.WindowTitle.Should().Be("MuMu C · 游戏标签更新");
@@ -67,11 +67,10 @@ internal static class Issue32ViewTests
         connection.CaptureRevision.Should().Be(stableRevision);
 
         connection.FindGameWindow(second.Handle).Should().Be(second.Handle);
-        connection.RefreshDisplay(); connection.PendingDisplayRead!.GetAwaiter().GetResult();
-        connection.RefreshDisplay().Should().BeFalse("the former Android screen must not be accepted for a new desktop window");
+        connection.RefreshDisplay(waitForInitialDisplay: true).Should().BeFalse("the former Android screen must not be accepted for a new desktop window");
         Thread.Sleep(1050);
         display = new(2, "200", "com.hypergryph.arknights.bilibili", true);
-        connection.RefreshDisplay(); connection.PendingDisplayRead!.GetAwaiter().GetResult(); connection.RefreshDisplay().Should().BeTrue();
+        connection.RefreshDisplay(waitForInitialDisplay: true).Should().BeTrue();
         connection.CurrentDisplay.Should().Be(display);
         using var manual = new GameConnectionService(settings with { FollowFocusedGame = false }, first.Handle);
         manual.FindGameWindow(second.Handle).Should().Be(first.Handle);
