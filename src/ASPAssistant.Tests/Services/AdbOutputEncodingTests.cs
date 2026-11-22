@@ -10,10 +10,15 @@ public sealed class AdbOutputEncodingTests
     [Fact]
     public void AdbChildStartsOutsideTheInstallation()
     {
-        var shell = Path.Combine(Environment.SystemDirectory,"WindowsPowerShell","v1.0","powershell.exe");
-        AdbGameScreens.Run(shell, ["-NoProfile","-Command",
-            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Environment]::CurrentDirectory"])
-            .Trim().Should().Be(AdbGameScreens.WorkingDirectory);
+        var shell = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        var marker = $"working-dir-{Guid.NewGuid():N}.txt";
+        var path = Path.Combine(AdbGameScreens.WorkingDirectory, marker);
+        File.WriteAllText(path, marker, Encoding.ASCII);
+        try
+        {
+            AdbGameScreens.Run(shell, ["/d", "/c", "type", marker]).Should().Be(marker);
+        }
+        finally { File.Delete(path); }
         var installation = Path.Combine(Path.GetTempPath(),"app");
         AdbGameScreens.ChooseWorkingDirectory(installation,Path.Combine(installation,"temp"))
             .Should().Be(Path.GetDirectoryName(installation));
