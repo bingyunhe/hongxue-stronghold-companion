@@ -20,7 +20,7 @@ internal static class UpdateHistoryViewTests
         var appearance = new SidebarAppearance(); WindowUiScale.Initialize(appearance);
         ThemeManager.Apply(theme, night);
         var entries = UpdateHistory.Load(Path.Combine(AppContext.BaseDirectory, "data", "update-history.json"));
-        entries.Should().HaveCount(20); entries[0].Version.Should().Be("v1.9.7"); entries[^1].Version.Should().Be("v1.0.0");
+        entries.Should().HaveCount(21); entries[0].Version.Should().Be("v1.9.8"); entries[^1].Version.Should().Be("v1.0.0");
         entries.Single(entry => entry.Version == "v1.9.4").Content.Should().Contain("HongxueCompanion.exe").And.Contain("反馈与诊断").And.Contain("新增").And.Contain("修复").And.Contain("修改");
         entries.Single(entry => entry.Version == "v1.9.3").Content.Should().Contain("单阶段支持最大15人");
         entries.Should().OnlyContain(entry => !entry.Content.Contains("## 下载"));
@@ -31,7 +31,7 @@ internal static class UpdateHistoryViewTests
             window.Show(); Pump();
             var list = (ItemsControl)window.FindName("HistoryItems");
             var expanders = Descendants<Expander>(list).ToArray();
-            expanders.Should().HaveCount(20); expanders[0].IsExpanded.Should().BeTrue();
+            expanders.Should().HaveCount(21); expanders[0].IsExpanded.Should().BeTrue();
             expanders.Skip(1).Should().OnlyContain(item => !item.IsExpanded);
             Save(window, Path.Combine(directory, $"{theme}-{night}-latest.png"));
             var toggle = Descendants<ToggleButton>(expanders[0]).First();

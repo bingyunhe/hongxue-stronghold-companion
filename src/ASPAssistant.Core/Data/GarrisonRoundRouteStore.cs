@@ -35,6 +35,13 @@ public sealed class GarrisonRoundRouteStore
         mode is not null && _data.Modes.TryGetValue(mode, out var rules) && rules.Rounds.ContainsKey(round) &&
         rules.BossRounds is { } bosses && !bosses.Contains(round);
 
+    public int PlacementWaveRound(string? mode, int round)
+    {
+        if (mode is null || !_data.Modes.TryGetValue(mode, out var rules) || !rules.Rounds.ContainsKey(round)) return 0;
+        if (rules.BossRounds is { Count: > 0 } bosses && bosses.Contains(round)) return round == bosses.Min() ? 14 : 15;
+        return mode.StartsWith("规程等级", StringComparison.Ordinal) && round is >= 1 and <= 13 ? round : 0;
+    }
+
     internal IReadOnlySet<string>? PossibleEnemies(string? mode, int round)
     {
         if (mode is null || !_data.Modes.TryGetValue(mode, out var rules) || !rules.Rounds.TryGetValue(round, out var ids))

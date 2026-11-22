@@ -127,6 +127,7 @@ public partial class SidePanelWindow : Window
         BanVm = banVm;
         EnemyVm = enemyVm;
         LineupVm = lineupVm;
+        TrackingVm.SavedLineups = lineupVm.Lineups;
         _lineupShareService = lineupShareService;
         _allOperators = allOperators;
         _allEquipment = allEquipment;
@@ -365,14 +366,8 @@ public partial class SidePanelWindow : Window
         }
         if (msg == User32.WM_HOTKEY)
         {
-            var id = wParam.ToInt32();
-            var hotkey = id == _assistantHotkeyId ? _assistantHotkey : id == _recognitionHotkeyId ? _recognitionHotkey : null;
-            if (hotkey is null) return IntPtr.Zero;
-            if (AssistantHotkeyBox.IsKeyboardFocusWithin) _ = SaveAssistantHotkeyAsync(hotkey);
-            else if (RecognitionHotkeyBox.IsKeyboardFocusWithin) _ = SaveRecognitionHotkeyAsync(hotkey);
-            else if (id == _assistantHotkeyId) ToggleAssistantVisibilityRequested?.Invoke();
-            else ManualScanRequested?.Invoke();
-            handled = true;
+            handled = HandleShortcut(wParam.ToInt32());
+            return IntPtr.Zero;
         }
         if (msg == 0x02E0) // Re-evaluate monitor bounds after WPF handles WM_DPICHANGED.
             Dispatcher.BeginInvoke(ApplyUiScale);
@@ -709,9 +704,10 @@ public partial class SidePanelWindow : Window
         var hwnd = new WindowInteropHelper(this).Handle;
         // A WPF window can have a hidden native owner above the sidebar. Check the entire owner chain.
         var owner = foreground == IntPtr.Zero ? IntPtr.Zero : User32.GetAncestor(foreground, 2);
-        while (owner != IntPtr.Zero && owner != hwnd && owner != game)
+        var guideHandle = _trackingGuide is null ? IntPtr.Zero : new WindowInteropHelper(_trackingGuide).Handle;
+        while (owner != IntPtr.Zero && owner != hwnd && owner != game && owner != guideHandle)
             owner = User32.GetWindow(owner, 4);
-        bool ownFocus = owner != IntPtr.Zero && owner == hwnd;
+        bool ownFocus = owner != IntPtr.Zero && (owner == hwnd || owner == guideHandle);
         bool gameExists = game != IntPtr.Zero && User32.IsWindow(game);
         bool gameVisible = gameExists && !User32.IsIconic(game);
         bool gameFocus = gameVisible && owner == game;
@@ -1681,6 +1677,12 @@ public partial class SidePanelWindow : Window
                 PlannerVm.SetAutoRunState(new(TrackingVm.IsTerminalLevelRestored && TrackingVm.ManualTerminalLevel is null
                     ? 0 : TrackingVm.TerminalLevel, TrackingVm.Economy, TrackingVm.OwnedOperatorNames));
         };
+        EnemyVm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(EnemyViewModel.BossName) or nameof(EnemyViewModel.RegulationLevel))
+                PlannerVm.SetBossContext(EnemyVm.BossName, EnemyVm.RegulationLevel);
+        };
+        PlannerVm.SetBossContext(EnemyVm.BossName, EnemyVm.RegulationLevel);
         PlannerVm.SetAutoRunState(new(TrackingVm.IsTerminalLevelRestored && TrackingVm.ManualTerminalLevel is null
             ? 0 : TrackingVm.TerminalLevel, TrackingVm.Economy, TrackingVm.OwnedOperatorNames));
         PlannerVm.SaveRequested += async lineup =>
@@ -1733,6 +1735,11 @@ public partial class SidePanelWindow : Window
         };
         PlannerVm.ShowAutoPageCommand.Execute(null);
         PlannerView.DataContext = PlannerVm;
+        TrackingView.DeployPage.ConnectMapPlanner(PlannerVm, LineupVm);
+        TrackingView.DeployPage.GuideRequested += () => ShowTrackingGuide(toggle: false);
+        TrackingVm.SourcesChanged += RefreshTrackingGuide;
+        TrackingVm.StageStateChanged += RefreshTrackingGuide;
+        Closed += (_, _) => _trackingGuide?.Close();
     }
 
     internal async Task<string> PrepareLineupShareAsync(Lineup lineup)
@@ -1767,17 +1774,25 @@ public partial class SidePanelWindow : Window
         await MinimizableDialog.ShowAsync(window, PanelContent);
         if (window.Result is null) return;
 
-        await SaveEditedLineupAsync(window.Result, source is not null);
+        await SaveEditedLineupAsync(window.Result, source is not null, source);
     }
 
-    internal async Task SaveEditedLineupAsync(Lineup lineup, bool edited)
+    internal async Task SaveEditedLineupAsync(Lineup lineup, bool edited, Lineup? editorSource = null)
     {
-        try { await LineupVm.AddOrUpdateAsync(lineup); }
+        await GuideSaveGate.WaitAsync();
+        try
+        {
+            if (editorSource != null && LineupVm.Lineups.FirstOrDefault(l => l.Id == lineup.Id) is { } latest
+                && !ReferenceEquals(latest, editorSource)) MergeGuideNotes(editorSource, latest, lineup);
+            await LineupVm.AddOrUpdateAsync(lineup);
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             ShowToast($"阵容保存失败：{ex.Message}");
             return;
         }
+        finally { GuideSaveGate.Release(); }
+        RefreshTrackingGuide();
         LineupView.RefreshAllBadges();
         ShowToast(edited ? "已保存阵容" : "已创建阵容");
         PlannerVm.NotifySavedAutoRouteSourceChanged(lineup);

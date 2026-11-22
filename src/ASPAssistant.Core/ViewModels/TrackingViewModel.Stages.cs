@@ -16,13 +16,13 @@ public partial class TrackingViewModel
     public string StageSwitchHint => !AutomaticStageSwitch ? "" : !_trackedLineups.Single(l => l.Id == _stageLineupId).Stages.Any(s => s.StartRound.HasValue)
         ? "阵容未设置回合范围，请手动选择阶段" : Economy?.Round is { } round ? $"当前第 {round} 回合 · 自动跟随" : "等待识别当前回合";
 
-    private static IReadOnlyList<SklandGuideStage> LineupStages(Lineup lineup)
+    public static IReadOnlyList<SklandGuideStage> LineupStages(Lineup lineup)
     {
         var definitions = lineup.SklandGuide?.Stages ?? lineup.EditorStages ??
             [new() { Id = "early", Name = "前期" }, new() { Id = "mid", Name = "中期" },
              new() { Id = "final", Name = "成型阵容", IsFinal = true }, new() { Id = "support", Name = "挂件" }];
         return definitions.Select(s => new SklandGuideStage { Id = s.Id,
-            Name = s.IsFinal && s.Name == "大成" ? "成型阵容" : s.Name, IsFinal = s.IsFinal,
+            Name = s.IsFinal && s.Name == "大成" ? "成型阵容" : s.Name, IsFinal = s.IsFinal, OperationIdea = s.OperationIdea,
             StartRound = s.StartRound, EndRound = s.EndRound, RecommendedEquipments = [.. s.RecommendedEquipments],
             Slots = lineup.SklandGuide is not null ? s.Slots : s.IsFinal ? lineup.Slots : s.Id switch
             {

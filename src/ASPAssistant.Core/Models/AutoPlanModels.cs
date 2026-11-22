@@ -62,6 +62,7 @@ public sealed record AutoPlanStacker(string Name, int Tier, string IconPath, dou
 /// <summary>One 本家 the run could be built around, with the 成型阵容 lineup found for it.</summary>
 public sealed class AutoPlanCandidate
 {
+    internal PlannerReplayEvidence.Comparison? RouteComparison { get; init; }
     public required string MainCovenant { get; init; }
     /// <summary>The 成型阵容 lineup: the 本家 at <see cref="MainGoal"/> plus the best 小盟约 the free places allow.</summary>
     public required PlannedLineup Final { get; init; }

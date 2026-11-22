@@ -47,7 +47,7 @@ public sealed class UpdateTransferTests
             var uri = request.RequestUri!;
             if (uri.Host == "mirrorchyan.com")
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new
-                { code = 0, data = new { version_name = "9.0.0", sha256 = hash, url = $"https://cdn.test/{++mirrorQueries}" } }) };
+                { code = 0, data = new { version_name = "9.0.0", update_type = "full", sha256 = hash, url = $"https://cdn.test/{++mirrorQueries}" } }) };
             if (uri.AbsolutePath == "/sums") return new(HttpStatusCode.OK) { Content = new StringContent($"{hash}  {name}") };
             long start = request.Headers.Range?.Ranges.Single().From ?? 0;
             offsets.Add(start);

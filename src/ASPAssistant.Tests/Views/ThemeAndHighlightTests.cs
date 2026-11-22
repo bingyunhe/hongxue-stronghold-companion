@@ -7,6 +7,8 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -27,7 +29,7 @@ using FluentAssertions;
 namespace ASPAssistant.Tests.Views;
 
 [Collection("Update environment")]
-public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
+public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
 {
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
@@ -318,6 +320,18 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task MissingCovenantCatalogueAndPicker(bool night)
+        => ui.RunAsync(() => OperatorCatalogueViewTests.VerifyMissingCovenants(night), $"missing-covenants-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task MissingCovenantOperatorLists(bool night)
+        => ui.RunAsync(() => OperatorCatalogueViewTests.VerifyMissingCovenantLists(night), $"missing-lists-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task OperatorCatalogue_CyclesLayouts(bool night)
         => ui.RunAsync(() => OperatorCatalogueViewTests.VerifyLayouts(night), $"{nameof(OperatorCatalogue_CyclesLayouts)}-{night}");
 
@@ -394,11 +408,17 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         ((TabControl)panel.FindName("MainTabs")).SelectedItem = panel.FindName("LineupsTab");
         ((ListBox)panel.FindName("LineupsSegment")).SelectedIndex = 1;
         panel.PlannerVm.IsActive = false;
+        var view = (LineupPlannerView)panel.FindName("PlannerView");
+        var goalTab = (Button)view.FindName("GoalTabButton");
+        ((IInvokeProvider)new ButtonAutomationPeer(goalTab).GetPattern(PatternInterface.Invoke)!).Invoke();
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        panel.PlannerVm.ShowGoals.Should().BeTrue();
         panel.PlannerVm.AllCovenants.Single(c => c.Name == "乌萨斯").Level = 2;
         panel.PlannerVm.AllCovenants.Single(c => c.Name == "奥术").Level = 2;
         panel.PlannerVm.StatusText = "计算完成";
         panel.PlannerVm.StatusDetail = "0.0 秒 · 改动后自动重算";
-        var view = (LineupPlannerView)panel.FindName("PlannerView");
+        var navigate = (Button)view.FindName("PlannerNavigationButton");
+        var invoke = (IInvokeProvider)new ButtonAutomationPeer(navigate).GetPattern(PatternInterface.Invoke)!;
         var output = Path.Combine(TestOutput.Directory, "planner-chrome-contrast");
         Directory.CreateDirectory(output);
         using var assertions = new FluentAssertions.Execution.AssertionScope();
@@ -406,13 +426,16 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
         foreach (var results in new[] { false, true })
         {
             panel.Width = width;
-            panel.PlannerVm.ShowResults = results;
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            panel.PlannerVm.ShowResults.Should().Be(results);
+            navigate.IsVisible.Should().BeTrue();
+            navigate.Content.Should().Be(results ? "← 返回目标" : panel.PlannerVm.ViewResultsText);
+            goalTab.Tag.Should().Be("Active");
             Save((FrameworkElement)panel.Content, Path.Combine(output, $"{theme}-{night}-{width}-{results}.png"));
-            var texts = new[] { "GoalTabButton", "ResultTabButton" }
+            var texts = new[] { "AutoTabButton", "GoalTabButton", "PlannerNavigationButton" }
                 .SelectMany(name => Descendants<TextBlock>((Button)view.FindName(name)))
                 .Concat(Descendants<TextBlock>(view).Where(t => t.Text is "计算完成" or "0.0 秒 · 改动后自动重算")).ToList();
-            texts.Should().HaveCount(4);
+            texts.Should().HaveCount(5);
             foreach (var text in texts)
             {
                 var foreground = ((SolidColorBrush)text.Foreground).Color;
@@ -421,6 +444,48 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
                 var b = Luminance(background);
                 ((Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05)).Should().BeGreaterThanOrEqualTo(4.5,
                     $"{theme}, night={night}, width={width}, results={results}, text={text.Text}");
+            }
+            var before = navigate.TransformToAncestor(view).TransformBounds(new Rect(navigate.RenderSize));
+            invoke.Invoke();
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            var after = navigate.TransformToAncestor(view).TransformBounds(new Rect(navigate.RenderSize));
+            after.Right.Should().BeApproximately(before.Right, 1);
+            after.Top.Should().BeApproximately(before.Top, 1);
+            panel.PlannerVm.ShowResults.Should().Be(!results);
+            panel.PlannerVm.AllCovenants.Where(c => c.IsSelected).Select(c => (c.Name, c.Level))
+                .Should().BeEquivalentTo(new[] { ("乌萨斯", 2), ("奥术", 2) });
+        }
+        if (theme == GameShopTheme.Closure)
+        {
+            var anchor = (StackPanel)((DataTemplate)view.Resources["RouteOperatorTemplate"]).LoadContent();
+            view.Content = anchor;
+            var op = operators.Single(o => o.Name == "青枳");
+            var tip = (ToolTip)anchor.ToolTip;
+            tip.PlacementTarget = anchor;
+            const string shortNote = "本阶段新加入";
+            const string longNote = "过渡卡：成型阵容前会被替换 · 需要三连获得（终端 2 只出 Ⅱ 阶及以下） · 本阶段新加入 · 每回合约为成型阵容盟约叠 9 层（按普通版本估算）";
+            foreach (var scale in new[] { 1.0, 1.25 })
+            {
+                panel.Appearance.UiScale = scale;
+                double singleLineHeight = 0;
+                foreach (var note in new[] { shortNote, longNote })
+                {
+                    anchor.DataContext = new RouteOperatorItem { Operator = op, Name = op.Name, ExtraInfo = note };
+                    tip.IsOpen = true;
+                    try
+                    {
+                        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                        var label = Descendants<TextBlock>(tip).Single(t => t.Text == note);
+                        var cards = (StackPanel)VisualTreeHelper.GetParent(Descendants<ContentControl>(tip).Single(c => Equals(c.Tag, "普通")));
+                        var banner = (Border)label.Parent;
+                        banner.ActualWidth.Should().BeApproximately(cards.ActualWidth, 1);
+                        tip.ActualWidth.Should().BeLessThan(cards.ActualWidth + 20);
+                        if (note == shortNote) singleLineHeight = label.ActualHeight;
+                        else label.ActualHeight.Should().BeGreaterThan(singleLineHeight * 1.5);
+                        Save((FrameworkElement)tip.Content, Path.Combine(output, $"route-{night}-{scale}-{(note == shortNote ? "short" : "long")}.png"));
+                    }
+                    finally { tip.IsOpen = false; }
+                }
             }
         }
         panel.Close();
@@ -545,6 +610,12 @@ public class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfTestHost>
 
     [Fact]
     public Task LineupRecommendations_FilterAndOpenRepair() => ui.RunAsync(LineupRecommendationViewTests.Verify, nameof(LineupRecommendations_FilterAndOpenRepair));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task ManualSubstitution_ExpandsAndUpdatesAfterPurchase(bool night)
+        => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyManualSubstitution(night), $"ManualSubstitution-{night}");
 
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]

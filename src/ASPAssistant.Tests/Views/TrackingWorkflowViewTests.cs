@@ -146,7 +146,7 @@ internal static class TrackingWorkflowViewTests
             Layout(view, width);
             var name = Descendants<TextBlock>(view.DeployPage).Single(t => t.Text == "荒芜拉普兰德");
             name.TextTrimming.Should().Be(TextTrimming.CharacterEllipsis);
-            name.ActualWidth.Should().BeGreaterThan(0);
+            name.ActualWidth.Should().BeGreaterThan(30, "数量和精锐按钮旁应能显示干员名");
             var line = (DockPanel)VisualTreeHelper.GetParent(name);
             var elite = line.Children.OfType<Border>().Should().ContainSingle().Which;
             var bounds = elite.TransformToAncestor(line).TransformBounds(new Rect(elite.RenderSize));
@@ -194,6 +194,8 @@ internal static class TrackingWorkflowViewTests
         finals.Items.Count.Should().Be(2);
         transition.Items.Count.Should().Be(0, "the unselected early phase is retained but hidden");
         ((StackPanel)view.FindName("PastBody")).Visibility.Should().Be(Visibility.Collapsed);
+        Descendants<Button>(finals).Where(b => b.Name == "remove").Should().HaveCount(2).And.OnlyContain(b => b.IsVisible);
+        Descendants<Border>(finals).Should().OnlyContain(b => b.ContextMenu == null);
         var before = ((ItemsControl)view.FindName("TrackedCovenantChips")).Items.Cast<TrackedCovenantChip>().ToArray();
         state.SetElite("塔露拉", true);
         vm.SyncDeployPool();
@@ -224,9 +226,25 @@ internal static class TrackingWorkflowViewTests
         pages.SelectedIndex = 1;
         Layout(view, 280);
         var initialPool = (StackPanel)view.DeployPage.FindName("PoolGroups");
+        Grid Card() => Descendants<Grid>(view.DeployPage).First(g => g.ToolTip is string t && t.StartsWith("魔王 ·"));
+        void Tap(UIElement element)
+        {
+            element.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount, System.Windows.Input.MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            Layout(view, 280);
+        }
+        Tap(Card());
+        state.CountOf("魔王").Should().Be(1);
+        foreach (var (key, count) in new[] { ("+", 2), ("−", 1), ("−", 0) })
+        {
+            Card().ContextMenu.Should().BeNull();
+            Tap(Descendants<TextBlock>(Card()).Single(t => t.Text == key));
+            state.CountOf("魔王").Should().Be(count);
+        }
         var initialExtension = Descendants<Button>(initialPool).Single(b => b.Content is string text && text.Contains("扩展池"));
         initialExtension.Content!.ToString().Should().StartWith("▾");
         initialExtension.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var exportPreviews = Environment.GetEnvironmentVariable("ASPASSISTANT_EXPORT_TRACKING_PREVIEWS") == "1";
         foreach (var theme in Enum.GetValues<GameShopTheme>())
         foreach (var night in new[] { false, true })
         foreach (var width in new[] { 280, 310, 400 })
@@ -240,7 +258,7 @@ internal static class TrackingWorkflowViewTests
                 var bounds = button.TransformToAncestor(view).TransformBounds(new Rect(button.RenderSize));
                 bounds.Right.Should().BeLessThanOrEqualTo(width + 0.1);
             }
-            Save(view, $"{theme}-{night}-{width}-shopping");
+            if (exportPreviews) Save(view, $"{theme}-{night}-{width}-shopping");
             pages.SelectedIndex = 1;
             Layout(view, width);
             view.DeployPage.ActualWidth.Should().BeApproximately(width, 0.1);
@@ -251,13 +269,13 @@ internal static class TrackingWorkflowViewTests
             Layout(view, width);
             extension = Descendants<Button>(pool).Single(b => b.Content is string text && text.Contains("扩展池"));
             extension.Content!.ToString().Should().StartWith("▾");
-            Save(view, $"{theme}-{night}-{width}-status-partial");
+            if (exportPreviews) Save(view, $"{theme}-{night}-{width}-status-partial");
             state.SetOwned("魔王", true);
             state.SetOwned("冻河", true);
             vm.SyncDeployPool();
             Layout(view, width);
             view.DeployPage.ActualWidth.Should().BeApproximately(width, 0.1);
-            Save(view, $"{theme}-{night}-{width}-status-owned");
+            if (exportPreviews) Save(view, $"{theme}-{night}-{width}-status-owned");
             extension = Descendants<Button>(pool).Single(b => b.Content is string text && text.Contains("扩展池"));
             extension.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             state.SetOwned("魔王", false);
@@ -266,7 +284,7 @@ internal static class TrackingWorkflowViewTests
             pages.SelectedIndex = 2;
             Layout(view, width);
             ((Border)view.DeployPage.FindName("MapFooter")).Visibility.Should().Be(Visibility.Visible);
-            Save(view, $"{theme}-{night}-{width}-no-map");
+            if (exportPreviews) Save(view, $"{theme}-{night}-{width}-no-map");
         }
         vm.ClearAllTracking();
         state.IsOwned("塔露拉").Should().BeTrue();

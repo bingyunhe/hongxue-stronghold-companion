@@ -18,6 +18,7 @@ public class ApplicationExitTests
     [InlineData("button")]
     [InlineData("system")]
     [InlineData("dialog")]
+    [InlineData("tray")]
     public Task CloseBehavior_ExitFinishesProcessWithHiddenOverlay(string action) => RunProbe(action);
 
     [Fact]
@@ -54,7 +55,7 @@ internal static class AppExitProbe
     [STAThread]
     public static int Main(string[] args)
     {
-        if (args.Length != 2 || args[0] != "--close-behavior-probe" || args[1] is not ("button" or "system" or "dialog" or "resources")) return 2;
+        if (args.Length != 2 || args[0] != "--close-behavior-probe" || args[1] is not ("button" or "system" or "dialog" or "resources" or "tray")) return 2;
         var folder = Path.Combine(Path.GetTempPath(), "close-exit-probe-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try
@@ -96,7 +97,8 @@ internal static class AppExitProbe
             var panel = new SidePanelWindow(new(), new(), new(), new(), new(), new(),
                 new(new LineupStore(Path.Combine(folder, "lineups"), calculator.EquipmentRules), calculator),
                 new(calculator.EquipmentRules, Path.Combine(folder, "share")), [], [], [], new(folder), GameShopTheme.Terminal, new(),
-                closeBehavior: action == "dialog" ? MainWindowCloseBehavior.Ask : MainWindowCloseBehavior.Exit)
+                closeBehavior: action == "tray" ? MainWindowCloseBehavior.MinimizeToTray :
+                    action == "dialog" ? MainWindowCloseBehavior.Ask : MainWindowCloseBehavior.Exit)
             { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
             MainWindow = panel;
             panel.Show();
@@ -116,6 +118,42 @@ internal static class AppExitProbe
                         ((CheckBox)dialog.FindName("RememberChoice")).IsChecked = true;
                         ((Button)dialog.FindName("ExitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     }, DispatcherPriority.Loaded);
+                if (action == "tray")
+                {
+                    // Let the probe's outer catch report UI failures without the production error dialog.
+                    Dispatcher.UnhandledExceptionFilter += (_, error) => error.RequestCatch = false;
+                    WindowUiScale.Initialize(new SidebarAppearance { UiScale = 1.25 });
+                    var hwnd = new System.Windows.Interop.WindowInteropHelper(panel).Handle;
+                    _tray.Toggle();
+                    User32.SendMessage(hwnd, 0x8000 + 73, IntPtr.Zero, (IntPtr)0x202);
+                    if (panel.IsAssistantHidden) { Shutdown(29); return; }
+                    _tray.Toggle();
+                    var menu = (ContextMenu)typeof(AssistantTray).GetField("_menu", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_tray)!;
+                    void OpenFromTray(int notification, Action next) => Dispatcher.BeginInvoke(() =>
+                    {
+                        User32.SendMessage(hwnd, 0x8000 + 73, IntPtr.Zero, (IntPtr)notification);
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (!panel.IsAssistantHidden || !menu.IsOpen || !menu.IsLoaded || menu.ActualWidth <= 0
+                                || Math.Abs(menu.LayoutTransform.Value.M11 - 1.25) > .02)
+                            {
+                                Console.Error.WriteLine($"notification={notification:X}, hidden={panel.IsAssistantHidden}, open={menu.IsOpen}, loaded={menu.IsLoaded}, width={menu.ActualWidth}, scale={menu.LayoutTransform.Value.M11}");
+                                Shutdown(30);
+                                return;
+                            }
+                            next();
+                        }, DispatcherPriority.ApplicationIdle);
+                    }, DispatcherPriority.ApplicationIdle);
+                    OpenFromTray(0x7B, () =>
+                    {
+                        menu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "打开助手")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                        if (panel.IsAssistantHidden || menu.IsOpen) { Shutdown(31); return; }
+                        _tray.Toggle();
+                        OpenFromTray(0x205, () => menu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "退出程序"))
+                            .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)));
+                    });
+                    return;
+                }
                 if (action == "system")
                     User32.SendMessage(new System.Windows.Interop.WindowInteropHelper(panel).Handle, 0x0112, (IntPtr)0xF060, IntPtr.Zero);
                 else ((Button)panel.FindName("CloseAssistantButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

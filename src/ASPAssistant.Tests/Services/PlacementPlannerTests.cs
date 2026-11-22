@@ -23,6 +23,65 @@ public class PlacementPlannerTests
 
     private static PlacementOptions Fast(int seed = 1) => new() { Iterations = 3000, Restarts = 3, Seed = seed };
 
+    [Theory]
+    [InlineData(PlacementMode.Combat)]
+    [InlineData(PlacementMode.Stacking)]
+    public async Task WaveComparisonKeepsRosterPinnedEliteAndManualScore(PlacementMode mode)
+    {
+        var (planner, board) = await LoadAsync();
+        var map = board.Find("palace_arrows")!;
+        var pool = UrsusPool.Select(n => new PlacementCandidate(n, false)).Append(new("冻河", true, 1)).ToList();
+        var pin = new PlacementPin(new BoardCell(2, 3), Facing.Up);
+        var options = Fast() with { Mode = mode, FieldCount = 9, WaveRound = 6,
+            Pins = new Dictionary<string, PlacementPin> { ["冻河#2"] = pin } };
+        var normal = planner.Plan(map, pool, options);
+        var boss = planner.Plan(map, pool, options with { WaveRound = 14 });
+        boss.Placed.Select(p => p.Key).Should().BeEquivalentTo(normal.Placed.Select(p => p.Key));
+        boss.Placed.Should().HaveCount(9);
+        boss.Find("冻河#2")!.Cell.Should().Be(pin.Cell);
+        boss.Find("冻河#2")!.Facing.Should().Be(pin.Facing);
+        var placed = normal.Placed.ToDictionary(p => p.Key, p => (p.Cell, p.Facing));
+        planner.Evaluate(map, pool, placed, options).Total.Should().Be(normal.Total);
+        var key = normal.Placed.First(p => !p.IsPinned).Key;
+        var alternative = planner.Alternatives(map, pool, placed, key, options).First();
+        placed[key] = (alternative.Cell, alternative.Facing);
+        planner.Evaluate(map, pool, placed, options).Total.Should().BeApproximately(normal.Total + alternative.Delta, 0.15);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Evaluate_BalancedWeightsDamageInRangeUsingTheOperatorsForm(bool elite)
+    {
+        var (planner, board) = await LoadAsync();
+        var map = board.Find("desert_laser")!;
+        var placement = new Dictionary<string, (BoardCell, Facing)> { ["水灯心"] = (new(3, 2), Facing.Right) };
+        PlacementCandidate[] pool = [new("水灯心", elite)];
+
+        double Score(PlacementMode mode) => planner.Evaluate(map, pool, placement, new() { Mode = mode }).Combat;
+
+        Score(PlacementMode.Balanced).Should().BeGreaterThan(Score(PlacementMode.Combat));
+        Score(PlacementMode.Stacking).Should().Be(Score(PlacementMode.Combat));
+    }
+
+    [Fact]
+    public async Task HiddenCoreCombatKeepsTheOriginalLayoutWhileFinalAssaultChangesIt()
+    {
+        var (planner, board) = await LoadAsync();
+        var map = board.Find("snow")!;
+        var unsampled = new GarrisonMap("reference", map.Name, map.FirstColumn, map.Cells, map.Routes);
+        string[] names = ["涤火杰西卡", "塞雷娅", "白铁", "酒神", "慕斯", "罗比菈塔", "凯瑟琳", "哈洛德", "水灯心", "烛煌"];
+        var pool = names.Select(n => new PlacementCandidate(n, false)).ToArray();
+        var options = new PlacementOptions { Mode = PlacementMode.Combat, FieldCount = 8 };
+        var original = planner.Plan(unsampled, pool, options);
+        var hidden = planner.Plan(map, pool, options with { WaveRound = 15 });
+        var boss = planner.Plan(map, pool, options with { WaveRound = 14 });
+        var layout = original.Placed.Select(p => (p.Key, p.Cell, p.Facing)).ToList();
+        hidden.Placed.Select(p => (p.Key, p.Cell, p.Facing)).Should().BeEquivalentTo(layout);
+        boss.Placed.Select(p => (p.Key, p.Cell, p.Facing)).Should().NotBeEquivalentTo(layout);
+        hidden.Checks.Should().Contain(c => c.IsHint && c.Text.Contains("隐秘核心"));
+    }
+
     [Fact]
     public async Task Plan_PicksEightFromTwelveAndHoldsBothRoutes()
     {

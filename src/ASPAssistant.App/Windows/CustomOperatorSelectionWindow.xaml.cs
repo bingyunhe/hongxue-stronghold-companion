@@ -3,17 +3,21 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using ASPAssistant.App.Controls;
 using ASPAssistant.Core.Models;
+using ASPAssistant.Core.ViewModels;
 
 namespace ASPAssistant.App.Windows;
 
 public partial class CustomOperatorSelectionWindow : Window
 {
+    private readonly MissingCovenantFilters _missing;
     private readonly List<CheckBox> _choices = [];
     public IReadOnlyList<string>? Result { get; private set; }
 
     public CustomOperatorSelectionWindow(IEnumerable<Operator> candidates)
     {
+        _missing = new(_ => FilterChoices());
         InitializeComponent();
+        CovenantFilters.ItemsSource = _missing.Chips;
         WindowUiScale.PrepareCentered(this);
         foreach (var op in candidates.OrderBy(o => o.Name, StringComparer.CurrentCulture))
         {
@@ -36,7 +40,7 @@ public partial class CustomOperatorSelectionWindow : Window
             var card = new Border
             {
                 Width = 274, Padding = new Thickness(8), Margin = new Thickness(0, 0, 8, 8),
-                BorderThickness = new Thickness(1), Child = check
+                BorderThickness = new Thickness(1), Child = check, Tag = op
             };
             card.SetResourceReference(Border.BackgroundProperty, "CardBackgroundBrush");
             card.SetResourceReference(Border.BorderBrushProperty, "LineBrush");
@@ -49,6 +53,7 @@ public partial class CustomOperatorSelectionWindow : Window
             check.Unchecked += (_, _) => UpdateSelection();
         }
         UpdateSelection();
+        FilterChoices();
         Loaded += (_, _) => SearchBox.Focus();
     }
 
@@ -59,11 +64,20 @@ public partial class CustomOperatorSelectionWindow : Window
         SelectionCount.Text = $"已选择 {count} / 12 名";
     }
 
-    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    private void OnSearchChanged(object sender, TextChangedEventArgs e) => FilterChoices();
+
+    private void FilterChoices()
     {
+        var candidates = new List<Operator>();
         foreach (var check in _choices)
-            ((Border)check.Parent).Visibility = ((string)check.Tag).Contains(SearchBox.Text.Trim(), StringComparison.OrdinalIgnoreCase)
-                ? Visibility.Visible : Visibility.Collapsed;
+        {
+            var card = (Border)check.Parent;
+            var op = (Operator)card.Tag;
+            bool matchesName = op.Name.Contains(SearchBox.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+            if (matchesName) candidates.Add(op);
+            card.Visibility = matchesName && _missing.Matches(op) ? Visibility.Visible : Visibility.Collapsed;
+        }
+        _missing.UpdateCounts(candidates);
         EmptyHint.Visibility = ChoicesPanel.Children.Cast<Border>().Any(card => card.Visibility == Visibility.Visible)
             ? Visibility.Collapsed : Visibility.Visible;
     }

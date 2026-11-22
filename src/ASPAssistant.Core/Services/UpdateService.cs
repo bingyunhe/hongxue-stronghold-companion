@@ -92,7 +92,7 @@ public partial class UpdateService
         var feedUrl = FeedUrl;
         if (feedUrl != DefaultFeedUrl) return await CheckGitHubUpdateAsync(feedUrl, ct);
 
-        var (release, _) = await QueryMirrorChyanAsync(null, ct);
+        var (release, _) = await QueryMirrorChyanAsync(null, false, ct);
         var version = TryParseVersion(release?.VersionName);
         if (version is not null && version > CurrentVersion)
         {
@@ -184,7 +184,8 @@ public partial class UpdateService
         }
     }
 
-    private async Task PrepareDownloadAsync(UpdateInfo info, IProgress<double>? progress, CancellationToken ct, string? mirrorCdk)
+    private async Task PrepareDownloadAsync(UpdateInfo info, IProgress<double>? progress, CancellationToken ct, string? mirrorCdk,
+        bool fullMirrorOnly = false)
     {
         LastError = null;
         DownloadNotice = null;
@@ -193,14 +194,16 @@ public partial class UpdateService
         // 复用固定目录会让 Directory.Delete 抛 IOException 而整条下载失败。
         CleanupStaleUpdateDirs();
         var tempDir = Directory.CreateTempSubdirectory("ASPAssistant-Update-").FullName;
-
+        bool mirrorPatch = false;
         try
         {
             var zipPath = Path.Combine(tempDir, Path.GetFileName(info.AssetName));
             string? expectedHash = null;
             if (info.FromMirrorChyan)
             {
-                expectedHash = await TryDownloadMirrorChyanAsync(info, mirrorCdk, zipPath, progress, ct);
+                var release = await TryDownloadMirrorChyanAsync(info, mirrorCdk, zipPath, fullMirrorOnly, progress, ct);
+                expectedHash = release?.Sha256;
+                mirrorPatch = release?.UpdateType == "incremental";
                 if (expectedHash is null)
                 {
                     SetTransferStatus($"{DownloadNotice}，正在检查 GitHub 备用下载");
@@ -242,7 +245,8 @@ public partial class UpdateService
             Directory.CreateDirectory(extractDir);
             var mainDirectory = MainDirectory;
             var appDir = ResolveInstallationDirectory(mainDirectory);
-            if (delta is null) ZipFile.ExtractToDirectory(zipPath, extractDir);
+            if (mirrorPatch) await Task.Run(() => MirrorPatchInstaller.Restore(zipPath, appDir, extractDir, info.TagName, ct), ct);
+            else if (delta is null) ZipFile.ExtractToDirectory(zipPath, extractDir);
             else await Task.Run(() => DeltaInstaller.Restore(zipPath, appDir, extractDir,
                 CurrentVersion.ToString(3), info.Version, ct), ct);
 
@@ -266,7 +270,7 @@ public partial class UpdateService
                 Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}"),
                 Path.Combine(parentDir, $"ASPAssistant-backup-{stamp}"),
                 Path.Combine(tempDir, "update.log"),
-                newExecutable, delta is not null);
+                newExecutable, mirrorPatch || delta is not null);
 
             await File.WriteAllTextAsync(scriptPath, scriptContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), ct);
 
@@ -275,12 +279,19 @@ public partial class UpdateService
             PendingScriptPath = scriptPath;
             PendingStagingDir = Path.Combine(parentDir, $"ASPAssistant-Staging-{stamp}");
             progress?.Report(1.0);
+            return;
+        }
+        catch (Exception ex) when (mirrorPatch && !ct.IsCancellationRequested &&
+            ex is InvalidDataException or JsonException or FileNotFoundException or DirectoryNotFoundException or UpdateIntegrityException)
+        {
+            SetTransferStatus("Mirror酱 增量包无法还原，正在重新请求完整包");
         }
         finally
         {
             if (PendingScriptPath != Path.Combine(tempDir, "update.ps1"))
                 Directory.Delete(tempDir, true);
         }
+        await PrepareDownloadAsync(info, progress, ct, mirrorCdk, fullMirrorOnly: true);
     }
 
     // The optional manifest is the package boundary: legacy releases have no layout file.

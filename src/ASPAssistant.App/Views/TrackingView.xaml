@@ -80,14 +80,6 @@
                         </Border>
                     </ToolTip>
                 </Border.ToolTip>
-                <Border.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="更新获取 / 精锐状态" Click="OnCellOpenStatus" />
-                        <MenuItem Header="取消追踪" Click="OnCellRemove" />
-                        <MenuItem Header="{Binding TransformedCovenant}" HeaderStringFormat="取消转职（{0}）" Click="OnCellClearTransform"
-                                  Visibility="{Binding HasTransform, Converter={StaticResource DetailsBoolToVis}}" />
-                    </ContextMenu>
-                </Border.ContextMenu>
                 <Grid>
                     <Border Style="{StaticResource HoverFadeOverlay}" />
                     <Grid Margin="8,0,4,0">
@@ -108,10 +100,12 @@
                                    Foreground="{DynamicResource TextSecondaryBrush}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="取消转职" Click="OnCellClearTransform" Style="{StaticResource SmallActionButton}" Margin="0,0,3,0" Padding="4,2" FontSize="10"
+                            Visibility="{Binding HasTransform, Converter={StaticResource DetailsBoolToVis}}" ToolTip="{Binding TransformedCovenant}" />
                     <Button Content="{Binding Progress}" Click="OnCellOpenStatus" Margin="0,0,3,0" Padding="6,3" FontSize="11" Style="{StaticResource SmallActionButton}" ToolTip="前往干员状态修改获取与精锐" />
                     <Button x:Name="remove" Width="20" Height="20" Padding="0" VerticalAlignment="Center"
-                            Visibility="Hidden" Tag="{StaticResource IconClose}" Style="{StaticResource TitleBarButton}"
-                            Click="OnCellRemove" ToolTip="取消追踪（右键还有更多操作）" />
+                            Tag="{StaticResource IconClose}" Style="{StaticResource TitleBarButton}"
+                            Click="OnCellRemove" ToolTip="取消追踪" />
                     </StackPanel>
                     </Grid>
                 </Grid>
@@ -131,9 +125,6 @@
                     <Setter TargetName="cell" Property="BorderBrush" Value="{DynamicResource SuccessBorderBrush}" />
                     <Setter TargetName="cell" Property="Opacity" Value="0.7" />
                 </DataTrigger>
-                <Trigger SourceName="cell" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="remove" Property="Visibility" Value="Visible" />
-                </Trigger>
             </DataTemplate.Triggers>
         </DataTemplate>
 

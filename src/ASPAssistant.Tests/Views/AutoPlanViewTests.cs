@@ -49,13 +49,41 @@ internal static class AutoPlanViewTests
                 list.IsVisible.Should().BeTrue();
                 var buttons = Descendants<Button>(list).Where(b => b.DataContext is AutoStyleChoice).ToList();
                 buttons.Should().HaveCount(vm.AutoPlans.Count * 2);
+                var replayChoices = buttons.Where(b => b.DataContext is AutoStyleChoice choice && choice.Plan.Source.RouteComparison is not null).ToList();
+                replayChoices.Should().NotBeEmpty();
+                replayChoices.Should().OnlyContain(b => b.ToolTip.ToString()!.Contains("目标 8 人"));
                 buttons.Should().OnlyContain(b => b.ActualWidth >= 85);
-                foreach (var button in new[] { "AutoTabButton", "GoalTabButton", "ResultTabButton" }.Select(n => (Button)view.FindName(n)))
+                foreach (var button in buttons)
+                {
+                    var label = new TextBlock { Text = (string)button.Content, FontFamily = button.FontFamily,
+                        FontSize = button.FontSize, FontWeight = button.FontWeight };
+                    label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    label.DesiredSize.Width.Should().BeLessThanOrEqualTo(button.ActualWidth - button.Padding.Left - button.Padding.Right - 2);
+                }
+                var autoTab = (Button)view.FindName("AutoTabButton");
+                var goalTab = (Button)view.FindName("GoalTabButton");
+                ((Panel)autoTab.Parent).Children.Cast<Button>().Should().Equal(autoTab, goalTab);
+                autoTab.ActualWidth.Should().BeApproximately(goalTab.ActualWidth, 1);
+                autoTab.Tag.Should().Be("Active");
+                goalTab.Tag.Should().NotBe("Active");
+                ((Button)view.FindName("PlannerNavigationButton")).IsVisible.Should().BeFalse();
+                foreach (var button in new[] { autoTab, goalTab })
                 {
                     var bounds = button.TransformToAncestor(view).TransformBounds(new Rect(button.RenderSize));
                     bounds.Left.Should().BeGreaterThanOrEqualTo(0); bounds.Right.Should().BeLessThanOrEqualTo(view.ActualWidth + 1);
                 }
             });
+        vm.SetBossContext("假想敌：茧", 20);
+        Render(vm, theme, night, 280, $"{theme}-{night}-boss-matchup", view =>
+        {
+            var note = Descendants<TextBlock>(view).First(t => t.DataContext is AutoPlanItem p
+                && p.BossNote.Contains("局通关") && t.Text == p.Note);
+            note.BringIntoView(); Pump();
+            note.IsVisible.Should().BeTrue();
+            note.TextWrapping.Should().Be(TextWrapping.Wrap);
+            note.ActualWidth.Should().BeLessThanOrEqualTo(view.ActualWidth);
+        });
+        vm.SetBossContext("", null);
         var choice = vm.AutoPlans[0];
         var routeTimes = new List<double>();
         foreach (var style in choice.Styles)
@@ -141,6 +169,29 @@ internal static class AutoPlanViewTests
         var pool = new DeployPoolState(); tracking.SetDeployPool(pool);
         var folder = Path.Combine(Path.GetTempPath(), "auto-run-binding-" + Guid.NewGuid().ToString("N"));
         var calculator = new CovenantCalculator(operators, covenants, new Dictionary<string, string>());
+        var editorVm = new LineupEditorViewModel(restored, operators, [], calculator);
+        var editor = new LineupEditorWindow(editorVm, []) { ShowActivated = false, ShowInTaskbar = false, Opacity = 0 };
+        try
+        {
+            editor.Show(); Pump();
+            var guide = Descendants<Expander>(editor).Single(e => Equals(e.Header, "攻略讲解 · 可编辑"));
+            guide.IsExpanded = true; guide.BringIntoView(); Pump();
+            var notes = (TextBox)guide.Content;
+            notes.Text.Should().BeEmpty();
+            Save((FrameworkElement)editor.Content, $"{theme}-{night}-saved-stage");
+            notes.Text = "我改写的成型攻略";
+            ((Button)editor.FindName("SourcePageButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+            var sourceText = (TextBlock)editor.FindName("AutoRouteContextText");
+            sourceText.IsVisible.Should().BeTrue();
+            sourceText.Text.Should().Be(reopened.AutoRouteContext);
+            Descendants<TextBlock>(editor).Should().Contain(t => t.IsVisible && t.Text == "来源：软件自动推荐");
+            Save((FrameworkElement)editor.Content, $"{theme}-{night}-saved-source");
+            var edited = System.Text.Json.JsonSerializer.Deserialize<Lineup>(System.Text.Json.JsonSerializer.Serialize(editorVm.ToLineup()))!;
+            var editedVm = new LineupEditorViewModel(edited, operators, [], calculator);
+            editedVm.CurrentStage.OperationIdea.Should().Be("我改写的成型攻略");
+            editedVm.AutoRouteContext.Should().Be(sourceText.Text);
+        }
+        finally { editor.Close(); }
         var browse = new OperatorBrowseViewModel(); browse.LoadOperators(operators.ToList());
         var side = new SidePanelWindow(browse, new EquipmentBrowseViewModel(), tracking, new GameStateViewModel(), bans, new EnemyViewModel(),
             new LineupViewModel(new LineupStore(Path.Combine(folder, "lineups"), calculator.EquipmentRules), calculator),
@@ -164,6 +215,59 @@ internal static class AutoPlanViewTests
             side.ShowActivated = false; side.ShowInTaskbar = false; side.Opacity = 0;
             side.Left = -20000; side.Top = -20000; side.Height = 700;
             side.ShowLineupsSegment(planner: false); side.Show(); Pump(); ThemeManager.Apply(theme, night);
+            tracking.TrackLineup(restored);
+            var deploy = ((TrackingView)side.FindName("TrackingView")).DeployPage;
+            ((Button)deploy.FindName("MapGuideButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+            var guideWindow = Application.Current.Windows.OfType<TrackingGuideWindow>().Single();
+            var notesBox = (TextBox)guideWindow.FindName("Notes");
+            guideWindow.ShowActivated.Should().BeFalse();
+            side.IsEnabled.Should().BeTrue();
+            var stageBefore = tracking.CurrentMapLineup!.SelectedStageId;
+            var tabs = (StackPanel)guideWindow.FindName("Tabs");
+            var preview = tabs.Children.OfType<Button>().First(b => !b.Content.ToString()!.Contains("●"));
+            preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            tracking.CurrentMapLineup.SelectedStageId.Should().Be(stageBefore);
+            notesBox.Text = "打完本回合再升本";
+            side.ShowTrackingGuide(toggle: true);
+            guideWindow.IsVisible.Should().BeFalse();
+            var other = System.Text.Json.JsonSerializer.Deserialize<Lineup>(System.Text.Json.JsonSerializer.Serialize(restored))!;
+            other.Id = "other-guide"; other.Name = "另一个追踪阵容";
+            tracking.TrackLineup(other);
+            side.ShowTrackingGuide(toggle: true); Pump();
+            notesBox.Text.Should().Be("打完本回合再升本");
+            ((TextBlock)guideWindow.FindName("Following")).Text.Should().Contain(other.Name);
+            Save((FrameworkElement)guideWindow.Content, $"{theme}-{night}-tracking-guide-draft");
+            ((Button)guideWindow.FindName("FollowButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+            notesBox.Text.Should().BeEmpty();
+            var otherDrafts = (Button)guideWindow.FindName("OtherDrafts");
+            otherDrafts.IsVisible.Should().BeTrue();
+            otherDrafts.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
+            var resume = (MenuItem)otherDrafts.ContextMenu.Items[0];
+            resume.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); otherDrafts.ContextMenu.IsOpen = false;
+            notesBox.Text.Should().Be("打完本回合再升本");
+            var concurrentlyEdited = System.Text.Json.JsonSerializer.Deserialize<Lineup>(System.Text.Json.JsonSerializer.Serialize(restored))!;
+            var editedStage = concurrentlyEdited.EditorStages!.Single(s => s.Name == preview.Content.ToString());
+            editedStage.OperationIdea = "编辑器里的另一份讲解";
+            concurrentlyEdited.EditorStages!.Single(s => s.IsFinal).OperationIdea = "独立阶段的编辑";
+            Complete(side.LineupVm.AddOrUpdateAsync(concurrentlyEdited));
+            Complete(guideWindow.SaveAsync(false));
+            ((Button)guideWindow.FindName("UseSaved")).IsVisible.Should().BeTrue();
+            side.LineupVm.Lineups.Single(l => l.Id == restored.Id).Should().BeSameAs(concurrentlyEdited);
+            Complete(guideWindow.SaveAsync(false));
+            var savedGuide = side.LineupVm.Lineups.Single(l => l.Id == restored.Id);
+            savedGuide.EditorStages!.Count(s => s.OperationIdea == "打完本回合再升本").Should().Be(1);
+            savedGuide.AutoRoute!.Matches(savedGuide).Should().BeTrue();
+            savedGuide.EditorStages!.Single(s => s.IsFinal).OperationIdea.Should().Be("独立阶段的编辑");
+            tracking.CurrentMapLineup.Id.Should().Be(other.Id);
+            other.EditorStages!.Should().OnlyContain(s => s.OperationIdea == "");
+            guideWindow.WindowState = WindowState.Minimized;
+            side.ShowTrackingGuide(toggle: true); Pump();
+            guideWindow.WindowState.Should().Be(WindowState.Normal);
+            notesBox.Text = "临时阵容的成型攻略";
+            ((TextBox)guideWindow.FindName("CopyName")).Text = "本局副本";
+            Complete(guideWindow.SaveAsync(true));
+            side.LineupVm.Lineups.Single(l => l.Name == "本局副本").EditorStages!.Single(s => s.IsFinal).OperationIdea.Should().Be("临时阵容的成型攻略");
+            guideWindow.Close();
             var list = (LineupListView)side.FindName("LineupView");
             var open = Descendants<Button>(list).Single(b => Equals(b.Content, "查看自动路线")
                 && b.DataContext is LineupCardItem card && card.Lineup.Id == restored.Id);
@@ -234,11 +338,12 @@ internal static class AutoPlanViewTests
             host.Show();
             Pump();
             verify(view);
-            if (name.Contains("-five-") || name.Contains("-archive"))
+            if (name.Contains("-five-") || name.Contains("-archive") || name.Contains("-boss-matchup"))
             {
                 var contrasts = new List<double>();
                 foreach (var text in Descendants<TextBlock>(view).Where(t => t.IsVisible && t.Text.Length > 0
-                    && (t.DataContext is AutoPlanLevelAdvice || t.Text == vm.AutoRouteContext || t.Text == vm.AutoRouteNotice)))
+                    && (t.DataContext is AutoPlanLevelAdvice || t.Text == vm.AutoRouteContext || t.Text == vm.AutoRouteNotice ||
+                        t.DataContext is AutoPlanItem p && p.BossNote.Length > 0 && t.Text == p.Note)))
                 {
                     var backgrounds = new Stack<Color>();
                     for (DependencyObject? node = text; node is not null && node != host; node = VisualTreeHelper.GetParent(node))

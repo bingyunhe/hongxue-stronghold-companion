@@ -45,7 +45,9 @@ public partial class LineupPlannerView : UserControl
         switch (e.Key)
         {
             case Key.Enter:
-                vm.AddLocked(((TextBox)sender).Text);
+                var query = ((TextBox)sender).Text;
+                if (!string.IsNullOrWhiteSpace(query))
+                    vm.AddLocked(vm.LockCovenants.Active ? vm.LockSuggestions.FirstOrDefault()?.Name : query);
                 e.Handled = true;
                 break;
             case Key.Escape:

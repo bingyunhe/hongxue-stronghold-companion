@@ -54,3 +54,7 @@ Solo-layout and scrolled covenant recognition adapt lemon-n-orange's contributio
 https://github.com/bingyunhe/hongxue-stronghold-companion/pull/7
 Original contribution commit: d4c5434662bf9599c4abd1535b571ca521a99f63
 The local adaptation retains the existing UI-scale, OCR and strategy-piece fixes.
+
+Placement and planning statistics were generated offline using CarlosDJY/garrison-rl
+(405d328, https://github.com/CarlosDJY/garrison-rl) and its Stronghold-Protocol
+simulator (9a41bbe). The desktop application embeds derived statistics.

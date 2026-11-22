@@ -473,31 +473,38 @@ public class SettingsManager
         finally { File.Delete(temporary); _deployPoolLock.Release(); }
     }
 
-    public async Task<AssistantHotkey?> LoadAssistantHotkeyAsync()
+    public Task<AssistantHotkey?> LoadAssistantHotkeyAsync() => LoadHotkeyAsync("assistant-hotkey.json", null);
+    public Task<AssistantHotkey?> LoadRecognitionHotkeyAsync() => LoadHotkeyAsync("recognition-hotkey.json", new(6, 0xBF));
+    public Task<AssistantHotkey?> LoadGuideHotkeyAsync() => LoadHotkeyAsync("guide-hotkey.json", null);
+
+    private async Task<AssistantHotkey?> LoadHotkeyAsync(string file, AssistantHotkey? initial)
     {
         string json;
-        try { json = await File.ReadAllTextAsync(Path.Combine(_settingsDir, "assistant-hotkey.json")); }
-        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        try { json = await File.ReadAllTextAsync(Path.Combine(_settingsDir, file)); }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return initial; }
         var hotkey = JsonSerializer.Deserialize<AssistantHotkey?>(json, JsonOptions);
         if (hotkey?.ConflictReason() is { } reason) throw new JsonException(reason);
         return hotkey;
     }
 
-    public async Task SaveAssistantHotkeyAsync(AssistantHotkey? hotkey)
-        => await SaveHotkeyAsync("assistant-hotkey.json", hotkey);
+    public Task SaveAssistantHotkeyAsync(AssistantHotkey? key) => SaveHotkeyAsync("assistant-hotkey.json", key);
+    public Task SaveRecognitionHotkeyAsync(AssistantHotkey? key) => SaveHotkeyAsync("recognition-hotkey.json", key);
+    public Task SaveGuideHotkeyAsync(AssistantHotkey? key) => SaveHotkeyAsync("guide-hotkey.json", key);
 
-    public async Task<AssistantHotkey?> LoadRecognitionHotkeyAsync()
+    public GuideWindowSettings LoadGuideWindow()
     {
-        string json;
-        try { json = await File.ReadAllTextAsync(Path.Combine(_settingsDir, "recognition-hotkey.json")); }
-        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return new AssistantHotkey(6, 0xBF); }
-        var hotkey = JsonSerializer.Deserialize<AssistantHotkey?>(json, JsonOptions);
-        if (hotkey?.ConflictReason() is { } reason) throw new JsonException(reason);
-        return hotkey;
+        try
+        {
+            var value = JsonSerializer.Deserialize<GuideWindowSettings>(File.ReadAllText(Path.Combine(_settingsDir, "guide-window.json")));
+            if (value is { Width: >= 300 and <= 16000, Height: >= 240 and <= 16000, FontSize: >= 12 and <= 32 }) return value;
+        }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        { AppLogger.Warn("Settings", $"攻略窗口设置读取失败：{ex.Message}"); }
+        return new();
     }
-
-    public async Task SaveRecognitionHotkeyAsync(AssistantHotkey? hotkey)
-        => await SaveHotkeyAsync("recognition-hotkey.json", hotkey);
+    public Task SaveGuideWindowAsync(GuideWindowSettings value) =>
+        SavePreferenceAsync("guide-window.json", JsonSerializer.Serialize(value));
 
     private Task SaveHotkeyAsync(string fileName, AssistantHotkey? hotkey)
         => SavePreferenceAsync(fileName, JsonSerializer.Serialize(hotkey, JsonOptions));

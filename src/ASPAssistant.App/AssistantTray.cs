@@ -2,6 +2,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using ASPAssistant.App.Windows;
 using ASPAssistant.Core;
 
@@ -15,6 +17,7 @@ internal sealed class AssistantTray : IDisposable
     private readonly HwndSource _source;
     private readonly uint _taskbarCreated;
     private readonly List<(Window Window, IntPtr Handle)> _hiddenWindows = [];
+    private readonly ContextMenu _menu = new() { Placement = PlacementMode.MousePoint };
     private NotifyIconData _icon;
     private bool _added;
     private bool _focusHideRequested;
@@ -33,13 +36,20 @@ internal sealed class AssistantTray : IDisposable
         {
             Size = (uint)Marshal.SizeOf<NotifyIconData>(), Window = _source.Handle, Id = 1,
             Flags = 1 | 2 | 4, CallbackMessage = CallbackMessage,
-            Tip = "鸿雪·卫戍助手 · 点击恢复助手", Info = "", InfoTitle = ""
+            Tip = "鸿雪·卫戍助手 · 左键打开，右键更多", Info = "", InfoTitle = ""
         };
+        var open = new MenuItem { Header = "打开助手" };
+        open.Click += (_, _) => Restore();
+        var exit = new MenuItem { Header = "退出程序" };
+        exit.Click += (_, _) => Application.Current.Shutdown();
+        _menu.Items.Add(open);
+        _menu.Items.Add(exit);
         var icons = new IntPtr[1];
         if (ExtractIconEx(Path.Combine(AppContext.BaseDirectory, "HongxueCompanion.exe"), 0, null, icons, 1) == 1)
             _icon.Icon = icons[0];
         panel.ToggleAssistantVisibilityRequested += Toggle;
         panel.FocusHideRequested += OnFocusHideRequested;
+        panel.TrayNoticeRequested += ShowTrayNotice;
     }
 
     public void Toggle()
@@ -68,11 +78,12 @@ internal sealed class AssistantTray : IDisposable
         _hiddenWindows.Clear();
         foreach (Window window in Application.Current.Windows)
         {
-            if (window == _overlay || (!window.IsVisible && window != _panel)) continue;
+            if (window == _overlay || window is TrackingGuideWindow || (!window.IsVisible && window != _panel)) continue;
             _hiddenWindows.Add((window, new WindowInteropHelper(window).Handle));
         }
         _hiddenByFocus = forFocus;
         _panel.IsAssistantHidden = true;
+        _panel.GuideTrayChanged(true);
         foreach (var window in _hiddenWindows) ShowWindow(window.Handle, 0);
         VisibilityChanged?.Invoke();
     }
@@ -96,16 +107,33 @@ internal sealed class AssistantTray : IDisposable
                 ShowWindow(window.Handle, 8); // SW_SHOWNA：保留各窗口原先的最小化状态。
         }
         _hiddenWindows.Clear();
+        _panel.GuideTrayChanged(false);
         RemoveIcon();
         VisibilityChanged?.Invoke();
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == CallbackMessage && (lParam.ToInt64() & 0xFFFF) is 0x202 or 0x205 or 0x400 or 0x401 or 0x7B)
+        if (msg == CallbackMessage && _added)
         {
-            Restore();
-            handled = true;
+            switch (lParam.ToInt64() & 0xFFFF)
+            {
+                case 0x205: // WM_RBUTTONUP
+                case 0x7B:  // WM_CONTEXTMENU (also sent for keyboard activation)
+                    if (!_menu.IsOpen)
+                    {
+                        SetForegroundWindow(hwnd);
+                        _menu.IsOpen = true;
+                    }
+                    handled = true;
+                    break;
+                case 0x202: // WM_LBUTTONUP
+                case 0x400: // NIN_SELECT
+                case 0x401: // NIN_KEYSELECT
+                    Restore();
+                    handled = true;
+                    break;
+            }
         }
         if (_taskbarCreated != 0 && (uint)msg == _taskbarCreated && _panel.IsAssistantHidden)
         {
@@ -119,6 +147,14 @@ internal sealed class AssistantTray : IDisposable
         return IntPtr.Zero;
     }
 
+    private void ShowTrayNotice(string message)
+    {
+        var notice = _icon;
+        notice.Flags = 0x10; // NIF_INFO
+        notice.InfoTitle = "攻略讲解"; notice.Info = message;
+        ShellNotifyIcon(1, ref notice);
+    }
+
     private bool AddIcon()
     {
         if (_icon.Icon == IntPtr.Zero || !ShellNotifyIcon(0, ref _icon)) return false;
@@ -130,6 +166,7 @@ internal sealed class AssistantTray : IDisposable
 
     private void RemoveIcon()
     {
+        _menu.IsOpen = false;
         if (_added) ShellNotifyIcon(2, ref _icon);
         _added = false;
     }
@@ -138,6 +175,7 @@ internal sealed class AssistantTray : IDisposable
     {
         _panel.ToggleAssistantVisibilityRequested -= Toggle;
         _panel.FocusHideRequested -= OnFocusHideRequested;
+        _panel.TrayNoticeRequested -= ShowTrayNotice;
         if (!_source.IsDisposed) _source.RemoveHook(WndProc);
         RemoveIcon();
         if (_icon.Icon != IntPtr.Zero) DestroyIcon(_icon.Icon);
@@ -165,6 +203,8 @@ internal sealed class AssistantTray : IDisposable
     private static extern bool ShellNotifyIcon(uint message, ref NotifyIconData data);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern uint ExtractIconEx(string file, int index, IntPtr[]? large, IntPtr[] small, uint count);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DestroyIcon(IntPtr icon);
     [DllImport("user32.dll")]

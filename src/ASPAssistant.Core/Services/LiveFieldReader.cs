@@ -94,6 +94,21 @@ public sealed partial class LiveFieldReader
         return new((int)Math.Round(center.X * pixels.Width), (int)Math.Round(center.Y * pixels.Height));
     }
 
+    internal FieldMark SampleManualSlot(BmpPixels frame, BoardMatch board, FieldSlot slot, int tier)
+    {
+        var projection = _maps.Cameras[board.Camera];
+        var center = CellCenter(slot, board.Camera, frame);
+        var scale = frame.Width / 1920d;
+        bool expanded = board.Camera == BoardCamera.Expanded;
+        double tile = slot.Bench ? (expanded ? 121.2 : 149.5) * scale
+            : Math.Abs(projection.Project(slot.Col + 1.5, slot.Row + .5).X - projection.Project(slot.Col + .5, slot.Row + .5).X) * frame.Width;
+        var foot = slot.Bench ? new Point((int)(((expanded ? 254 : 170) + 35) * scale + slot.Col * tile),
+            (int)((expanded ? 609 : 798) * frame.Height / 1080d + 132 * scale)) : center;
+        var mark = new FieldMark(slot, tier, foot, BodySample(frame, foot, tile, false), null)
+            { Camera = board.Camera, Tile = tile, Portrait = BodySample(frame, foot, tile, true) };
+        return mark with { MemoryPatch = FieldMemoryAppearance.Sample(frame, mark) };
+    }
+
     // While dragging, the game paints both legal floor cells green and the bench cyan.
     // The sprite still shown in its old seat is a ghost, not a second observation.
     internal static bool IsDragging(BmpPixels frame)

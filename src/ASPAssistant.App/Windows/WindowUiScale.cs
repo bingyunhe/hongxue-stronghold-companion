@@ -186,7 +186,7 @@ internal static class WindowUiScale
         finally { state.Updating = false; }
     }
 
-    private static double SourceScale(UIElement target)
+    private static double SourceScale(UIElement? target)
     {
         UiScaleTarget? page = null;
         DependencyObject? current = target;
@@ -197,13 +197,13 @@ internal static class WindowUiScale
             if (current is ContextMenu { PlacementTarget: { } menuTarget }) return SourceScale(menuTarget);
             current = VisualTreeHelper.GetParent(current);
         }
-        var window = Window.GetWindow(target);
+        var window = target is null ? null : Window.GetWindow(target);
         if (window is SidePanelWindow side)
             return page is { } value ? side.Appearance.ScaleFor(value, side.Appearance.UiScale) : side.Appearance.UiScale;
         return window is not null ? ScaleOf(window) : _startupAppearance?.UiScale ?? 1;
     }
 
-    private static void ScalePopup(FrameworkElement child, UIElement target)
+    private static void ScalePopup(FrameworkElement child, UIElement? target)
     {
         child.Dispatcher.BeginInvoke(() =>
         {

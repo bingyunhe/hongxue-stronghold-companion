@@ -14,6 +14,8 @@ public sealed class TrackingState
 
 public sealed record TrackedLineup(string Id, string Name, bool Highlighted = true)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Lineup? GuideSource { get; init; }
     public List<TrackedLineupStage> Stages { get; init; } = [];
     public string SelectedStageId { get; init; } = "";
     public bool AutomaticStageSwitch { get; init; }

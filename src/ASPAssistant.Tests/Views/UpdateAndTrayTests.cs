@@ -78,7 +78,7 @@ internal static class UpdateAndTrayTests
                     ((TextBlock)panel.FindName("AssistantHotkeyStatus")).Text.Should().Contain("快速识别");
                     Await(settings.LoadAssistantHotkeyAsync()).Should().Be(keys[0]);
                     Await(panel.SaveRecognitionHotkeyAsync(null));
-                    var activeId = (int)typeof(SidePanelWindow).GetField("_assistantHotkeyId", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(panel)!;
+                    var activeId = panel.AssistantShortcutId;
                     SendMessage(hwnd, User32.WM_HOTKEY, activeId, IntPtr.Zero);
                     panel.IsAssistantHidden.Should().BeTrue();
                     IsWindowVisible(hwnd).Should().BeFalse();
@@ -104,6 +104,27 @@ internal static class UpdateAndTrayTests
                     Await(settings.LoadAssistantHotkeyAsync()).Should().BeNull();
                     User32.RegisterHotKey(blocker.Handle, (int)keys[2].VirtualKey, 7, keys[2].VirtualKey).Should().BeTrue("clearing releases the shortcut");
                     User32.UnregisterHotKey(blocker.Handle, (int)keys[2].VirtualKey);
+
+                    var guideLineup = new Lineup { Name = "快捷键测试", Slots = [new() { OperatorName = "鸿雪" }] };
+                    panel.TrackingVm.TrackLineup(guideLineup);
+                    Await(panel.SaveGuideHotkeyAsync(keys[2]));
+                    var guideId = panel.GuideShortcutId;
+                    var foreground = User32.GetForegroundWindow();
+                    SendMessage(hwnd, User32.WM_HOTKEY, guideId, IntPtr.Zero); Pump();
+                    var guide = Application.Current.Windows.OfType<TrackingGuideWindow>().Single();
+                    User32.GetForegroundWindow().Should().Be(foreground, "reading a guide must not take keyboard focus");
+                    ((TextBox)guide.FindName("Notes")).Text = "托盘前的草稿";
+                    tray.Toggle(); guide.IsVisible.Should().BeFalse();
+                    SendMessage(hwnd, User32.WM_HOTKEY, guideId, IntPtr.Zero); Pump();
+                    guide.IsVisible.Should().BeTrue();
+                    IsWindowVisible(hwnd).Should().BeFalse("only the guide is restored from the tray");
+                    SendMessage(hwnd, User32.WM_HOTKEY, guideId, IntPtr.Zero);
+                    tray.Restore(); guide.IsVisible.Should().BeFalse();
+                    var savedWindowCount = Application.Current.Windows.OfType<TrackingGuideWindow>().Count();
+                    panel.ShowTrackingGuide(false); panel.ShowTrackingGuide(false); Pump();
+                    Application.Current.Windows.OfType<TrackingGuideWindow>().Should().HaveCount(savedWindowCount);
+                    ((TextBox)guide.FindName("Notes")).Text.Should().Be("托盘前的草稿");
+                    guide.Close(); panel.ReleaseGuideHotkey();
 
                     var editor = new Window { Owner = panel, ShowActivated = false, ShowInTaskbar = false, Opacity = 0,
                         Content = new TextBox { Text = "未保存的阵容" }, Left = -20000, Top = -20000 };

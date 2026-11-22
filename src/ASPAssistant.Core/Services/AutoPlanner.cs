@@ -140,7 +140,8 @@ public sealed class AutoPlanner
             MainCovenant = name, Final = final, MainGoal = goal, SmallGoals = smalls, Goals = [goal, .. smalls],
             Stackers = stackers, EarlyLayers = Math.Round(earlyLayers, 1), LateLayers = Math.Round(lateLayers, 1),
             ActivationLevel = activation, Holders = holders.Count,
-            RecommendedStyle = style, StyleReason = reason, Score = score, Notes = notes
+            RecommendedStyle = style, StyleReason = reason, Score = score, Notes = notes,
+            RouteComparison = PlannerReplayEvidence.Compare(name, final)
         }, null, limited);
     }
 

@@ -14,26 +14,30 @@ jobs:
     permissions:
       contents: read
       issues: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: win
-            arch: x64
-            filename: 'hongxue-stronghold-companion-v*-win-x64.zip'
-
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare MirrorChyan Windows package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED_TAG:-$(gh release view --json tagName --jq .tagName)}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          package="hongxue-stronghold-companion-$tag-win-x64.zip"
+          gh release download "$tag" --pattern "$package" --pattern SHA256SUMS.txt
+          awk -v package="$package" '$2 == package { print }' SHA256SUMS.txt | sha256sum --check --strict -
+          python3 .github/scripts/prepare_mirror_package.py "$package" mirror-win-x64.zip "$tag"
+          echo "MIRROR_TAG=$tag" >> "$GITHUB_ENV"
       - uses: MirrorChyan/uploading-action@v1
         with:
-          filetype: latest-release
-          filename: ${{ matrix.filename }}
+          filetype: local
+          filename: mirror-win-x64.zip
+          version_name: ${{ env.MIRROR_TAG }}
           mirrorchyan_rid: hongxue-stronghold-companion
-          tag: ${{ inputs.tag }}
-
-          os: ${{ matrix.os }}
-          arch: ${{ matrix.arch }}
-
-          owner: bingyunhe
-          repo: hongxue-stronghold-companion
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          os: win
+          arch: x64
           upload_token: ${{ secrets.MirrorChyanUploadToken }}

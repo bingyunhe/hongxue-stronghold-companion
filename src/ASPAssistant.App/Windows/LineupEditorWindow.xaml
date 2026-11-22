@@ -299,6 +299,11 @@
             <Grid>
             <ScrollViewer x:Name="GuideSourcePage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="16">
+                    <StackPanel x:Name="AutoRouteSourcePanel" Visibility="Collapsed" Margin="0,0,0,14">
+                        <TextBlock Text="来源：软件自动推荐" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock x:Name="AutoRouteContextText" TextWrapping="Wrap" Margin="0,8,0,0"
+                                   FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}" />
+                    </StackPanel>
                     <StackPanel x:Name="SourcePanel" Visibility="Collapsed" Margin="0,0,0,14">
                         <TextBox x:Name="SourceUrlBox" FontSize="14" IsReadOnly="True" TextWrapping="Wrap" Style="{StaticResource DialogTextBox}"
                                  ToolTip="可选中文字复制原攻略链接" />

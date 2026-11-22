@@ -36,8 +36,31 @@
         <!-- Footer: show in game + recompute -->
         <Border x:Name="MapFooter" DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,7"
                 Background="{DynamicResource CardBackgroundBrush}">
+            <StackPanel>
+                <TextBlock x:Name="MapActionNotice" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" Visibility="Collapsed" />
+                <WrapPanel x:Name="MapActions" Margin="0,4">
+                                <Button x:Name="ReadFieldButton" VerticalAlignment="Top" Content="识别阵容"
+                                        Style="{StaticResource SmallActionButton}" Click="OnReadField" ToolTip="截取一帧识别阵容">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="选择一格复核" Click="OnChooseFieldSlot" />
+                                            <MenuItem Header="识别我的棋盘并同步" Click="OnReadOwnBoard" />
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                                <Button x:Name="ReadFieldOptions" Content="▾" Padding="5,0" Margin="1,0,0,0"
+                                        Style="{StaticResource SmallActionButton}" Click="OnReadFieldOptions" IsEnabled="{Binding IsEnabled, ElementName=ReadFieldButton}"
+                                        ToolTip="更多识别选项" AutomationProperties.Name="更多识别选项" />
+                                <Button x:Name="RecordHoldingButton" Content="补记持有" Margin="5,0" Style="{StaticResource SmallActionButton}" Click="OnRecordHolding" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,3,0,0">
+                                    <CheckBox x:Name="AutomaticFieldToggle" Style="{StaticResource SwitchToggle}" AutomationProperties.Name="自动识别阵容"
+                                              Click="OnAutomaticFieldClick" ToolTip="实时识别阵容" />
+                                    <Label Target="{Binding ElementName=AutomaticFieldToggle}" Content="自动" Padding="3,0,0,0"
+                                           VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                </StackPanel>
+                </WrapPanel>
             <DockPanel>
-                <Button DockPanel.Dock="Right" x:Name="RecomputeButton" Content="重新计算" Tag="accent"
+                <Button DockPanel.Dock="Right" x:Name="RecomputeButton" Content="按最新持有重算" Tag="accent"
                         Style="{StaticResource SmallActionButton}" Click="OnRecompute" />
                 <CheckBox x:Name="InGameToggle" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
                           Checked="OnInGameToggled" Unchecked="OnInGameToggled" />
@@ -46,6 +69,7 @@
                 <TextBlock Text="格子 · 名字 · 朝向" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
             </DockPanel>
+            </StackPanel>
         </Border>
 
         <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
@@ -54,12 +78,13 @@
                 <StackPanel x:Name="MainPanel">
                     <!-- Map: thumbnail, name, status in one row -->
                     <Border x:Name="MapHeaderCard" Style="{StaticResource DeployCard}" Padding="8,7">
+                        <StackPanel>
                         <DockPanel>
                             <Border DockPanel.Dock="Left" Width="66" Height="34" CornerRadius="4" ClipToBounds="True" Margin="0,0,9,0"
                                     Background="{DynamicResource SectionBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
                                 <Image x:Name="MapThumb" Stretch="UniformToFill" />
                             </Border>
-                            <Button DockPanel.Dock="Right" Content="⇄" Width="28" Height="28" Padding="0" Margin="6,0,0,0" ToolTip="换地图"
+                            <Button DockPanel.Dock="Right" Content="换地图" Height="28" Padding="7,0" Margin="6,0,0,0" ToolTip="换地图"
                                     Style="{StaticResource SmallActionButton}" Click="OnPickMap" VerticalAlignment="Center" />
                             <StackPanel VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal">
@@ -72,8 +97,36 @@
                                            Foreground="{DynamicResource TextSecondaryBrush}" />
                             </StackPanel>
                         </DockPanel>
+                            <DockPanel Margin="0,7,0,0">
+                                <Button x:Name="MapSwitchButton" Content="换阵" DockPanel.Dock="Right" Click="OnMapSwitch" Style="{StaticResource SmallActionButton}" />
+                                <Button x:Name="MapGuideButton" Content="攻略讲解" DockPanel.Dock="Right" Click="OnMapGuide" Style="{StaticResource SmallActionButton}" Margin="0,0,5,0" />
+                                <StackPanel>
+                                    <TextBlock x:Name="MapTeamStage" Text="当前追踪阵容" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    <TextBlock x:Name="MapTeamName" TextWrapping="Wrap" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </StackPanel>
                     </Border>
 
+                    <Border x:Name="PivotPanel" Style="{StaticResource DeployCard}" Visibility="Collapsed">
+                        <StackPanel>
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="返回地图" Click="OnClosePivot" Style="{StaticResource LinkButton}" />
+                                <TextBlock Text="切换本局阵容" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </DockPanel>
+                            <TextBlock x:Name="PivotStatus" TextWrapping="Wrap" Margin="0,5" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                            <Border BorderThickness="1" Padding="2" CornerRadius="{DynamicResource RowCornerRadius}" BorderBrush="{DynamicResource BorderBrush}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <ListBox x:Name="PivotChoices" DisplayMemberPath="Label" SelectionChanged="OnPivotSelected"
+                                             Style="{StaticResource SegmentedListBox}" />
+                                </ScrollViewer>
+                            </Border>
+                            <StackPanel x:Name="PivotDetails" Margin="0,6" />
+                            <Button x:Name="PivotReplaceButton" Content="切为当前并返回地图" Style="{StaticResource DialogPrimaryButton}" Click="OnApplyPivot" />
+                            <Button x:Name="PivotAppendButton" Content="同时追踪两套" Style="{StaticResource DialogSecondaryButton}" Margin="0,5,0,0" Click="OnApplyPivot" />
+                        </StackPanel>
+                    </Border>
+                    <StackPanel x:Name="MapContent">
                     <views:RoundEnemyCard x:Name="RoundEnemyPanel" Margin="0,0,5,8" />
 
                     <!-- Toolbar: mode + field size -->
@@ -98,24 +151,12 @@
                     <!-- Mini board -->
                     <Border x:Name="BoardCard" Style="{StaticResource DeployCard}" Padding="6,8,6,7">
                         <StackPanel>
+                            <DockPanel Margin="2,0,2,4">
+                                <TextBlock x:Name="BoardStatusText" DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock x:Name="BoardTitleText" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </DockPanel>
                             <DockPanel Margin="2,0,2,5">
-                                <StackPanel DockPanel.Dock="Right" Margin="4,0,0,0">
-                                <Button x:Name="ReadFieldButton" VerticalAlignment="Top" Content="识别阵容"
-                                        Style="{StaticResource SmallActionButton}" Click="OnReadField" ToolTip="截取一帧识别阵容。右键可复核单格，或确认当前是自己的棋盘并同步。">
-                                    <Button.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Header="选择一格复核" Click="OnChooseFieldSlot" />
-                                            <MenuItem Header="识别我的棋盘并同步" Click="OnReadOwnBoard" />
-                                        </ContextMenu>
-                                    </Button.ContextMenu>
-                                </Button>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,3,0,0">
-                                    <CheckBox x:Name="AutomaticFieldToggle" Style="{StaticResource SwitchToggle}" AutomationProperties.Name="自动识别阵容"
-                                              Click="OnAutomaticFieldClick" ToolTip="实时识别阵容" />
-                                    <Label Target="{Binding ElementName=AutomaticFieldToggle}" Content="自动" Padding="3,0,0,0"
-                                           VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
-                                </StackPanel>
-                                </StackPanel>
+
                                 <TextBlock x:Name="RoutePhaseNumber" DockPanel.Dock="Right" Margin="5,0,0,0"
                                            Visibility="Collapsed" FontSize="11" FontWeight="SemiBold"
                                            Foreground="{DynamicResource AccentBrush}" />
@@ -158,6 +199,17 @@
                     <TextBlock x:Name="StatusText" FontSize="11" Margin="2,0,5,8" TextWrapping="Wrap"
                                Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed" />
 
+                    <Border x:Name="CorrectionPanel" Visibility="Collapsed" Style="{StaticResource DeployCard}">
+                        <StackPanel>
+                            <TextBlock x:Name="CorrectionTitle" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <TextBlock x:Name="CorrectionHint" Margin="0,3" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
+                            <WrapPanel x:Name="CorrectionChoices" />
+                            <Button x:Name="PickCorrectionButton" Content="选其他干员" HorizontalAlignment="Left" Margin="0,4" Click="OnPickCorrection" Style="{StaticResource SmallActionButton}" />
+                            <Button x:Name="ConfirmCorrectionButton" Click="OnConfirmCorrection" Style="{StaticResource DialogPrimaryButton}" />
+                            <Button x:Name="CountOnlyButton" Margin="0,4,0,0" Click="OnCountOnly" Style="{StaticResource DialogSecondaryButton}" />
+                            <Button x:Name="LeaveCorrectionButton" Click="OnLeaveCorrection" Margin="0,5,0,0" HorizontalAlignment="Center" Style="{StaticResource LinkButton}" />
+                        </StackPanel>
+                    </Border>
                     <!-- Plan: checks + operators -->
                     <StackPanel x:Name="PlanPanel">
                         <UniformGrid x:Name="OperatorGrid" Columns="2" Margin="0,0,1,4" />
@@ -167,6 +219,7 @@
                     <Border x:Name="DetailCard" Style="{StaticResource DeployCard}" Visibility="Collapsed">
                         <StackPanel x:Name="DetailBody" />
                     </Border>
+                    </StackPanel>
 
 
                 </StackPanel>
@@ -199,6 +252,7 @@
                         <Button Content="＋ 添加" Margin="0,0,0,4" Tag="accent" Style="{StaticResource SmallActionButton}" Click="OnAddOther" />
                         </WrapPanel>
                     </DockPanel>
+                    <ItemsControl x:Name="PoolCovenantFilters" Style="{StaticResource MissingCovenantChips}" Margin="0,0,5,3" />
                     <TextBlock x:Name="PoolHeaderMeta" FontSize="10.5" TextWrapping="Wrap" Margin="2,0,5,7" Foreground="{DynamicResource TextSecondaryBrush}" />
                     <Grid x:Name="PoolStageRow" Margin="2,0,7,7" Visibility="Collapsed">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

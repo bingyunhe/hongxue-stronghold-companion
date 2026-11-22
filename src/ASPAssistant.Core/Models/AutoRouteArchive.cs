@@ -9,7 +9,7 @@ public sealed record AutoRouteConditions(string[] BannedCovenants, string[] Bann
     string[] TransformAllowed, int People, PlannerStrategy Strategy, bool MechElite, bool ExcludeMixedBannedOperators);
 
 /// <summary>Portable route snapshot. Run money and ownership are never part of this archive.</summary>
-public sealed class AutoRouteArchive
+public sealed record AutoRouteArchive
 {
     public int Version { get; init; } = 1;
     public required AutoPlanRoute Plan { get; init; }
@@ -19,7 +19,21 @@ public sealed class AutoRouteArchive
     [JsonIgnore] public string Error { get; init; } = "";
     [JsonIgnore] public JsonElement? InvalidData { get; init; }
 
-    public static string Fingerprint(Lineup lineup) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+    // A legacy hash includes notes. Upgrade it only while the original still matches.
+    public AutoRouteArchive ForEditing(Lineup source) =>
+        !LineupFingerprint.StartsWith("2:") && LineupFingerprint == LegacyFingerprint(source)
+            ? this with { LineupFingerprint = Fingerprint(source) } : this;
+
+    public bool Matches(Lineup source) => LineupFingerprint == (LineupFingerprint.StartsWith("2:")
+        ? Fingerprint(source) : LegacyFingerprint(source));
+
+    public static string Fingerprint(Lineup lineup) => "2:" + Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        lineup.Slots, EditorStages = lineup.EditorStages?.Select(s => new { s.Id, s.Name, s.IsFinal, s.StartRound,
+            s.EndRound, s.Slots, s.RecommendedEquipments, s.ActiveCovenants }), lineup.Strategies, lineup.TargetCovenants
+    })));
+
+    private static string LegacyFingerprint(Lineup lineup) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
     {
         lineup.Slots, lineup.EditorStages, lineup.Strategies, lineup.TargetCovenants
     })));
