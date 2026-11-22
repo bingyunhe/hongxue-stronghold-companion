@@ -65,6 +65,8 @@ public sealed class PlannerRequest
     public PlannerStrategy Strategy { get; init; } = PlannerStrategy.Other;
     /// <summary>暴躁铁皮 is elite (5 transformations instead of 3).</summary>
     public bool MechElite { get; init; }
+    /// <summary>The manual results page also offers one-slot substitutes for missing targets.</summary>
+    public bool IncludeSubstitutes { get; init; }
 }
 
 public sealed record PlannedOperator(string Name, string? TransformedCovenant, IReadOnlyList<string> NativeCovenants)
@@ -74,6 +76,8 @@ public sealed record PlannedOperator(string Name, string? TransformedCovenant, I
     public string IconPath { get; init; } = "";
 }
 
+public sealed record LineupSubstitute(string Missing, string StandIn, int AdditionalScore);
+
 /// <summary>
 /// One complete candidate lineup.
 /// </summary>
@@ -81,6 +85,8 @@ public sealed record PlannedLineup(int People, int Transforms, IReadOnlyList<Pla
     IReadOnlyDictionary<string, int> Counts, bool SearchLimited)
 {
     public IReadOnlyList<PlannerGoal> Goals { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<LineupSubstitute> Substitutes { get; init; } = [];
     /// <summary>Only nonzero when the available candidate pool cannot fill the requested size.</summary>
     public int FreeSlots => Math.Max(0, People - PlannerStrategies.PiecePlaces(Strategy) - Operators.Count);
     /// <summary>Score from non-target additional covenants: level I = 1, auto-confirmed level II = 3.</summary>

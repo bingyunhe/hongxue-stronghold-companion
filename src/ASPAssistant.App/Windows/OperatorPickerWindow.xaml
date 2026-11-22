@@ -16,8 +16,6 @@
         <converters:TierToRomanConverter x:Key="TierToRoman" />
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <ItemsPanelTemplate x:Key="ChipWrap"><WrapPanel /></ItemsPanelTemplate>
-        <ItemsPanelTemplate x:Key="ChipGrid3"><UniformGrid Columns="3" /></ItemsPanelTemplate>
-        <DataTemplate x:Key="GridChip"><ToggleButton Style="{StaticResource GridChipToggle}" /></DataTemplate>
         <DataTemplate x:Key="WrapChip"><ToggleButton Style="{StaticResource FilterChipToggle}" /></DataTemplate>
         <Style x:Key="RailTitle" TargetType="TextBlock" BasedOn="{StaticResource FilterSectionTitle}">
             <Setter Property="Margin" Value="0,0,0,7" />
@@ -72,13 +70,13 @@
                                     <TextBlock Text="核心盟约" Style="{StaticResource FilterSectionTitle}" VerticalAlignment="Center" />
                                 </DockPanel>
                                 <ItemsControl ItemsSource="{Binding CoreChips}" Focusable="False" Margin="0,0,-4,6"
-                                              ItemsPanel="{StaticResource ChipGrid3}" ItemTemplate="{StaticResource GridChip}" />
+                                              ItemsPanel="{StaticResource ChipWrap}" ItemTemplate="{StaticResource WrapChip}" />
                                 <DockPanel Margin="0,0,0,7">
                                     <ToggleButton DockPanel.Dock="Right" Style="{StaticResource MatchModeToggle}" IsChecked="{Binding OtherCovenantMatchAll}" />
                                     <TextBlock Text="附加盟约" Style="{StaticResource FilterSectionTitle}" VerticalAlignment="Center" />
                                 </DockPanel>
                                 <ItemsControl ItemsSource="{Binding OtherChips}" Focusable="False" Margin="0,0,-4,6"
-                                              ItemsPanel="{StaticResource ChipGrid3}" ItemTemplate="{StaticResource GridChip}" />
+                                              ItemsPanel="{StaticResource ChipWrap}" ItemTemplate="{StaticResource WrapChip}" />
                                 <Expander x:Name="MoreFilters" Header="词条 · 触发时机" FontSize="11" Margin="0,4,0,0"
                                           Foreground="{DynamicResource TextSecondaryBrush}">
                                     <StackPanel Margin="0,8,0,0">

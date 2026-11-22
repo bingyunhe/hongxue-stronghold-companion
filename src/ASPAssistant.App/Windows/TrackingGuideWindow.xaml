@@ -1,0 +1,59 @@
+<Window x:Class="ASPAssistant.App.Windows.TrackingGuideWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="攻略讲解" Width="510" Height="410" MinWidth="340" MinHeight="280" ShowActivated="False"
+    WindowStyle="None" ResizeMode="CanResizeWithGrip" Background="{DynamicResource PanelBackgroundBrush}"
+    Foreground="{DynamicResource TextPrimaryBrush}">
+    <WindowChrome.WindowChrome><WindowChrome CaptionHeight="0" ResizeBorderThickness="5" GlassFrameThickness="0" CornerRadius="3" /></WindowChrome.WindowChrome>
+    <Border Background="{DynamicResource PanelBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+        <DockPanel>
+            <Border DockPanel.Dock="Top" Style="{StaticResource DialogTitleBar}" MouseLeftButtonDown="DragTitle">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource DialogCloseButton}" Tag="{StaticResource IconClose}" Click="CloseGuide" ToolTip="关闭攻略窗" />
+                    <Button DockPanel.Dock="Right" Style="{StaticResource TitleBarButton}" Content="□" Click="MaximizeGuide" ToolTip="最大化 / 还原" />
+                    <Button DockPanel.Dock="Right" Style="{StaticResource TitleBarButton}" Content="─" Click="MinimizeGuide" ToolTip="最小化" />
+                    <Button DockPanel.Dock="Right" x:Name="PinButton" Style="{StaticResource TitleBarButton}" Width="62" Click="TogglePin" />
+                    <TextBlock Text="攻略讲解" Style="{StaticResource DialogTitleText}" />
+                </DockPanel>
+            </Border>
+            <StackPanel DockPanel.Dock="Bottom" Margin="10,4,14,10">
+                <TextBlock x:Name="Status" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                <StackPanel x:Name="CopyPanel" Visibility="Collapsed">
+                    <TextBlock Text="新阵容名称" />
+                    <TextBox x:Name="CopyName" Style="{StaticResource DialogTextBox}" />
+                </StackPanel>
+                <WrapPanel HorizontalAlignment="Right" Margin="0,4,0,0">
+                    <Button x:Name="UseSaved" Content="采用已保存讲解" Visibility="Collapsed" Click="UseLatest" Style="{StaticResource DialogSecondaryButton}" Margin="2" />
+                    <Button x:Name="SaveCopy" Content="另存为新阵容" Click="CopyClick" Style="{StaticResource DialogSecondaryButton}" Margin="2" />
+                    <Button x:Name="SaveOriginal" Click="SaveClick" Style="{StaticResource DialogPrimaryButton}" Margin="2" MaxWidth="240">
+                        <TextBlock x:Name="SaveLabel" TextTrimming="CharacterEllipsis" />
+                    </Button>
+                </WrapPanel>
+            </StackPanel>
+            <DockPanel Margin="12,8,12,2">
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock x:Name="Team" FontSize="15" FontWeight="Bold" TextWrapping="Wrap" />
+                    <DockPanel>
+                        <Button x:Name="OtherDrafts" Content="其他草稿" DockPanel.Dock="Right" Click="ChooseDraft" Visibility="Collapsed"
+                                Style="{StaticResource DialogSecondaryButton}" Padding="4,2" />
+                        <TextBlock x:Name="Following" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,6">
+                        <StackPanel x:Name="Tabs" Orientation="Horizontal" />
+                    </ScrollViewer>
+                    <WrapPanel Margin="0,0,0,5">
+                        <TextBlock x:Name="StageTitle" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <Button x:Name="FollowButton" Content="回到当前阶段" Click="Follow" Style="{StaticResource DialogSecondaryButton}" Padding="5,2" />
+                        <TextBlock Text="文字大小" Margin="9,0,3,0" VerticalAlignment="Center" />
+                        <Button Content="A−" Click="ReduceFont" Style="{StaticResource DialogSecondaryButton}" MinWidth="30" Padding="5,2" />
+                        <TextBlock x:Name="FontValue" VerticalAlignment="Center" Margin="4,0" />
+                        <Button Content="A+" Click="EnlargeFont" Style="{StaticResource DialogSecondaryButton}" MinWidth="30" Padding="5,2" />
+                    </WrapPanel>
+                </StackPanel>
+                <TextBox x:Name="Notes" TextChanged="EditNote" Style="{StaticResource DialogTextBox}"
+                         TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" Padding="8"
+                         VerticalScrollBarVisibility="Auto" AutomationProperties.Name="阶段攻略讲解" />
+            </DockPanel>
+        </DockPanel>
+    </Border>
+</Window>

@@ -11,6 +11,7 @@ public partial class TrackingViewModel : ObservableObject
     private DeployPoolState? _deployPool;
     public IReadOnlySet<string>? OwnedOperatorNames => _deployPool?.Owned.ToHashSet(StringComparer.Ordinal);
     private List<TrackedLineup> _trackedLineups = [];
+    public IReadOnlyCollection<Lineup> SavedLineups { private get; set; } = [];
     public IReadOnlySet<string> TrackedLineupIds => _trackedLineups.Where(l => l.Highlighted).Select(l => l.Id).ToHashSet(StringComparer.Ordinal);
     public bool IsLineupTracked(string id) => _trackedLineups.Any(l => l.Id == id);
     public event Action? SourcesChanged;
@@ -207,9 +208,13 @@ public partial class TrackingViewModel : ObservableObject
         IsAcquired = e.IsAcquired, IsStageActive = e.IsStageActive, Origins = [.. e.Origins]
     };
 
-    public (int Operators, int Equipment) TrackLineup(Lineup lineup)
+    public TrackedLineup? CurrentMapLineup => _trackedLineups.FirstOrDefault(l => l.Id == _stageLineupId) ?? _trackedLineups.LastOrDefault();
+
+    public (int Operators, int Equipment) TrackLineup(Lineup lineup) => TrackLineup(lineup, TrackMultipleLineups);
+
+    public (int Operators, int Equipment) TrackLineup(Lineup lineup, bool keepOthers)
     {
-        if (!TrackMultipleLineups) ClearAllTracking();
+        if (!keepOthers) ClearAllTracking();
         return ApplyLineupTargets(lineup, true, false);
     }
 
@@ -241,6 +246,7 @@ public partial class TrackingViewModel : ObservableObject
         var selected = stages.FirstOrDefault(s => s.Id == previousSource?.SelectedStageId) ?? stages.Single(s => s.IsFinal);
         _trackedLineups.Add(new TrackedLineup(lineup.Id, lineup.Name, highlight)
         {
+            GuideSource = SavedLineups.Any(l => l.Id == lineup.Id) ? null : lineup,
             Stages = stages, SelectedStageId = selected.Id, AutomaticStageSwitch = previousSource?.AutomaticStageSwitch == true,
             UpgradeReminders = [.. lineup.UpgradeReminders], UpgradeNotificationsEnabled = lineup.UpgradeNotificationsEnabled
         });

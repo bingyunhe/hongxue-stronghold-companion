@@ -67,7 +67,7 @@ internal static class DeltaInstaller
         return string.Equals(Convert.ToHexString(SHA256.HashData(stream)), hash, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string Resolve(string root, string name)
+    internal static string Resolve(string root, string name)
     {
         var path = root;
         foreach (var part in name.Split('/'))

@@ -709,28 +709,37 @@
                                 </StackPanel>
                                 <StackPanel x:Name="KeySettingsPage" Visibility="Collapsed">
                                 <StackPanel x:Name="QuickRecognitionPanel">
-                                <TextBlock Text="快捷键设置" Style="{StaticResource SettingsCaption}" />
+                                <TextBlock Text="点击按键框，按下新的组合键。" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="窗口显隐" Style="{StaticResource SettingsCaption}" />
                                 <Border Style="{StaticResource SettingsCard}">
                                     <StackPanel>
-                                        <TextBlock Text="隐藏 / 显示助手快捷键" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                                        <TextBlock Text="隐藏到托盘，后台识别继续；再次按下或点击托盘图标恢复" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,8" />
+                                        <TextBlock Text="隐藏 / 显示助手" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        <TextBlock Text="收起到托盘，后台识别继续运行。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,5" />
                                         <DockPanel>
-                                            <Button x:Name="ClearHotkeyButton" Tag="{StaticResource IconClose}" Width="24" Height="24" ToolTip="清除快捷键" AutomationProperties.Name="清除快捷键" DockPanel.Dock="Right" Click="OnClearAssistantHotkey" Style="{StaticResource RowIconButton}" Margin="6,0,0,0" />
-                                            <TextBox x:Name="AssistantHotkeyBox" Style="{StaticResource DialogTextBox}" Height="28" MinHeight="28" Padding="8,3" Text="未设置（点击录入）" IsReadOnly="True" PreviewKeyDown="OnAssistantHotkeyKeyDown" AutomationProperties.Name="隐藏助手快捷键" VerticalContentAlignment="Center" />
+                                            <Button x:Name="ClearHotkeyButton" Content="清除" Height="28" MinHeight="0" ToolTip="清除隐藏 / 显示助手快捷键" DockPanel.Dock="Right" Click="OnClearAssistantHotkey" Style="{StaticResource DialogSecondaryButton}" Padding="8,2" Margin="6,0,0,0" />
+                                            <TextBox x:Name="AssistantHotkeyBox" Style="{StaticResource DialogTextBox}" Height="28" MinHeight="28" Padding="8,3" Text="未设置（点击录入）" IsReadOnly="True" PreviewKeyDown="OnHotkeyKeyDown" AutomationProperties.Name="隐藏 / 显示助手快捷键" VerticalContentAlignment="Center" />
                                         </DockPanel>
-                                        <TextBlock x:Name="AssistantHotkeyStatus" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0" />
+                                        <TextBlock x:Name="AssistantHotkeyStatus" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        <Separator Margin="0,7" />
+                                        <TextBlock Text="隐藏 / 显示攻略讲解" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        <TextBlock Text="单独切换攻略窗，保留当前阶段和草稿。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,5" />
+                                        <DockPanel>
+                                            <Button x:Name="ClearGuideHotkeyButton" Content="清除" Height="28" MinHeight="0" ToolTip="清除隐藏 / 显示攻略讲解快捷键" DockPanel.Dock="Right" Click="OnClearGuideHotkey" Style="{StaticResource DialogSecondaryButton}" Padding="8,2" Margin="6,0,0,0" />
+                                            <TextBox x:Name="GuideHotkeyBox" Style="{StaticResource DialogTextBox}" Height="28" MinHeight="28" Padding="8,3" Text="未设置（点击录入）" IsReadOnly="True" PreviewKeyDown="OnHotkeyKeyDown" AutomationProperties.Name="隐藏 / 显示攻略讲解快捷键" VerticalContentAlignment="Center" />
+                                        </DockPanel>
+                                        <TextBlock x:Name="GuideHotkeyStatus" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                     </StackPanel>
                                 </Border>
-
+                                <TextBlock Text="对局识别" Style="{StaticResource SettingsCaption}" Margin="0,8,0,5" />
                                 <Border Style="{StaticResource SettingsCard}">
                                     <StackPanel>
-                                        <TextBlock Text="快速识别快捷键" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                                        <TextBlock Text="打开游戏本局信息页后按下，录入 Ban 位、盟约和敌人" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,8" />
+                                        <TextBlock Text="快速识别" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        <TextBlock Text="打开游戏本局信息页后按下，录入禁用位、盟约和敌人。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,5" />
                                         <DockPanel>
-                                            <Button x:Name="ClearRecognitionHotkeyButton" Tag="{StaticResource IconClose}" Width="24" Height="24" ToolTip="清除快速识别快捷键" AutomationProperties.Name="清除快速识别快捷键" DockPanel.Dock="Right" Click="OnClearRecognitionHotkey" Style="{StaticResource RowIconButton}" Margin="6,0,0,0" />
-                                            <TextBox x:Name="RecognitionHotkeyBox" Style="{StaticResource DialogTextBox}" Height="28" MinHeight="28" Padding="8,3" Text="Ctrl + Shift + /" IsReadOnly="True" PreviewKeyDown="OnRecognitionHotkeyKeyDown" AutomationProperties.Name="快速识别快捷键" VerticalContentAlignment="Center" />
+                                            <Button x:Name="ClearRecognitionHotkeyButton" Content="清除" Height="28" MinHeight="0" ToolTip="清除快速识别快捷键" DockPanel.Dock="Right" Click="OnClearRecognitionHotkey" Style="{StaticResource DialogSecondaryButton}" Padding="8,2" Margin="6,0,0,0" />
+                                            <TextBox x:Name="RecognitionHotkeyBox" Style="{StaticResource DialogTextBox}" Height="28" MinHeight="28" Padding="8,3" Text="未设置（点击录入）" IsReadOnly="True" PreviewKeyDown="OnHotkeyKeyDown" AutomationProperties.Name="快速识别快捷键" VerticalContentAlignment="Center" />
                                         </DockPanel>
-                                        <TextBlock x:Name="RecognitionHotkeyStatus" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,6,0,0" />
+                                        <TextBlock x:Name="RecognitionHotkeyStatus" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                     </StackPanel>
                                 </Border>
                                 </StackPanel>

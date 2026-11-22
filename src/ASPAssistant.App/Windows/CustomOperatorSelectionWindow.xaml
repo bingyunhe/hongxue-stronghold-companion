@@ -29,13 +29,14 @@
                     <Button DockPanel.Dock="Right" Content="清空选择" Style="{StaticResource DialogSecondaryButton}" Margin="8,0,0,0" Click="OnClear" />
                     <TextBox x:Name="SearchBox" Style="{StaticResource DialogTextBox}" ToolTip="搜索候选干员名称" TextChanged="OnSearchChanged" />
                 </DockPanel>
+                <ItemsControl x:Name="CovenantFilters" Style="{StaticResource MissingCovenantChips}" Margin="0,6,0,0" />
             </StackPanel>
             <Grid Margin="12,0,4,8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <WrapPanel x:Name="ChoicesPanel" />
                 </ScrollViewer>
                 <controls:EmptyState x:Name="EmptyHint" Visibility="Collapsed" Icon="{StaticResource IconOperators}"
-                                     Title="没有符合关键词的干员" Hint="换个关键词试试。" />
+                                     Title="没有符合条件的干员" Hint="调整搜索或盟约筛选。" />
             </Grid>
         </DockPanel>
     </Border>

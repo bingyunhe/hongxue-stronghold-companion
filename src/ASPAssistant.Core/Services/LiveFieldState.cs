@@ -419,6 +419,17 @@ internal sealed partial class LiveFieldState(IReadOnlyDictionary<string, int> ti
         return true;
     }
 
+    internal bool PlaceMissedUnit(FieldMark mark, string name)
+    {
+        if (!tiers.ContainsKey(name) || Roster.Units.Any(u => u.Mark.Slot == mark.Slot)) return false;
+        var known = Roster.Unlocated.Where(m => m.Name == name).Take(2).ToArray();
+        var unit = new LiveUnit(mark, ++_nextId, name, null, true, true)
+            { MemberId = known.Length == 1 ? known[0].Id : null, NameOnlySample = known.Length > 1 ? mark : null };
+        _observed = _observed with { Units = [.. _observed.Units, unit] };
+        if (unit.NameOnlySample != null) { Publish(true); return true; }
+        return Confirm(unit.Id, mark.Slot, name, true);
+    }
+
     public bool Confirm(long id, FieldSlot slot, string name, bool manual, FieldMark? beforeClick = null)
     {
         var u = _observed.Units.FirstOrDefault(x => x.Id == id && x.Mark.Slot == slot);

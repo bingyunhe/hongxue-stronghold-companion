@@ -328,6 +328,24 @@ public class LineupPlannerViewModelTests
         vm.RouteStages.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task ReturningFromManualRouteKeepsGoalsAndReopensTheResultList()
+    {
+        var (vm, _) = Create();
+        vm.IsActive = true;
+        Item(vm, "炎").ToggleLevel1Command.Execute(null);
+        await vm.PendingSearch!;
+        vm.ShowResultPageCommand.Execute(null);
+        await vm.PlanRouteAsync(vm.VisibleLineups[0]);
+        vm.ShowRouteView.Should().BeTrue();
+
+        vm.ShowGoalPageCommand.Execute(null);
+        vm.ShowGoals.Should().BeTrue();
+        Item(vm, "炎").Level.Should().Be(1);
+        vm.ShowResultPageCommand.Execute(null);
+        vm.ShowResultList.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

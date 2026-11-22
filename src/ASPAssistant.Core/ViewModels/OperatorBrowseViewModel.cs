@@ -18,6 +18,9 @@ public enum OperatorSourceFilter { All, Default, Custom }
 
 public partial class OperatorBrowseViewModel : ObservableObject
 {
+    private readonly MissingCovenantFilters _missing;
+    public OperatorBrowseViewModel() => _missing = new(OnChipToggled);
+
     private List<Operator> _allOperators = [];
     [ObservableProperty]
     private OperatorSourceFilter _selectedOperatorSource;
@@ -126,6 +129,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
             if (SelectedTierFilters.Count > 0)
                 groups.Add([.. SelectedTierFilters.Select(TierToRoman)]);
             var allCovenants = _selectedCoreCovenantFilters.Concat(_selectedOtherCovenantFilters).Order().ToList();
+            allCovenants.AddRange(_missing.Chips.Where(c => c.IsSelected).Select(c => c.Label));
             if (allCovenants.Count > 0)
                 groups.Add(allCovenants);
             if (!string.IsNullOrEmpty(SelectedTraitTypeFilter))
@@ -228,6 +232,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
             .Select(c => new FilterChip(FilterChipKind.CoreCovenant, c!, c!, OnChipToggled)));
         Fill(OtherChips, AvailableOtherCovenants.Where(c => !string.IsNullOrEmpty(c))
             .Select(c => new FilterChip(FilterChipKind.OtherCovenant, c!, c!, OnChipToggled)));
+        CoreChips.Add(_missing.Core);
+        OtherChips.Add(_missing.Additional);
         Fill(TraitChips, AvailableTraitTypes.Where(c => !string.IsNullOrEmpty(c))
             .Select(c => new FilterChip(FilterChipKind.TraitType, c!, c!, OnChipToggled)));
         Fill(TimingChips, AvailableTriggerTimings.Where(c => !string.IsNullOrEmpty(c))
@@ -240,12 +246,12 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private void RefreshChipCounts()
     {
         bool Usable(Operator o) => MatchesSource(o) && _isBannedCheck?.Invoke(o.Name) != true;
-        foreach (var chip in CoreChips)
+        foreach (var chip in CoreChips.Where(c => c != _missing.Core))
         {
             chip.Count = _allOperators.Count(o => o.CoreCovenants.Contains(chip.Value) && Usable(o));
             chip.Ban = _isCovenantBanned?.Invoke(chip.Value) == true ? FilterChipBan.Reduced : FilterChipBan.None;
         }
-        foreach (var chip in OtherChips)
+        foreach (var chip in OtherChips.Where(c => c != _missing.Additional))
         {
             chip.Count = _allOperators.Count(o => o.AdditionalCovenants.Contains(chip.Value) && Usable(o));
             chip.Ban = _isCovenantBanned?.Invoke(chip.Value) == true ? FilterChipBan.Reduced : FilterChipBan.None;
@@ -267,12 +273,10 @@ public partial class OperatorBrowseViewModel : ObservableObject
                 _selectedTierFilters = TierChips.Where(c => c.IsSelected).Select(c => int.Parse(c.Value)).Order().ToList();
                 break;
             case FilterChipKind.CoreCovenant:
-                _selectedCoreCovenantFilters.Clear();
-                foreach (var c in CoreChips.Where(c => c.IsSelected)) _selectedCoreCovenantFilters.Add(c.Value);
+                SelectCovenant(chip, _missing.Core, _selectedCoreCovenantFilters);
                 break;
             case FilterChipKind.OtherCovenant:
-                _selectedOtherCovenantFilters.Clear();
-                foreach (var c in OtherChips.Where(c => c.IsSelected)) _selectedOtherCovenantFilters.Add(c.Value);
+                SelectCovenant(chip, _missing.Additional, _selectedOtherCovenantFilters);
                 break;
             case FilterChipKind.TraitType:
                 // single choice: picking one releases the others
@@ -285,12 +289,26 @@ public partial class OperatorBrowseViewModel : ObservableObject
         ApplyFilters();
     }
 
+    private static void SelectCovenant(FilterChip chip, FilterChip missing, HashSet<string> selected)
+    {
+        if (chip == missing)
+        {
+            if (chip.IsSelected) selected.Clear();
+        }
+        else if (chip.IsSelected)
+        {
+            missing.SetSelected(false);
+            selected.Add(chip.Value);
+        }
+        else selected.Remove(chip.Value);
+    }
+
     /// <summary>Mirrors the filter state onto the chips (after external changes such as 重置 or the planner).</summary>
     private void SyncChips()
     {
         foreach (var c in TierChips) c.SetSelected(int.TryParse(c.Value, out var t) && _selectedTierFilters.Contains(t));
-        foreach (var c in CoreChips) c.SetSelected(_selectedCoreCovenantFilters.Contains(c.Value));
-        foreach (var c in OtherChips) c.SetSelected(_selectedOtherCovenantFilters.Contains(c.Value));
+        foreach (var c in CoreChips.Where(c => c != _missing.Core)) c.SetSelected(_selectedCoreCovenantFilters.Contains(c.Value));
+        foreach (var c in OtherChips.Where(c => c != _missing.Additional)) c.SetSelected(_selectedOtherCovenantFilters.Contains(c.Value));
         foreach (var c in TraitChips) c.SetSelected(c.Value == SelectedTraitTypeFilter);
         foreach (var c in TimingChips) c.SetSelected(c.Value == SelectedTriggerTimingFilter);
     }
@@ -333,7 +351,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private void SyncCovenantChips(ObservableCollection<FilterChip> chips, IEnumerable<string?> choices, FilterChipKind kind)
     {
         var wanted = choices.Where(c => !string.IsNullOrEmpty(c)).Select(c => c!).ToList();
-        foreach (var chip in chips.Where(c => !wanted.Contains(c.Value)).ToList()) chips.Remove(chip);
+        var missing = kind == FilterChipKind.CoreCovenant ? _missing.Core : _missing.Additional;
+        foreach (var chip in chips.Where(c => c != missing && !wanted.Contains(c.Value)).ToList()) chips.Remove(chip);
         for (var i = 0; i < wanted.Count; i++)
         {
             var index = chips.ToList().FindIndex(c => c.Value == wanted[i]);
@@ -363,6 +382,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
 
     public void SetCoreCovenantFilters(IEnumerable<string> covenants)
     {
+        _missing.Core.SetSelected(false);
         _selectedCoreCovenantFilters.Clear();
         foreach (var c in covenants)
             _selectedCoreCovenantFilters.Add(c);
@@ -371,11 +391,15 @@ public partial class OperatorBrowseViewModel : ObservableObject
 
     public void SetOtherCovenantFilters(IEnumerable<string> covenants)
     {
+        _missing.Additional.SetSelected(false);
         _selectedOtherCovenantFilters.Clear();
         foreach (var c in covenants)
             _selectedOtherCovenantFilters.Add(c);
         ApplyFilters();
     }
+
+    private static bool MatchesGroup(List<string> bonds, HashSet<string> selected, bool all, bool missing) =>
+        missing ? bonds.Count == 0 : selected.Count == 0 || (all ? selected.IsSubsetOf(bonds) : selected.Overlaps(bonds));
 
     private void ApplyFilters()
     {
@@ -394,22 +418,6 @@ public partial class OperatorBrowseViewModel : ObservableObject
             filtered = filtered.Where(o => tiers.Contains(o.Tier));
         }
 
-        // Core and other covenant dimensions are independent (AND between dimensions,
-        // OR within each dimension).
-        if (_selectedCoreCovenantFilters.Count > 0)
-        {
-            filtered = CoreCovenantMatchAll
-                ? filtered.Where(o => _selectedCoreCovenantFilters.All(c => o.CoreCovenants.Contains(c)))
-                : filtered.Where(o => o.CoreCovenants.Any(c => _selectedCoreCovenantFilters.Contains(c)));
-        }
-
-        if (_selectedOtherCovenantFilters.Count > 0)
-        {
-            filtered = OtherCovenantMatchAll
-                ? filtered.Where(o => _selectedOtherCovenantFilters.All(c => o.AdditionalCovenants.Contains(c)))
-                : filtered.Where(o => o.AdditionalCovenants.Any(c => _selectedOtherCovenantFilters.Contains(c)));
-        }
-
         if (!string.IsNullOrEmpty(SelectedTraitTypeFilter))
             filtered = filtered.Where(o =>
                 o.Normal.Traits.Any(t => t.TraitType == SelectedTraitTypeFilter) ||
@@ -426,7 +434,19 @@ public partial class OperatorBrowseViewModel : ObservableObject
         if (!string.IsNullOrEmpty(SearchText))
             filtered = filtered.Where(o => SearchMatch.Matches(SearchText, o.Name));
 
-        SyncList(FilteredOperators, filtered.ToList());
+        var matches = new List<Operator>();
+        int noCore = 0, noAdditional = 0;
+        foreach (var op in filtered)
+        {
+            bool core = MatchesGroup(op.CoreCovenants, _selectedCoreCovenantFilters, CoreCovenantMatchAll, _missing.Core.IsSelected);
+            bool additional = MatchesGroup(op.AdditionalCovenants, _selectedOtherCovenantFilters, OtherCovenantMatchAll, _missing.Additional.IsSelected);
+            if (additional && op.CoreCovenants.Count == 0) noCore++;
+            if (core && op.AdditionalCovenants.Count == 0) noAdditional++;
+            if (core && additional) matches.Add(op);
+        }
+        _missing.Core.Count = noCore;
+        _missing.Additional.Count = noAdditional;
+        SyncList(FilteredOperators, matches);
         SyncChips();
         OnPropertyChanged(nameof(ActiveChips));
         OnPropertyChanged(nameof(HasActiveChips));
@@ -471,6 +491,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
         SearchText = "";
         SelectedAvailabilityFilter = AvailabilityFilter.All;
         _selectedTierFilters = [];
+        _missing.Clear();
         _selectedCoreCovenantFilters.Clear();
         _selectedOtherCovenantFilters.Clear();
         SelectedTraitTypeFilter = null;

@@ -663,7 +663,11 @@ public partial class App : Application
             _ocrScanner.ResetRegulationLevel();
             _ocrScanner.ResetEconomy();
             await Dispatcher.InvokeAsync(deploy.StartNewRunAsync).Task.Unwrap();
-            await Dispatcher.InvokeAsync(() => sidePanel.PlannerVm.Strategy = PlannerStrategy.Other);
+            await Dispatcher.InvokeAsync(() =>
+            {
+                enemyVm.Clear();
+                sidePanel.PlannerVm.Strategy = PlannerStrategy.Other;
+            });
             await _settingsManager.SaveTerminalLevelAsync(0);
             AppLogger.Info("Run", bansChanged ? "Changed Ban set confirmed; progress reset for the new run"
                 : "Opening confirmed; progress reset for the new run");
@@ -803,6 +807,7 @@ public partial class App : Application
         };
         await _sidePanel.InitRecognitionHotkeyAsync();
         await _sidePanel.InitAssistantHotkeyAsync();
+        await _sidePanel.InitGuideHotkeyAsync();
         ShutdownMode = ShutdownMode.OnLastWindowClose;
         _windowTracker.Start();
         _ocrScanner.Start();
@@ -831,6 +836,7 @@ public partial class App : Application
         _assistantTray?.Dispose();
         _sidePanel?.ReleaseAssistantHotkey();
         _sidePanel?.ReleaseRecognitionHotkey();
+        _sidePanel?.ReleaseGuideHotkey();
         _ocrScanner?.Dispose();
         _windowTracker?.Dispose();
         _connectionStatusTimer?.Stop();

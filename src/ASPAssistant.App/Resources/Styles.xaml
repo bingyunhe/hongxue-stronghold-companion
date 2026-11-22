@@ -1084,6 +1084,12 @@
         </Setter>
     </Style>
 
+    <Style x:Key="MissingCovenantChips" TargetType="ItemsControl">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></Setter.Value></Setter>
+        <Setter Property="ItemTemplate"><Setter.Value><DataTemplate><ToggleButton Style="{StaticResource FilterChipToggle}" /></DataTemplate></Setter.Value></Setter>
+    </Style>
+
     <!-- Tier cell (Ⅰ…Ⅵ): equal width, number font -->
     <Style x:Key="TierCellToggle" TargetType="ToggleButton" BasedOn="{StaticResource ClickableToggleButtonBase}">
         <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=TwoWay}" />

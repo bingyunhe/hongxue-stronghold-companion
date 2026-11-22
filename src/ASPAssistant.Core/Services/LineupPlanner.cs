@@ -204,7 +204,42 @@ public sealed class LineupPlanner
             }
             var limited = _limited;
             return new PlannerVariantResult(people, transforms,
-                _found.Select(f => f with { SearchLimited = limited }).ToList(), limited);
+                _found.Select(f => f with
+                {
+                    SearchLimited = limited,
+                    Substitutes = _request.IncludeSubstitutes ? FindSubstitutes(f) : []
+                }).ToList(), limited);
+        }
+
+        private List<LineupSubstitute> FindSubstitutes(PlannedLineup final)
+        {
+            var results = new List<LineupSubstitute>();
+            var team = final.Operators.Select(o => _ops.FindIndex(x => x.Name == o.Name)).ToArray();
+            var names = final.Operators.Select(o => o.Name).ToHashSet(StringComparer.Ordinal);
+            var transforms = new Dictionary<int, string>();
+            for (int slot = 0; slot < team.Length; slot++)
+                if (final.Operators[slot].TransformedCovenant is { } target) transforms[team[slot]] = target;
+
+            for (int slot = 0; slot < team.Length; slot++)
+            {
+                _ct.ThrowIfCancellationRequested();
+                var missing = final.Operators[slot];
+                // A temporary purchase must not use up somebody else's planned transformation.
+                if (missing.IsLocked || missing.TransformedCovenant is not null) continue;
+                if (!missing.IsHarmony && !missing.NativeCovenants.Any(_goalNames.Contains)) continue;
+                int original = team[slot];
+                for (int i = 0; i < _ops.Count; i++)
+                {
+                    if (names.Contains(_ops[i].Name)) continue;
+                    team[slot] = i;
+                    var (counts, _) = Count(team, transforms, final.MechCovenants);
+                    if (_request.Goals.Any(g => counts[g.Name] < g.Count) || _hasSoloGoal && counts[SoloCovenant] != 1
+                        || !HasHealer(team, counts)) continue;
+                    results.Add(new(missing.Name, _ops[i].Name, Score(counts).Score));
+                }
+                team[slot] = original;
+            }
+            return results;
         }
 
         private (Dictionary<string, int> Counts, Dictionary<string, int> Bonus) Count(IReadOnlyList<int> team,

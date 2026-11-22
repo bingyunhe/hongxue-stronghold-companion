@@ -59,6 +59,7 @@ public partial class DeployView : UserControl
     private CancellationTokenSource? _planCts;
     private readonly DispatcherTimer _replanTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private int? _activeTier;   // 扩展池: the tier shown (tiles switch between tiers)
+    private readonly MissingCovenantFilters _poolCovenants;
     private string _poolQuery = "";
     private string? _locatedSearch;
     private bool _ownedOnly;
@@ -74,7 +75,9 @@ public partial class DeployView : UserControl
 
     public DeployView()
     {
+        _poolCovenants = new(_ => RefreshPool());
         InitializeComponent();
+        PoolCovenantFilters.ItemsSource = _poolCovenants.Chips;
         _routeTimer.Tick += (_, _) => AdvanceRoute();
         BoardCard.IsVisibleChanged += (_, _) => UpdateRoutePlayback();
         _replanTimer.Tick += (_, _) => { _replanTimer.Stop(); _ = ReplanAsync(); };
@@ -82,7 +85,7 @@ public partial class DeployView : UserControl
         FieldCountList.SelectedIndex = 0;
         IsVisibleChanged += (_, _) =>
         {
-            if (!IsVisible) { _frozenCandidates = null; return; }
+            if (!IsVisible) { _frozenCandidates = null; CloseMapActions(); return; }
             if (!_ready) return;
             if (!ShowingLive && _roster.Units.Count > 0) _recommendationRoster ??= _roster;
             if (_plan is null || !ShowingLive && !_recommendedPool.SequenceEqual(Candidates())) ScheduleReplan();
@@ -98,6 +101,8 @@ public partial class DeployView : UserControl
 
     public async Task StartNewRunAsync()
     {
+        CloseMapActions();
+        Notice("");
         _replanTimer.Stop();
         _planCts?.Cancel();
         _pins.Clear();
@@ -106,6 +111,7 @@ public partial class DeployView : UserControl
         _dirty = false;
         _plan = _recommended = null;
         _recognized = null;
+        _state.MapLineupId = null;
         _lastSeen = null;
         _roster = new(null, null, []);
         _recommendationRoster = null;
@@ -172,7 +178,16 @@ public partial class DeployView : UserControl
         _routeMode = mode;
         _routeEnemies = enemies;
         _routeMap = null;
-        if (_ready && _shownPage == Page.Main) DrawBoard();
+        if (!_ready) return;
+        if (_shownPage == Page.Main) DrawBoard();
+        if (_state.Mode == PlacementMode.Balanced || ShowingLive) return;
+        if (_dirty)
+        {
+            _replanTimer.Stop();
+            _planCts?.Cancel();
+            Reevaluate();
+        }
+        else ScheduleReplan();
     }
 
     private GarrisonMap? _lastSeen;
@@ -257,6 +272,12 @@ public partial class DeployView : UserControl
         FieldCount = _state.FieldCount,
         Mode = _state.Mode,
         Pins = new Dictionary<string, PlacementPin>(_pins),
+        PreferredMembers = _tracking?.CurrentMapLineup is { } source && _state.MapLineupId == source.Id
+            ? _tracking.TrackedOperators.SelectMany(e => e.Origins.Where(o => o.LineupId == source.Id && o.StageId == source.SelectedStageId)
+                .Select((_, copy) => PlacementKeys.Of(e.Name, copy))).ToHashSet() : null,
+        WaveRound = _routeRound is int round ? _roundRouteStore?.PlacementWaveRound(_routeMode, round) ?? 0 : 0,
+        RoundRoutes = _state.Mode != PlacementMode.Balanced && _routeEnemies?.IsPartial == false && CurrentMap is { } map
+            ? RoundRoutesFor(map) : null,
     };
 
     private async Task ReplanAsync()
@@ -342,7 +363,8 @@ public partial class DeployView : UserControl
             if (_shownPage is not null) PageTransition.SlideIn(panel, fromX: page == Page.Main ? -14 : 14);
             _shownPage = page;
         }
-        MapFooter.Visibility = _page == Page.Pool ? Visibility.Collapsed : Visibility.Visible;
+        MapFooter.Visibility = _page == Page.Pool || PivotPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        MapActions.Visibility = page == Page.Main ? Visibility.Visible : Visibility.Collapsed;
         MainPanel.Visibility = page == Page.Main ? Visibility.Visible : Visibility.Collapsed;
         PoolPanel.Visibility = page == Page.Pool ? Visibility.Visible : Visibility.Collapsed;
         NoMapPanel.Visibility = page == Page.NoMap ? Visibility.Visible : Visibility.Collapsed;
@@ -359,6 +381,10 @@ public partial class DeployView : UserControl
 
     private void RefreshHeader()
     {
+        var source = _tracking?.CurrentMapLineup;
+        MapTeamName.Text = source?.Name ?? (_tracking?.TrackedOperators.Count > 0 ? "自选追踪" : "尚未选择阵容");
+        MapTeamStage.Text = source?.Stages.FirstOrDefault(s => s.Id == source.SelectedStageId) is { } stage ? $"当前追踪阵容 · {stage.Name}" : "当前追踪阵容";
+        MapSwitchButton.IsEnabled = _mapPlanner != null;
         var map = DisplayMap;
         MapName.Text = map?.Name ?? "未识别地图";
         bool manual = _state.ManualMap is not null;
@@ -405,6 +431,17 @@ public partial class DeployView : UserControl
 
     private void DrawLegend() { }
 
+    private GarrisonRoundRouteMatch? RoundRoutesFor(GarrisonMap map)
+    {
+        if (_routeMap == map.Id) return _routeMatch;
+        _routeIndex = 0;
+        _routeTimer.Stop();
+        _routeMap = map.Id;
+        return _routeMatch = _routeRound is int round
+            ? _roundRouteStore?.Find(map.Id, _routeMode, round, _routeEnemies?.RouteNames ?? [], _routeEnemies?.IsPartial != true)
+            : null;
+    }
+
     private void DrawBoard()
     {
         _routeArrowTransform.BeginAnimation(MatrixTransform.MatrixProperty, null);
@@ -415,6 +452,16 @@ public partial class DeployView : UserControl
         StageRoutesBox.Visibility = Visibility.Collapsed;
         RoundRouteStatus.ToolTip = null;
         if (DisplayMap is not { } map) return;
+        BoardTitleText.Text = ShowingLive ? "实况棋盘" : "推荐站位";
+        if (ShowingLive)
+        {
+            var visible = VisibleUnits;
+            int pending = visible.Count(u => u.Name == null);
+            if (_roster.Map == map.Id && _roster.Observations.LastOrDefault() is { } last)
+                pending += last.UncertainSlots.Count(s => visible.All(u => u.Mark.Slot != s));
+            BoardStatusText.Text = _editSlot is { } selected ? $"已选 {selected}" : pending > 0 ? $"{pending} 格待复核" : "";
+        }
+        else BoardStatusText.Text = _plan == null ? "" : $"{_plan.Placed.Count} 人上场";
         int allCols = map.ColumnCount, rows = map.RowCount;
         // Rows / columns with nothing on them (every map's row E, columns 1, 11 and 12) are left out.
         while (rows > 1 && Enumerable.Range(0, allCols).All(c => map.Cells[rows - 1, c] == BoardCellType.Blocked)) rows--;
@@ -451,18 +498,17 @@ public partial class DeployView : UserControl
                 case BoardCellType.Spawn: rect.Stroke = (Brush)FindResource("DangerBrush"); rect.StrokeThickness = 2; break;
                 default: rect.Fill = line; rect.Opacity = 0.25; break;
             }
+            if (ShowingLive && GarrisonMap.CanDeploy(type, false))
+            {
+                var slot = new FieldSlot(cell.Col, cell.Row);
+                rect.Tag = slot;
+                rect.Cursor = Cursors.Hand;
+                rect.MouseLeftButtonUp += (_, e) => { e.Handled = true; OpenSlot(slot); };
+            }
             Place(rect, CellX(map, cell.Col) + 1, T + cell.Row * S + 1);
         }
 
-        if (_routeMap != map.Id)
-        {
-            _routeIndex = 0;
-            _routeTimer.Stop();
-            _routeMap = map.Id;
-            _routeMatch = _routeRound is int round
-                ? _roundRouteStore?.Find(map.Id, _routeMode, round, _routeEnemies?.RouteNames ?? [], _routeEnemies?.IsPartial != true)
-                : null;
-        }
+        RoundRoutesFor(map);
         if (_routeRound is int roundNumber)
         {
             var detail = _routeMatch?.Status switch
@@ -593,6 +639,13 @@ public partial class DeployView : UserControl
                 }
             foreach (var unit in VisibleUnits.Where(u => !u.Mark.Slot.Bench))
                 Place(LiveTile(unit), CellX(map, unit.Mark.Slot.Col) + 1, T + unit.Mark.Slot.Row * S + 1);
+            if (_editSlot is { Bench: false } edited)
+            {
+                var indicator = new Border { Width = S - 2, Height = S - 2, CornerRadius = new(3), BorderThickness = new(2),
+                    BorderBrush = (Brush)FindResource("AccentBrush"), IsHitTestVisible = false };
+                if (_editUnit == null) indicator.Child = Text("＋", 12, "AccentBrush", true, true);
+                Place(indicator, CellX(map, edited.Col) + 1, T + edited.Row * S + 1);
+            }
             return;
         }
         if (_plan is null) return;
@@ -1035,6 +1088,11 @@ public partial class DeployView : UserControl
     private void Undo()
     {
         if (_recommended is null) return;
+        if (_state.Mode != PlacementMode.Balanced)
+        {
+            _ = ReplanAsync();
+            return;
+        }
         _working = _recommended.Placed.ToDictionary(p => p.Key, p => (p.Cell, p.Facing));
         _plan = _recommended;
         _dirty = false;
@@ -1080,6 +1138,14 @@ public partial class DeployView : UserControl
 
     private void OnBoardMouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (ShowingLive && DisplayMap is { } mapNow)
+        {
+            var point = e.GetPosition(BoardCanvas);
+            var cellNow = new BoardCell((int)Math.Floor((point.X - L) / S) + _firstCol, (int)Math.Floor((point.Y - T) / S));
+            if (Visible(cellNow) && GarrisonMap.CanDeploy(mapNow.At(cellNow), false))
+                OpenSlot(new(cellNow.Col, cellNow.Row));
+            return;
+        }
         if (_dragName is not { } name) return;
         BoardCanvas.ReleaseMouseCapture();
         var p = e.GetPosition(BoardCanvas);
@@ -1109,6 +1175,8 @@ public partial class DeployView : UserControl
     private void OnModeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressSelection || !_ready || ModeList.SelectedIndex < 0) return;
+        HideCorrection();
+        if (!ShowingLive) _returnMode = null;
         if (ShowingLive) _frozenCandidates = null;
         _recommendationRoster = ShowingLive ? null : _recommendationRoster ?? _roster;
         _planCts?.Cancel();
@@ -1166,6 +1234,7 @@ public partial class DeployView : UserControl
 
     public void FocusOperator(string name)
     {
+        _poolCovenants.Clear();
         _locatedSearch = name;
         PoolSearch.Text = name;
         PoolFilterList.SelectedIndex = 0;
@@ -1244,12 +1313,14 @@ public partial class DeployView : UserControl
         PoolTrackedBody.Children.Clear();
         RefreshPoolStageControls();
         var groups = Groups();
-        PoolHeaderMeta.Text = $"已获取 { _state.Owned.Distinct().Count()} 名 · 点击卡片切换获取，精锐按钮单独切换；右键调整数量";
+        PoolHeaderMeta.Text = $"已获取 { _state.Owned.Distinct().Count()} 名 · 点击未获取干员添加，用 − / + 调整数量";
         PoolSearchHint.Visibility = _poolQuery.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         var extItems = groups.Where(g => g.Kind == DeployPoolGroupKind.Extension).SelectMany(g => g.Items).ToList();
         if (_activeTier is null || !extItems.Any(i => i.Tier == _activeTier))
             // Start on a tier that already holds an owned operator, else the lowest tier with anyone in it.
             _activeTier = extItems.Where(i => i.Owned).Select(i => (int?)i.Tier).Min() ?? extItems.Select(i => (int?)i.Tier).Min();
+        bool MatchesPoolScope(DeployPoolItem item) => (!_ownedOnly || item.Owned) && (_poolQuery.Length == 0 || SearchMatch.Matches(_poolQuery, item.Name, item.Sub));
+        _poolCovenants.UpdateCounts(groups.SelectMany(g => g.Items).Where(MatchesPoolScope).Select(i => i.Operator).OfType<Operator>().DistinctBy(o => o.Name));
         if (groups.Count == 0)
         {
             PoolTrackedCount.Text = "0/0";
@@ -1262,10 +1333,8 @@ public partial class DeployView : UserControl
             });
             return;
         }
-        bool searching = _poolQuery.Length > 0;
-        bool Match(DeployPoolItem i) =>
-            (!_ownedOnly || i.Owned)
-            && (!searching || SearchMatch.Matches(_poolQuery, i.Name, i.Sub));
+        bool searching = _poolQuery.Length > 0 || _poolCovenants.Active;
+        bool Match(DeployPoolItem item) => MatchesPoolScope(item) && _poolCovenants.Matches(item.Operator);
         bool combineTracked = _tracking!.StageChoices.Count > 0 || _tracking.ShowAllStages;
         var tracked = groups.Where(g => g.Kind == DeployPoolGroupKind.Final || combineTracked && g.Kind == DeployPoolGroupKind.Transition)
             .SelectMany(g => g.Items).ToList();
@@ -1325,12 +1394,16 @@ public partial class DeployView : UserControl
             }
         }
         if (shown == 0)
-            PoolGroups.Children.Add(Text(searching ? $"没有找到“{_poolQuery}”，可以用“＋ 添加”加入其他干员" : "还没有已拥有的干员", 11, "TextSecondaryBrush", margin: new Thickness(2, 6, 0, 0)));
+            PoolGroups.Children.Add(Text(_poolCovenants.Active ? "没有符合当前条件的干员" : searching ? $"没有找到“{_poolQuery}”，可以用“＋ 添加”加入其他干员" : "还没有已拥有的干员", 11, "TextSecondaryBrush", margin: new Thickness(2, 6, 0, 0)));
     }
 
     private void AddCards(IReadOnlyList<DeployPoolItem> items, Panel target, bool animate = false, bool showTier = false)
     {
         var grid = new UniformGrid { Columns = 2 };
+        grid.SizeChanged += (_, e) =>
+        {
+            if (e.WidthChanged) grid.Columns = e.NewSize.Width < 320 ? 1 : 2;
+        };
         foreach (var item in items)
         {
             var card = (FrameworkElement)PoolCard(item,showTier);
@@ -1400,8 +1473,7 @@ public partial class DeployView : UserControl
                 VerticalAlignment=VerticalAlignment.Center });
         dock.Children.Add(new Avatar { Width = 24, Height = 24, Text = item.Name, Source = item.Operator?.IconPath, Small = true, Opacity = item.Owned ? 1 : 0.35, VerticalAlignment = VerticalAlignment.Center });
 
-        // Right side: ✓ for one copy, − n + when the operator is owned more than once, × for hand-added.
-        if (item.Owned && item.Count > 1)
+        if (item.Owned)
         {
             var step = new Border { CornerRadius = new CornerRadius(9), Height = 18, Background = (Brush)FindResource("AccentSolidBrush"), VerticalAlignment = VerticalAlignment.Center };
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
@@ -1414,17 +1486,6 @@ public partial class DeployView : UserControl
             step.ToolTip = "同名干员可以上场多个";
             DockPanel.SetDock(step, Dock.Right);
             dock.Children.Add(step);
-        }
-        else if (item.Owned)
-        {
-            var check = new Border
-            {
-                Width = 14, Height = 14, CornerRadius = new CornerRadius(7), VerticalAlignment = VerticalAlignment.Center,
-                Background = (Brush)FindResource("AccentSolidBrush"),
-                Child = new TextBlock { Text = "✓", FontSize = 9, FontWeight = FontWeights.Black, Foreground = (Brush)FindResource("OnAccentBrush"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-            };
-            DockPanel.SetDock(check, Dock.Right);
-            dock.Children.Add(check);
         }
         if (item.Removable)
         {
@@ -1482,31 +1543,9 @@ public partial class DeployView : UserControl
         }
         dock.Children.Add(body);
         root.Children.Add(dock);
-        root.ToolTip = item.Name + " · " + (item.Owned ? "已获取 · 点击取消获取；右键调整数量" : "点击标记已获取");
-        var menu = new ContextMenu();
-        var more = new MenuItem { Header = "再加一个（同名上场）" };
-        more.Click += (_, _) => ChangeCount(item.Name, +1);
-        menu.Items.Add(more);
-        if (item.Count > 1)
-        {
-            var less = new MenuItem { Header = "减少一个" };
-            less.Click += (_, _) => ChangeCount(item.Name, -1);
-            menu.Items.Add(less);
-        }
-        root.ContextMenu = menu;
+        root.ToolTip = item.Name + (item.Owned ? " · 用 − / + 调整数量" : " · 点击标记已获取");
         if (_bouncePool == item.Name) { Bounce(root); _bouncePool = null; }
-        root.MouseLeftButtonUp += (_, e) =>
-        {
-            if (e.Handled) return;
-            _bouncePool = item.Name;
-            SetManualCount(item.Name, item.Owned ? 0 : 1);
-            if (item.Owned) _liveScanner?.LimitLiveMembers(item.Name, 0);
-            ClearLocatedSearchAfterAcquisition(item.Name);
-            _tracking?.SyncDeployPool();
-            SaveState();
-            RefreshPool();
-            ScheduleReplan();
-        };
+        if (!item.Owned) root.MouseLeftButtonUp += (_, _) => ChangeCount(item.Name, 1);
         return root;
     }
 
@@ -1622,6 +1661,7 @@ public partial class DeployView : UserControl
         bool extension = Groups().Any(g => g.Kind == DeployPoolGroupKind.Extension && g.Items.Any(i => i.Name == name));
         if (!tracked && !extension && !_state.Extra.Contains(name)) _state.Extra.Add(name);
         SetManualCount(name, Math.Max(1, _state.CountOf(name)));
+        _poolCovenants.Clear();
         _locatedSearch = null;
         PoolSearch.Clear();
         PoolFilterList.SelectedIndex = 0;

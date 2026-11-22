@@ -43,6 +43,11 @@ internal static class StageRepairViewTests
             try
             {
                 host.Show(); Pump();
+                vm.ShowGoals.Should().BeTrue();
+                var navigate = (Button)view.FindName("PlannerNavigationButton");
+                navigate.Content.Should().Be($"查看 {vm.TotalResults} 套 →");
+                navigate.Command.Execute(null); Pump();
+                vm.ShowResultList.Should().BeTrue();
                 var preview = Desc<Button>(view).Single(b => ReferenceEquals(b.DataContext, item) && b.Content as string == "预览各阶段修补");
                 var save = Desc<Button>(view).Single(b => ReferenceEquals(b.DataContext, item) && b.Content as string == "覆盖原阵容");
                 save.IsEnabled.Should().BeFalse();

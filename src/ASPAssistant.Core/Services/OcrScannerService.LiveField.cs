@@ -142,6 +142,52 @@ public partial class OcrScannerService
         return true;
     }
 
+    private bool SameCorrectionBoard(LiveRoster displayed)
+    {
+        if (displayed.Observations.LastOrDefault() is not { PersonalBoard: true } shown ||
+            _fieldObservations.LastOrDefault() is not { PersonalBoard: true } latest || _liveState == null ||
+            !IsCurrentOwnership(shown) || shown.Map != latest.Map || shown.Round != latest.Round) return false;
+        if (ReferenceEquals(shown, latest)) return true;
+        // Automatic reads can refresh the image while the player is choosing. Only accept an unchanged roster.
+        var now = _liveState.Roster.Units;
+        return displayed.Units.Count == now.Count && displayed.Units.All(old =>
+            now.Any(u => u.Id == old.Id && u.Mark.Slot == old.Mark.Slot && u.Name == old.Name));
+    }
+
+    public bool ConfirmMapUnit(LiveRoster displayed, LiveUnit target, string name)
+    {
+        FieldOwnership? ownership;
+        lock (_runLock)
+        {
+            if (!SameCorrectionBoard(displayed)) return false;
+            var slot = target.Mark.Slot;
+            var current = _liveState!.Roster.Units.FirstOrDefault(u => u.Id == target.Id && u.Mark.Slot == slot && u.Name == target.Name);
+            if (current == null) return false;
+            bool accepted = current.Suggestion is { } hint && hint.Name == name ? _liveState.AcceptSuggestion(current.Id, slot, hint.Id)
+                : current.Name == null ? _liveState.ConfirmReviewName(current.Id, slot, name) : _liveState.Confirm(current.Id, slot, name, true);
+            if (!accepted) return false;
+            ownership = Ownership(current.Id, current.Name);
+        }
+        PublishField(ownership);
+        return true;
+    }
+
+    public bool PlaceMissedUnit(LiveRoster displayed, FieldSlot slot, string name)
+    {
+        FieldOwnership? ownership;
+        lock (_runLock)
+        {
+            if (!SameCorrectionBoard(displayed) || displayed.Units.Any(u => u.Mark.Slot == slot) ||
+                _reviewBoard is not { } board || !FieldTiers.TryGetValue(name, out int tier) ||
+                !_fieldObservations[^1].Readings.ContainsKey(slot)) return false;
+            var mark = LiveReader!.SampleManualSlot(board.Frame, board.Board, slot, tier);
+            if (!_liveState!.PlaceMissedUnit(mark, name)) return false;
+            ownership = Ownership(_liveState.Roster.Units.Single(u => u.Mark.Slot == slot).Id);
+        }
+        PublishField(ownership);
+        return true;
+    }
+
     public bool SetLiveIdentity(LiveUnit target, string name)
     {
         FieldOwnership? ownership;

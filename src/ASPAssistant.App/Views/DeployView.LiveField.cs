@@ -102,6 +102,7 @@ public partial class DeployView
             {
                 tile.ContextMenu = new ContextMenu();
                 AddFeedbackItem(tile.ContextMenu,slot);
+                tile.MouseLeftButtonUp += (_, e) => { e.Handled = true; OpenSlot(slot); };
             }
             BenchRow.Children.Add(tile);
         }
@@ -161,7 +162,7 @@ public partial class DeployView
                 CornerRadius=new CornerRadius(4), BorderThickness=new Thickness(1), ContextMenu=LiveMenu(unit), ToolTip=unit.IdentitySource };
             card.SetResourceReference(Border.BackgroundProperty,"CardBackgroundBrush");
             card.SetResourceReference(Border.BorderBrushProperty,"BorderBrush");
-            card.MouseLeftButtonUp += async (_,_) => { if (_reviewSlot) { _reviewSlot=false; await ReadField(unit); } };
+            card.MouseLeftButtonUp += async (_,_) => { if (_reviewSlot) { _reviewSlot=false; await ReadField(unit); } else OpenSlot(unit.Mark.Slot); };
             OperatorGrid.Children.Add(card);
         }
     }
@@ -178,7 +179,7 @@ public partial class DeployView
         tile.ContextMenu = LiveMenu(unit);
         tile.Cursor = Cursors.Hand;
         tile.MouseLeftButtonUp += async (_,e) => { e.Handled=true; if (_reviewSlot) { _reviewSlot=false; await ReadField(unit); }
-            else { LiveMessage.Visibility=Visibility.Visible; LiveMessage.Text = (string)tile.ToolTip; } };
+            else OpenSlot(unit.Mark.Slot); };
         return tile;
     }
 
@@ -309,16 +310,41 @@ public partial class DeployView
     }
 
     private async void OnReadField(object sender,RoutedEventArgs e) => await ReadField(null);
+    private void OnReadFieldOptions(object sender, RoutedEventArgs e)
+    {
+        var menu = ReadFieldButton.ContextMenu;
+        menu.PlacementTarget = ReadFieldOptions;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
     private async void OnReadOwnBoard(object sender, RoutedEventArgs e) => await ReadField(null, ownBoard: true);
     private async Task ReadField(LiveUnit? unit, bool ownBoard = false)
     {
-        ModeList.SelectedIndex=0;
         if (_readingField || _liveScanner == null) return;
+        if (!ShowingLive) _returnMode = ModeList.SelectedIndex;
+        ModeList.SelectedIndex=0;
+        HideCorrection();
         _readingField=true;
         LiveMessage.Visibility=Visibility.Visible;
         ReadFieldButton.IsEnabled=false;
         LiveMessage.Text=unit == null ? "正在识别阵容…" : $"正在复核 {unit.Mark.Slot}…";
-        try { LiveMessage.Text=await _liveScanner.ReadLiveFieldAsync(unit, ownBoard); }
+        var previous = _liveScanner.LiveRoster.Observations.LastOrDefault();
+        try
+        {
+            LiveMessage.Text = await _liveScanner.ReadLiveFieldAsync(unit, ownBoard);
+            var roster = _liveScanner.LiveRoster;
+            ShowLiveRoster(roster);
+            if (IsVisible && unit == null && roster.Observations.LastOrDefault() is { } observed && !ReferenceEquals(previous, observed)
+                && LiveMessage.Text.StartsWith("上场", StringComparison.Ordinal))
+            {
+                var unknown = roster.Units.FirstOrDefault(u => u.Name == null);
+                if (unknown != null) OpenSlot(unknown.Mark.Slot);
+                else if (observed.UncertainSlots.Length > 0 && observed.PersonalBoard)
+                    OpenSlot(observed.UncertainSlots[0]);
+                else FinishCorrection($"阵容识别完成 · 已认出 {roster.Units.Count} 人");
+            }
+        }
         finally { _readingField=false; ReadFieldButton.IsEnabled=true; }
     }
     private void OnChooseFieldSlot(object sender,RoutedEventArgs e)

@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <!-- Version is overridden by CI via -p:Version=x.y.z during release builds -->
-    <Version>1.9.7</Version>
+    <Version>1.9.8</Version>
     <AssemblyTitle>Hongxue Stronghold Companion</AssemblyTitle>
     <Product>Hongxue Stronghold Companion</Product>
     <!-- Custom entry point with OS version guard (Program.cs); overrides WPF auto-generated Main -->

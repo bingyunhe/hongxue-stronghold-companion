@@ -194,6 +194,19 @@ internal static class SklandCompleteEditorViewTests
             saveError.Text.Should().Contain("冲突");
             saveError.TextWrapping.Should().Be(TextWrapping.Wrap);
             Capture(window, $"{theme}-{night}-save-conflict");
+            var deleteButton = stagePanel.Children.OfType<Button>().Single(b => Equals(b.DataContext, draggedPhase));
+            var deleteItem = deleteButton.ContextMenu.Items.OfType<MenuItem>().Single(m => Equals(m.Header, "删除此阶段"));
+            foreach (string answer in new[] { "CancelButton", "OkButton" })
+            {
+                window.Dispatcher.BeginInvoke(() =>
+                {
+                    var dialog = window.OwnedWindows.OfType<ConfirmDialog>().Single();
+                    ((Button)dialog.FindName(answer)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                }, System.Windows.Threading.DispatcherPriority.Loaded);
+                deleteItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                vm.PhaseLabels.ContainsKey(draggedPhase).Should().Be(answer == "CancelButton");
+            }
+            vm.ToLineup().SklandGuide!.Stages.Count.Should().Be(order.Length - 1);
             foreach (var phase in vm.PhaseLabels.Keys.Where(p => p != LineupPhase.后期))
                 vm.UpdateStage(phase, vm.PhaseLabels[phase], null, null);
             Click("SaveButton"); Pump();

@@ -41,7 +41,17 @@ public partial class LineupEditorWindow
                 rounds.Click += async (_, _) => await EditStageAsync(phase, StageEditorMode.Rounds);
                 var duplicate = new MenuItem { Header = "复制此阶段" };
                 duplicate.Click += (_, _) => { _vm.DuplicateStage(phase); RefreshEditor(); };
-                menu.Items.Add(rename); menu.Items.Add(rounds); menu.Items.Add(duplicate); button.ContextMenu = menu;
+                var delete = new MenuItem { Header = "删除此阶段" };
+                delete.SetResourceReference(ForegroundProperty, "DangerBrush");
+                delete.Click += (_, _) =>
+                {
+                    if (!ConfirmDialog.Ask(this, "删除阶段", $"删除「{name}」及该阶段的干员配置？保存阵容后生效。", "删除阶段", danger: true)) return;
+                    _vm.DeleteStage(phase);
+                    RefreshEditor();
+                };
+                menu.Items.Add(rename); menu.Items.Add(rounds); menu.Items.Add(duplicate);
+                menu.Items.Add(new Separator()); menu.Items.Add(delete);
+                button.ContextMenu = menu;
             }
             PhaseTabs.Children.Add(button);
         }

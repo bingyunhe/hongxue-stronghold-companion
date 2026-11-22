@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using ASPAssistant.Core.Data;
 using ASPAssistant.Core.Models;
 
 namespace ASPAssistant.Core.Services;
@@ -10,9 +11,13 @@ public sealed record PlacementOptions
     public PlacementMode Mode { get; init; } = PlacementMode.Balanced;
     /// <summary>Operators the player fixed by hand.</summary>
     public IReadOnlyDictionary<string, PlacementPin> Pins { get; init; } = new Dictionary<string, PlacementPin>();
+    public IReadOnlySet<string>? PreferredMembers { get; init; }
     public int Seed { get; init; } = 1;
     public int Iterations { get; init; } = 5000;
     public int Restarts { get; init; } = 5;
+    /// <summary>Reference trace: 0 when unknown, 1–13 ordinary, 14 final assault, 15 hidden boss.</summary>
+    public int WaveRound { get; init; }
+    public GarrisonRoundRouteMatch? RoundRoutes { get; init; }
 
     public double StackWeight => Mode switch
     {
@@ -80,7 +85,7 @@ public sealed class PlacementPlanner
         var job = new Job(this, map, pool, options);
         var pl = job.Normalise(placement);
         if (!pl.TryGetValue(name, out var here)) return [];
-        double current = job.Score(pl);
+        double current = job.LayoutScore(pl);
         var occupied = pl.Where(kv => kv.Key != name).Select(kv => kv.Value.Cell).ToHashSet();
         var result = new List<PlacementAlternative>();
         foreach (var cell in job.Board.Deployable)
@@ -90,7 +95,7 @@ public sealed class PlacementPlanner
             foreach (var f in Faces)
             {
                 pl[name] = (cell, f);
-                double s = job.Score(pl);
+                double s = job.LayoutScore(pl);
                 if (s > best.Score) best = (s, f);
             }
             pl[name] = (cell, best.Facing);
@@ -179,6 +184,8 @@ public sealed class PlacementPlanner
         public required string Name;
         public required PlacementRole Role;
         public required double Power;
+        public double WavePower;
+        public double DamagePower;
         public required bool Melee;
         public required int Block;
         public required (int Col, int Row)[][] Offsets; // by Facing
@@ -204,7 +211,7 @@ public sealed class PlacementPlanner
         public required double StackAmount;
     }
 
-    private OpInfo? BuildInfo(PlacementCandidate c)
+    private OpInfo? BuildInfo(PlacementCandidate c, PlacementMode mode)
     {
         if (!_operators.TryGetValue(c.Name, out var op) || op.Profile is not { } p) return null;
         var range = p.RangeFor(c.IsElite);
@@ -249,6 +256,13 @@ public sealed class PlacementPlanner
             StackPerRound = p.Stack?.PerRound ?? 0,
             StackAmount = p.Stack?.Amount ?? 0,
         };
+        info.WavePower = info.DamagePower = info.Power;
+        if (PlacementDamageSamples.ByName.TryGetValue(c.Name, out var sampled))
+        {
+            // Four solo waves; 20,000 damage is approximately the median for a normal operator.
+            info.WavePower = Math.Sqrt((c.IsElite ? sampled.Elite : sampled.Normal) / 20_000.0);
+            if (mode == PlacementMode.Balanced) info.DamagePower = 0.4 * info.Power + 0.6 * info.WavePower;
+        }
         info.Role = RoleOf(info, p, op.Tier);
         return info;
     }
@@ -326,17 +340,35 @@ public sealed class PlacementPlanner
         private readonly List<string> _pool;
         private readonly List<string> _unplaceable;
         private readonly Dictionary<string, CovenantContext> _covCache = [];
+        private readonly byte[]? _wave;
 
         public Job(PlacementPlanner owner, GarrisonMap map, IReadOnlyList<PlacementCandidate> pool, PlacementOptions options)
         {
             _owner = owner;
             _options = options;
             Board = new BoardInfo(map);
+            if (options.Mode != PlacementMode.Balanced && PlacementWaveSamples.ByMap.TryGetValue(map.Id, out var waves))
+            {
+                _wave = waves[options.WaveRound is >= 1 and <= 15 ? options.WaveRound : 0];
+                // A detached boss diagram has its own coordinates. Ordinary confirmed paths use board coordinates.
+                if (options.RoundRoutes is { Status: GarrisonRouteStatus.Confirmed, Grid: null } match)
+                {
+                    var visits = new int[_wave.Length];
+                    foreach (var route in match.Routes)
+                    {
+                        int count = route.Enemies.Values.Sum(n => n.Min);
+                        foreach (var cell in route.Path.Segments.SelectMany(s => s).Distinct())
+                            if (WaveIndex(cell.Col, cell.Row) is int j) visits[j] += count;
+                    }
+                    int peak = visits.Max();
+                    if (peak > 0) _wave = visits.Select((n, j) => (byte)((_wave[j] + 255 * n / peak) / 2)).ToArray();
+                }
+            }
             Info = [];
             _unplaceable = [];
             foreach (var c in pool.DistinctBy(c => c.Key))
             {
-                var info = owner.BuildInfo(c);
+                var info = owner.BuildInfo(c, options.Mode);
                 if (info is null) { if (!_unplaceable.Contains(c.Name)) _unplaceable.Add(c.Name); }
                 else Info[c.Key] = info;
             }
@@ -383,6 +415,34 @@ public sealed class PlacementPlanner
 
         public double Score(Dictionary<string, (BoardCell Cell, Facing Facing)> pl) => Evaluate(pl, null).Total;
 
+        private static int? WaveIndex(int col, int row) =>
+            col is >= -3 and < 18 && row is >= -2 and < 7 ? (row + 2) * 21 + col + 3 : null;
+
+        public double LayoutScore(Dictionary<string, (BoardCell Cell, Facing Facing)> pl) => Layout(pl, null).Total;
+
+        private Breakdown Layout(Dictionary<string, (BoardCell Cell, Facing Facing)> pl, Dictionary<string, List<string>>? notes)
+        {
+            var result = Evaluate(pl, notes);
+            if (_wave is null) return result;
+            double exposure = 0;
+            foreach (var (key, pos) in pl)
+            {
+                var unit = Info[key];
+                double visits = 0;
+                foreach (var (dx, dy) in unit.Offsets[(int)pos.Facing])
+                    if (WaveIndex(pos.Cell.Col + dx, pos.Cell.Row + dy) is int j) visits += _wave[j] / 255.0;
+                exposure += unit.WavePower * visits * TileMultiplier(unit, pos.Cell, pos.Facing).Mult;
+            }
+            // Ordinary waves reward covering the approach as well as the original block points.
+            // The final assault instead weights time inside the leader's moving hit area.
+            result.Total += 12 * exposure;
+            if (_options.Mode == PlacementMode.Stacking && _options.WaveRound < 14 &&
+                result.BlockTotal.Length > 0 && result.BlockTotal.All(n => n >= 2) && exposure >= pl.Count)
+                result.Total += 5 * result.Stack;
+            result.WaveCoverage = exposure;
+            return result;
+        }
+
         public List<string> NotesFor(Dictionary<string, (BoardCell Cell, Facing Facing)> pl, string name)
         {
             var notes = pl.Keys.ToDictionary(k => k, _ => new List<string>());
@@ -393,6 +453,7 @@ public sealed class PlacementPlanner
         private sealed class Breakdown
         {
             public double Combat, Stack, Activation, Total;
+            public double WaveCoverage;
             public double[] BlockTotal = [];
             public int?[] BlockAt = [];
             public bool TilePenalty;
@@ -511,7 +572,7 @@ public sealed class PlacementPlanner
                 var (mult, txt) = TileMultiplier(I, v.Cell, v.Facing);
                 if (txt is not null) Note(n, txt);
                 if (txt is not null && Board.Tile is { Drain: true } && blockNames.Contains(n)) comb -= 4;
-                comb += 2.2 * I.Power * c * mult;
+                comb += 2.2 * I.DamagePower * c * mult;
                 if (c > 0 && I.Role == PlacementRole.Damage) Note(n, $"输出区覆盖 {c * mult:0.0}");
             }
 
@@ -781,7 +842,7 @@ public sealed class PlacementPlanner
             var pins = _options.Pins.Where(kv => Info.ContainsKey(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
             var free = _pool.Where(n => !pins.ContainsKey(n)).ToList();
             int field = Math.Max(FieldCount, Math.Min(pins.Count, _pool.Count));
-            Dictionary<string, (BoardCell, Facing)>? best = null;
+            Dictionary<string, (BoardCell Cell, Facing Facing)>? best = null;
             double bestScore = double.MinValue;
             if (_pool.Count == 0) return [];
 
@@ -792,6 +853,7 @@ public sealed class PlacementPlanner
                 var used = pl.Values.Select(v => v.Cell).ToHashSet();
                 var order = free.OrderBy(_ => rnd.Next()).ToList()
                     .OrderBy(n => Info[n].Role != PlacementRole.Tank).ThenBy(n => !Info[n].Melee).ToList();
+                if (_options.PreferredMembers is { } members) order = order.OrderByDescending(members.Contains).ToList();
                 foreach (var n in order)
                 {
                     if (pl.Count >= field) break;
@@ -817,6 +879,7 @@ public sealed class PlacementPlanner
                     if (mv < 0.2 && bench.Count > 0)
                     {
                         string m = bench[rnd.Next(bench.Count)];
+                        if (_options.PreferredMembers is { } preferred && preferred.Contains(n) && !preferred.Contains(m)) continue;
                         var (cell, f) = cand[n];
                         cand.Remove(n);
                         if (!Board.Legal(Info[m], cell))
@@ -847,7 +910,36 @@ public sealed class PlacementPlanner
                     if (cur > bestScore) { bestScore = cur; best = new(pl); }
                 }
             }
-            return best!.ToDictionary(kv => kv.Key, kv => kv.Value);
+            var layout = best!;
+            // Hidden Core combat trials favored the original layout. Keep its trace for manual comparisons.
+            if (_wave is null || _options.WaveRound == 15 && _options.Mode == PlacementMode.Combat) return layout;
+            // The lineup and pins have been decided. Compare one operator's legal positions at a time.
+            var reference = Layout(layout, null);
+            double score = reference.Total;
+            foreach (var key in layout.Keys.Where(k => !pins.ContainsKey(k)).ToArray())
+            {
+                if (cancel.IsCancellationRequested) break;
+                var chosen = layout[key];
+                var occupied = layout.Where(kv => kv.Key != key).Select(kv => kv.Value.Cell).ToHashSet();
+                foreach (var cell in Board.Deployable)
+                {
+                    if (occupied.Contains(cell) || !Board.Legal(Info[key], cell)) continue;
+                    foreach (var facing in Faces)
+                    {
+                        layout[key] = (cell, facing);
+                        var trial = Layout(layout, null);
+                        if (trial.Total <= score) continue;
+                        if (_options.WaveRound < 14 && (trial.Combat < reference.Combat ||
+                            reference.HealerCoversLine && !trial.HealerCoversLine ||
+                            trial.BlockTotal.Where((n, i) => n < Math.Min(BlockNeed, reference.BlockTotal[i])).Any() ||
+                            _options.Mode == PlacementMode.Stacking && trial.Stack <= reference.Stack)) continue;
+                        score = trial.Total;
+                        chosen = (cell, facing);
+                    }
+                }
+                layout[key] = chosen;
+            }
+            return layout;
         }
 
         // ── Result ─────────────────────────────────────────────────────────
@@ -855,7 +947,7 @@ public sealed class PlacementPlanner
         public PlacementPlan Explain(Dictionary<string, (BoardCell Cell, Facing Facing)> pl)
         {
             var notes = pl.Keys.ToDictionary(k => k, _ => new List<string>());
-            var bd = Evaluate(pl, notes);
+            var bd = Layout(pl, notes);
             var placed = pl.OrderBy(kv => Order(kv.Key, kv.Value.Cell))
                 .Select(kv => new PlacedOperator(Info[kv.Key].Name, kv.Value.Cell, kv.Value.Facing, Info[kv.Key].Role,
                     _options.Pins.ContainsKey(kv.Key), notes[kv.Key].Distinct().ToList(), kv.Key))
@@ -871,6 +963,11 @@ public sealed class PlacementPlanner
             bench.AddRange(_unplaceable.Select(n => new BenchedOperator(n, "缺少干员数据，没参与站位")));
 
             var checks = new List<PlacementCheck>();
+            if (_wave is not null)
+            {
+                string wave = _options.WaveRound switch { 14 => "首领", 15 => "隐秘核心", > 0 => $"第 {_options.WaveRound} 回合", _ => "普通波" };
+                checks.Add(new PlacementCheck($"{wave} · 规程模拟样本 · 预计火力覆盖 {bd.WaveCoverage:0.0}", true, IsHint: true));
+            }
             foreach (var c in bd.Cov.Active.Where(c => _owner._covenants.TryGetValue(c, out var ci) && ci.BondType == "SEASON")
                          .OrderByDescending(c => bd.Cov.Counts.GetValueOrDefault(c)))
                 checks.Add(new PlacementCheck($"{c} {bd.Cov.Counts.GetValueOrDefault(c)}", true));

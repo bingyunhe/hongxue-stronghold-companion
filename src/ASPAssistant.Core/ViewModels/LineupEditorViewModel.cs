@@ -111,6 +111,7 @@ public partial class LineupEditorViewModel : ObservableObject
     [ObservableProperty]
     private int _filledSlotCount;
     private readonly AutoRouteArchive? _autoRoute;
+    public string AutoRouteContext { get; }
 
     public LineupEditorViewModel(
         Lineup? source,
@@ -118,7 +119,9 @@ public partial class LineupEditorViewModel : ObservableObject
         IEnumerable<Equipment> equipment,
         CovenantCalculator calculator)
     {
-        _autoRoute = source?.AutoRoute;
+        _autoRoute = source?.AutoRoute?.ForEditing(source);
+        AutoRouteContext = _autoRoute is { Error.Length: 0 } archive
+            ? LineupPlannerViewModel.FormatAutoRouteContext(archive.Plan, archive.Conditions) : "";
         _calculator = calculator;
         AllOperators = [.. operators];
         AllEquipment = [.. equipment];
@@ -606,7 +609,7 @@ public partial class LineupEditorViewModel : ObservableObject
     };
 
     // An untouched 暴躁铁皮 slot (no gear, candidates or tags) is not worth saving.
-    private List<LineupSlot> ExportPhase(LineupPhase phase) => [.. _phaseSlots[phase]
+    private List<LineupSlot> ExportPhase(LineupPhase phase) => !_phaseSlots.TryGetValue(phase, out var slots) ? [] : [.. slots
         .Where(s => !string.IsNullOrEmpty(s.OperatorName) && (!IsMech(s) || s.Equipments.Count > 0 || s.CandidateEquipments.Count > 0 || s.Tags.Count > 0)).Select(CloneSlot)];
 
     public void SetGuideLoadout(int index, string skillId, string moduleId)
@@ -655,6 +658,21 @@ public partial class LineupEditorViewModel : ObservableObject
         _localStageEdits = true;
         OnPropertyChanged(nameof(PhaseLabels));
         return true;
+    }
+
+    public void DeleteStage(LineupPhase phase)
+    {
+        if (phase == LineupPhase.后期) return;
+        var index = _guidePhases[phase];
+        _stages.RemoveAt(index);
+        _guidePhases.Remove(phase);
+        _phaseSlots.Remove(phase);
+        foreach (var key in _guidePhases.Where(p => p.Value > index).Select(p => p.Key).ToArray())
+            _guidePhases[key]--;
+        _localStageEdits = true;
+        var next = Math.Min(index, _stages.Count - 1);
+        SelectPhase(_guidePhases.Single(p => p.Value == next).Key);
+        OnPropertyChanged(nameof(PhaseLabels));
     }
 
     public void DuplicateStage(LineupPhase phase)

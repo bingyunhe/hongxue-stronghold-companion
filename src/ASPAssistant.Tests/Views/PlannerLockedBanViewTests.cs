@@ -84,6 +84,56 @@ internal static class PlannerLockedBanViewTests
         finally { host.Close(); }
     }
 
+    public static void VerifyManualSubstitution(bool night)
+    {
+        var previousContext = SynchronizationContext.Current;
+        var ops = Enumerable.Range(1, 12).Select(i => new Operator
+        {
+            Name = "候选干员" + i, Tier = i % 3 + 1, CoreCovenants = ["炎"]
+        }).ToArray();
+        CovenantInfo[] covenants = [new() { Name = "炎", BondType = "SEASON", ActivateCount = 3 }];
+        var vm = new LineupPlannerViewModel(new(ops, covenants), ops, new BanViewModel(), EquipmentTestData.Rules)
+            { DebounceMilliseconds = 0, IsActive = true };
+        var view = new LineupPlannerView { DataContext = vm };
+        var host = new Window { Content = view, Opacity = 0, ShowActivated = false, ShowInTaskbar = false,
+            Left = -20000, Top = -20000, Height = 850, Width = 320 };
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(host.Dispatcher));
+            host.Show();
+            ThemeManager.Apply(GameShopTheme.Closure, night);
+            vm.AllCovenants.Single().ToggleLevel1Command.Execute(null);
+            vm.ShowResultPageCommand.Execute(null);
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (vm.PendingSearch?.IsCompleted == false && DateTime.UtcNow < deadline) Pump();
+            Pump();
+            vm.VisibleLineups.Should().NotBeEmpty($"{vm.StatusText} {vm.StatusDetail}");
+            var card = vm.VisibleLineups[0];
+            card.HasSubstitutionAdvice.Should().BeTrue();
+            var expander = Desc<Expander>(view).Single(e => e.IsVisible && ReferenceEquals(e.DataContext, card)
+                && e.Header is string header && header.Contains("缺一名"));
+            expander.IsExpanded = true;
+            expander.BringIntoView();
+            Pump();
+            var text = (TextBlock)expander.Content;
+            text.Text.Should().Contain("决定是否换回");
+            text.IsVisible.Should().BeTrue();
+            text.ActualWidth.Should().BeGreaterThan(100).And.BeLessThan(host.Width);
+            text.BringIntoView();
+            Pump();
+            Save(view, GameShopTheme.Closure, night, 320, "manual-substitution");
+            vm.SetAutoRunState(new(6, null, ops.Select(o => o.Name).ToHashSet()));
+            Pump();
+            card.HasSubstitutionAdvice.Should().BeFalse();
+            expander.Visibility.Should().Be(Visibility.Collapsed);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+            host.Close();
+        }
+    }
+
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
 
     private static IEnumerable<T> Desc<T>(DependencyObject parent) where T : DependencyObject

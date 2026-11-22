@@ -92,6 +92,22 @@ public class LineupPlannerAutoTests
     }
 
     [Fact]
+    public async Task BossEvidenceRefreshesWithLevelAndClearsWithoutRunningAnotherRosterSearch()
+    {
+        var vm = await CreateOnAutoPageAsync();
+        var original = vm.AutoPlans.Select(p => p.MainCovenant).ToList();
+        var search = vm.PendingAutoPlan;
+        vm.SetBossContext("假想敌：茧", 8);
+        vm.AutoPlans.Single(p => p.MainCovenant == "维多利亚").Note.Should().Contain("81 局中 46 局");
+        vm.SetBossContext("假想敌：茧", 16);
+        vm.AutoPlans.Single(p => p.MainCovenant == "维多利亚").Note.Should().Contain("116 局中 15 局");
+        vm.SetBossContext("", null);
+        vm.AutoPlans.Should().OnlyContain(p => p.BossNote.Length == 0);
+        vm.AutoPlans.Select(p => p.MainCovenant).Should().Equal(original);
+        vm.PendingAutoPlan.Should().BeSameAs(search);
+    }
+
+    [Fact]
     public void AutoPage_WaitsUntilTheTabIsOnScreen()
     {
         var (vm, _) = Create();
@@ -300,9 +316,11 @@ public class LineupPlannerAutoTests
         vm.SetAutoRunState(new(5, new(7, 987, 3, false, null, true), new HashSet<string>()));
         Lineup? saved = null; vm.SaveRequested += lineup => saved = lineup; vm.SaveRouteCommand.Execute(null);
         var json = System.Text.Json.JsonSerializer.Serialize(saved);
-        json.Should().NotContain("升级后剩 984").And.NotContain("IconPath");
+        json.Should().NotContain("IconPath");
         var restored = System.Text.Json.JsonSerializer.Deserialize<Lineup>(json)!;
         restored.AutoRoute!.Error.Should().BeEmpty();
+        restored.EditorStages.Should().HaveCount(5).And.OnlyContain(s => s.OperationIdea == "");
+        restored.AutoRoute.Plan.Advice[2].Levels[1].EconomyText.Should().NotContain("升级后剩 984");
         var (fresh, bans) = Create(); fresh.IsActive = true;
         fresh.SetAutoRunState(new(5, new(8, 10, 3, false, null, true), new HashSet<string>()));
         fresh.OpenSavedAutoRoute(restored).Should().BeNull();
@@ -316,6 +334,7 @@ public class LineupPlannerAutoTests
         fresh.TrackRouteCommand.Execute(null); tracked!.Id.Should().Be(restored.Id);
         var originalBans = restored.AutoRoute.Conditions.BannedCovenants.ToArray();
         bans.SetCovenantBans([restored.AutoRoute.Plan.Candidate.MainCovenant]);
+        fresh.AutoRouteContext.Should().Be(vm.AutoRouteContext);
         fresh.ShowRoute.Should().BeTrue(); fresh.AutoRouteNotice.Should().Contain("本局禁用主盟约");
         fresh.TrackRouteCommand.CanExecute(null).Should().BeFalse(); fresh.SaveRouteCommand.CanExecute(null).Should().BeFalse();
         fresh.PendingAutoPlan.Should().BeNull();
@@ -393,12 +412,24 @@ public class LineupPlannerAutoTests
         Lineup? copied = null; fresh.SaveRequested += lineup => copied = lineup; fresh.SaveRouteCommand.Execute(null);
         copied!.Id.Should().NotBe(renamed.Id); copied.Name.Should().Be("用户改名 副本");
         copied.AutoRoute.Should().NotBeNull();
+        copied.EditorStages.Should().HaveCount(5).And.OnlyContain(s => s.OperationIdea == "");
         AutoRouteArchive.Fingerprint(copied).Should().Be(copied.AutoRoute!.LineupFingerprint);
         var originalJson = System.Text.Json.JsonSerializer.Serialize(saved);
+        var legacy = System.Text.Json.JsonSerializer.Deserialize<Lineup>(originalJson)!;
+        legacy.EditorStages![0].OperationIdea = "旧版保存的笔记";
+        var oldHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { legacy.Slots, legacy.EditorStages, legacy.Strategies, legacy.TargetCovenants })));
+        legacy.AutoRoute = legacy.AutoRoute! with { LineupFingerprint = oldHash };
+        var oldEditor = new LineupEditorViewModel(legacy, operators, [], new CovenantCalculator(operators, [], new Dictionary<string, string>()));
+        oldEditor.SetStageNotes("新版手写笔记");
+        var upgraded = oldEditor.ToLineup();
+        upgraded.AutoRoute!.Matches(upgraded).Should().BeTrue();
+        upgraded.EditorStages![0].Name += "结构变化";
+        upgraded.AutoRoute.Matches(upgraded).Should().BeFalse();
         editor.SetStageNotes("用户修改了阶段讲解");
         var edited = editor.ToLineup(); fresh.NotifySavedAutoRouteSourceChanged(edited);
-        fresh.AutoRouteNotice.Should().Contain("阵容已修改");
-        fresh.TrackRouteCommand.CanExecute(null).Should().BeFalse();
+        fresh.TrackRouteCommand.CanExecute(null).Should().BeTrue();
+        fresh.SaveRouteCommand.CanExecute(null).Should().BeTrue();
         System.Text.Json.JsonSerializer.Serialize(saved).Should().Be(originalJson);
         var root = System.Text.Json.Nodes.JsonNode.Parse(originalJson)!;
         root["autoRoute"]!["CatalogFingerprint"] = "changed-catalog";

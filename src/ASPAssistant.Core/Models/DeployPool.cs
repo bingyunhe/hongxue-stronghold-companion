@@ -18,6 +18,7 @@ public sealed class DeployPoolState
     /// <summary>Added by hand (not tracked); listed under 其他 until removed.</summary>
     [JsonPropertyName("extra")] public List<string> Extra { get; set; } = [];
     [JsonPropertyName("fieldCount")] public int FieldCount { get; set; } = 8;
+    [JsonPropertyName("mapLineupId")] public string? MapLineupId { get; set; }
     [JsonPropertyName("mode")] public PlacementMode Mode { get; set; } = PlacementMode.Balanced;
     /// <summary>Map picked by hand (null = follow recognition).</summary>
     [JsonPropertyName("manualMap")] public string? ManualMap { get; set; }

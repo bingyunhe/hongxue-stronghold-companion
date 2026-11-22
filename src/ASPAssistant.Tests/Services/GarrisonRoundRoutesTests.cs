@@ -9,6 +9,18 @@ public sealed class GarrisonRoundRoutesTests
 {
     internal static string DataDirectory => Path.Combine(AppContext.BaseDirectory, "TestData", "Regulation");
 
+    [Theory]
+    [InlineData("规程等级7", 6, 6)]
+    [InlineData("规程等级7", 14, 14)]
+    [InlineData("规程等级7", 15, 15)]
+    [InlineData("规程等级1", 15, 0)]
+    [InlineData(null, 14, 0)]
+    public async Task PlacementWaveUsesTheRecognizedModesRound(string? mode, int round, int expected)
+    {
+        var store = (await GarrisonRoundRouteStore.LoadAsync(DataDirectory))!;
+        Assert.Equal(expected, store.PlacementWaveRound(mode, round));
+    }
+
     [Fact]
     public async Task TwoMatchingGroupsWithTheSamePathProduceOnlyOneLowerGroundLine()
     {

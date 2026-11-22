@@ -16,7 +16,8 @@ public sealed class AutoStyleChoice(AutoPlanItem plan, AutoPlanStyle style, bool
     public string Name => AutoPlanStyles.Name(Style);
     /// <summary>Short enough for two buttons side by side on the narrowest panel.</summary>
     public string Label => IsRecommended ? $"{Name} · 推荐" : $"{Name} ›";
-    public string Hint => AutoPlanStyles.Description(Style) + (IsRecommended ? $"\n推荐理由：{Plan.StyleReason}" : "");
+    public string Hint => AutoPlanStyles.Description(Style) + (IsRecommended ? $"\n推荐理由：{Plan.Source.StyleReason}" : "")
+        + (Plan.Source.RouteComparison is { } replay ? $"\n{replay.Detail(Style)}" : "");
 }
 
 /// <summary>A 本家 on the 自动 page: its 成型阵容 lineup, where its stackers sit and the two ways to play it.</summary>
@@ -49,9 +50,10 @@ public sealed class AutoPlanItem
     /// <summary>“四本前约 12 层/回合 · 满配约 25 层/回合”.</summary>
     public string LayerText { get; init; } = "";
     public bool HasLayerText => LayerText.Length > 0;
-    public string StyleReason => Source.StyleReason;
-    public string Note => string.Join("；", Source.Notes);
-    public bool HasNote => Source.Notes.Count > 0;
+    public string StyleReason => Source.StyleReason + (Source.RouteComparison is { } replay ? $"\n{replay.Summary}" : "");
+    public string BossNote { get; init; } = "";
+    public string Note => string.Join("\n", new[] { string.Join("；", Source.Notes), BossNote }.Where(t => t.Length > 0));
+    public bool HasNote => Source.Notes.Count > 0 || BossNote.Length > 0;
     /// <summary>The recommended style first.</summary>
     public IReadOnlyList<AutoStyleChoice> Styles { get; }
 }
@@ -61,6 +63,8 @@ public partial class LineupPlannerViewModel
     private readonly AutoPlanner _autoPlanner;
     private CancellationTokenSource? _autoCts;
     private AutoPlanRequest? _autoRequest;
+    private IReadOnlyList<AutoPlanCandidate> _unrankedCandidates = [];
+    private (string Boss, int? Level) _bossContext = ("", null);
     private bool _autoDirty = true;
     private string? _autoKey;
     private bool _pageStateChanging;
@@ -109,7 +113,7 @@ public partial class LineupPlannerViewModel
         RouteFromAuto = true; ShowRoute = true;
         RouteTitle = $"{lineup.Name} · 已保存路线";
         RouteSubtitle = $"{plan.Candidate.Final.People} 人 · 运营建议按本局刷新";
-        SetAutoRouteContext(plan, archive.Conditions);
+        AutoRouteContext = FormatAutoRouteContext(plan, archive.Conditions);
         foreach (var (stage, index) in plan.Route.Stages.Select((s, i) => (s, i)))
         {
             var item = BuildStageItem(stage, plan.Route.ExpiresAt(index), plan.Candidate.Final, plan.Advice[index]);
@@ -122,9 +126,9 @@ public partial class LineupPlannerViewModel
         return null;
     }
 
-    private void SetAutoRouteContext(AutoPlanRoute plan, AutoRouteConditions conditions)
+    internal static string FormatAutoRouteContext(AutoPlanRoute plan, AutoRouteConditions conditions)
     {
-        AutoRouteContext = $"生成背景：{plan.Candidate.MainCovenant} · {AutoPlanStyles.Name(plan.Style)} · {conditions.People}人 · {StrategyChoices.Single(s => s.Strategy == conditions.Strategy).Name}\n"
+        return $"生成背景：{plan.Candidate.MainCovenant} · {AutoPlanStyles.Name(plan.Style)} · {conditions.People}人 · {AvailableStrategies.Single(s => s.Strategy == conditions.Strategy).Name}\n"
             + $"推荐理由：{plan.Candidate.StyleReason}\n"
             + $"当时禁用盟约：{(conditions.BannedCovenants.Length == 0 ? "无" : string.Join("、", conditions.BannedCovenants))}；"
             + $"禁用干员：{(conditions.BannedOperators.Length == 0 ? "无" : string.Join("、", conditions.BannedOperators))}"
@@ -142,7 +146,7 @@ public partial class LineupPlannerViewModel
     {
         if (_savedAutoSource is not { AutoRoute: { } archive } source) return;
         var issues = new List<string>();
-        if (AutoRouteArchive.Fingerprint(source) != archive.LineupFingerprint) issues.Add("阵容已修改，原路线与当前阵容不一致");
+        if (!archive.Matches(source)) issues.Add("阵容已修改，原路线与当前阵容不一致");
         if (archive.CatalogFingerprint != _autoCatalogStamp) issues.Add("干员或盟约资料已变化");
         var plan = archive.Plan;
         var knownGoals = _planner.Covenants.Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
@@ -168,12 +172,30 @@ public partial class LineupPlannerViewModel
 
     public void SetAutoRunState(AutoPlanRunState state)
     {
-        if (_autoRunState.TerminalLevel == state.TerminalLevel && _autoRunState.Economy == state.Economy
-            && (_autoRunState.Owned is null ? state.Owned is null
-                : state.Owned is not null && _autoRunState.Owned.SetEquals(state.Owned))) return;
+        var poolChanged = _autoRunState.TerminalLevel != state.TerminalLevel || (_autoRunState.Owned is null
+            ? state.Owned is not null : state.Owned is null || !_autoRunState.Owned.SetEquals(state.Owned));
+        if (!poolChanged && _autoRunState.Economy == state.Economy) return;
         _autoRunState = state;
+        if (poolChanged)
+            foreach (var item in VisibleLineups)
+                item.SubstitutionAdvice = LineupSubstitutionAdvice.Describe(item.Source, _operatorByName, state);
         _autoAdviceDirty = true;
         RefreshAutoAdvice();
+    }
+
+    public void SetBossContext(string boss, int? level)
+    {
+        if (_bossContext == (boss, level)) return;
+        _bossContext = (boss, level);
+        if (_unrankedCandidates.Count > 0) RankAutoPlans();
+    }
+
+    private void RankAutoPlans()
+    {
+        AutoPlans.Clear();
+        foreach (var entry in BossCovenantRanking.Rank(_unrankedCandidates, _bossContext.Boss, _bossContext.Level))
+            AutoPlans.Add(BuildAutoItem(entry.Candidate, AutoPlans.Count + 1, entry.Note));
+        OnPropertyChanged(nameof(HasAutoPlans));
     }
 
     private void RefreshAutoAdvice()
@@ -304,6 +326,7 @@ public partial class LineupPlannerViewModel
         _autoCts?.Cancel();
         var cts = new CancellationTokenSource(); _autoCts = cts;
         if (RouteFromAuto) CloseRoute();
+        _unrankedCandidates = [];
         AutoPlans.Clear(); OnPropertyChanged(nameof(HasAutoPlans));
         PendingAutoPlan = RunAutoPlanAsync(request, cts);
     }
@@ -317,9 +340,8 @@ public partial class LineupPlannerViewModel
             var result = await Task.Run(() => _autoPlanner.Plan(request, cts.Token), cts.Token);
             if (cts.IsCancellationRequested || !ReferenceEquals(_autoCts, cts)) return;
             _autoRequest = request;
-            AutoPlans.Clear();
-            foreach (var candidate in result.Candidates) AutoPlans.Add(BuildAutoItem(candidate, AutoPlans.Count + 1));
-            OnPropertyChanged(nameof(HasAutoPlans));
+            _unrankedCandidates = result.Candidates;
+            RankAutoPlans();
             AutoStatusText = result.Error ?? (AutoPlans.Count > 0
                 ? $"{AutoPlans.Count} 个主盟约可选 · {watch.Elapsed.TotalSeconds:0.0} 秒"
                 : result.SearchLimited ? "搜索受限，暂未找到候选；不代表无解" : "当前条件下没有找到可用候选");
@@ -358,7 +380,7 @@ public partial class LineupPlannerViewModel
             _currentAutoRoute = plan;
             _currentAutoConditions = new([.. request.BannedCovenants], [.. request.BannedOperators], [.. request.LockedOperators],
                 [.. request.TransformAllowed], request.People, request.Strategy, request.MechElite, request.ExcludeMixedBannedOperators);
-            SetAutoRouteContext(plan, _currentAutoConditions);
+            AutoRouteContext = FormatAutoRouteContext(plan, _currentAutoConditions);
             _autoAdviceDirty = true;
             RefreshAutoAdvice();
             RefreshRouteProgress(expandCurrent: true);
@@ -367,7 +389,7 @@ public partial class LineupPlannerViewModel
         catch (OperationCanceledException) { }
         finally { if (ReferenceEquals(_routeCts, cts)) IsRouteBusy = false; }
     }
-    private AutoPlanItem BuildAutoItem(AutoPlanCandidate candidate, int rank)
+    private AutoPlanItem BuildAutoItem(AutoPlanCandidate candidate, int rank, string bossNote)
     {
         var final = candidate.Final;
         var subtitle = $"{final.People} 人" + (final.Transforms > 0 ? $" · {final.Transforms} 转" : "") + $" · 附加盟约 {final.AdditionalScore} 分";
@@ -375,6 +397,7 @@ public partial class LineupPlannerViewModel
             : "叠层手：" + string.Join(" · ", candidate.Stackers.Select(s => $"{s.Name} {RomanOf(s.Tier)}"));
         return new AutoPlanItem(candidate, rank, BuildItem(final, rank - 1))
         {
+            BossNote = bossNote,
             Subtitle = subtitle,
             StackText = stackers,
             LayerText = candidate.LateLayers > 0 ? $"四本前约 {candidate.EarlyLayers:0.#} 层/回合 · 理论可用叠层手约 {candidate.LateLayers:0.#} 层/回合" : ""

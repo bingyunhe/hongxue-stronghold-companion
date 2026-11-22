@@ -193,6 +193,10 @@ public sealed partial class PlannerLineupItem : ObservableObject
     public string Subtitle { get; init; } = "";
     public string? Note { get; init; }
     public bool HasNote => !string.IsNullOrEmpty(Note);
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSubstitutionAdvice))]
+    private string _substitutionAdvice = "";
+    public bool HasSubstitutionAdvice => SubstitutionAdvice.Length > 0;
     public IReadOnlyList<PlannerOperatorItem> Operators { get; init; } = [];
     public IReadOnlyList<PlannerGoalPill> Goals { get; init; } = [];
     public string LineupName { get; init; } = "";
@@ -350,6 +354,7 @@ public sealed partial class RouteStageItem : ObservableObject
     public IReadOnlyList<AutoPlanPick> Reserve => Advice?.Reserve ?? [];
     public bool HasReserve => Reserve.Count > 0;
     public IReadOnlyList<AutoPlanLevelAdvice> AdviceLevels => Advice?.Levels ?? [];
+
 }
 
 /// <summary>
@@ -369,7 +374,8 @@ public partial class LineupPlannerViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(StrategyHint))]
     private bool _mechElite;
     public bool IsMechStrategy => Strategy == PlannerStrategy.Mech;
-    public IReadOnlyList<PlannerStrategyChoice> StrategyChoices { get; } =
+    public IReadOnlyList<PlannerStrategyChoice> StrategyChoices => AvailableStrategies;
+    private static readonly IReadOnlyList<PlannerStrategyChoice> AvailableStrategies =
     [
         new(PlannerStrategy.Other, "其他", "—", "其他策略不影响规划"),
         new(PlannerStrategy.Mech, "暴躁铁皮", "铁", "森蚺：送一个占 1 人口、可挂多件转职装备的棋子"),
@@ -423,6 +429,7 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     public LineupPlannerViewModel(LineupPlanner planner, IReadOnlyList<Operator> operators, BanViewModel banVm, LineupEquipmentService equipmentRules)
     {
+        LockCovenants = new(_ => OnLockSearchTextChanged(LockSearchText));
         _equipmentRules = equipmentRules;
         _planner = planner;
         _repairCalculator = new CovenantCalculator(operators, planner.Covenants,
@@ -442,7 +449,12 @@ public partial class LineupPlannerViewModel : ObservableObject
         foreach (var p in PeopleOptions)
             foreach (var t in TransformOptions)
                 VariantCells.Add(new PlannerVariantCell { People = p, Transforms = t });
-        LockedOperators.CollectionChanged += (_, _) => RefreshLockedOperators();
+        LockedOperators.CollectionChanged += (_, _) =>
+        {
+            RefreshLockedOperators();
+            OnLockSearchTextChanged(LockSearchText);
+        };
+        OnLockSearchTextChanged(LockSearchText);
         banVm.BansChanged += OnBansChanged;
         ApplyBans();
         UpdateStatus();
@@ -460,6 +472,8 @@ public partial class LineupPlannerViewModel : ObservableObject
     public ObservableCollection<PlannerCovenantItem> CoreCovenants { get; } = [];
     public ObservableCollection<PlannerCovenantItem> ExtraCovenants { get; } = [];
     public ObservableCollection<PlannerLockedOperator> LockedOperators { get; } = [];
+    public bool NoLockMatches => LockCovenants.Active && LockSuggestions.Count == 0;
+    public MissingCovenantFilters LockCovenants { get; }
     public ObservableCollection<Operator> LockSuggestions { get; } = [];
     public ObservableCollection<PlannerVariantCell> VariantCells { get; } = [];
     public ObservableCollection<PlannerLineupItem> VisibleLineups { get; } = [];
@@ -494,7 +508,7 @@ public partial class LineupPlannerViewModel : ObservableObject
     /// </summary>
     public void BeginRepair(Lineup lineup, IReadOnlyList<TargetCovenant> targets, IReadOnlyCollection<string> banned)
     {
-        LeaveAutoPage();
+        ShowGoalPage();
         Strategy = Enum.GetValues<PlannerStrategy>().FirstOrDefault(s => lineup.Strategies.Any(t => t.StrategyId == PlannerStrategies.StrategyId(s)));
         MechElite = lineup.Slots.Any(s => s.OperatorName == LineupEquipmentService.MechName && s.IsElite);
         _repairTargets = [.. targets.Select(t => t.Clone())];
@@ -512,7 +526,6 @@ public partial class LineupPlannerViewModel : ObservableObject
         RepairSource = lineup;
         var goals = string.Join(" · ", AllCovenants.Where(c => c.IsSelected).Select(c => $"{c.Name} {(c.Level == 2 ? "Ⅱ" : "Ⅰ")}"));
         RepairSummary = $"固定没被禁的 {kept.Count} 人，替补 {banned.Count} 人" + (goals.Length > 0 ? $"；目标盟约保持 {goals}" : "");
-        ShowResults = true;
         GoalsChanged();
     }
 
@@ -646,7 +659,6 @@ public partial class LineupPlannerViewModel : ObservableObject
         : HasError ? StatusText
         : "这一组没有可行组合，可以换一格看看，或减少目标、增加转职。";
     public string GoalTabText => SelectedGoalCount > 0 ? $"目标 · 已选 {SelectedGoalCount}" : "目标";
-    public string ResultTabText => TotalResults > 0 ? $"结果 {TotalResults}" : "结果";
     public string ViewResultsText => TotalResults > 0 ? $"查看 {TotalResults} 套 →" : "查看结果 →";
 
     /// <summary>Whether the 规划 tab is on screen. Changes while hidden only mark the results stale.</summary>
@@ -674,11 +686,7 @@ public partial class LineupPlannerViewModel : ObservableObject
     partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(EmptyResultText));
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(EmptyResultText));
 
-    partial void OnTotalResultsChanged(int value)
-    {
-        OnPropertyChanged(nameof(ResultTabText));
-        OnPropertyChanged(nameof(ViewResultsText));
-    }
+    partial void OnTotalResultsChanged(int value) => OnPropertyChanged(nameof(ViewResultsText));
 
     partial void OnOnlyCurrentRunChanged(bool value) => ApplyVisibility();
 
@@ -686,13 +694,15 @@ public partial class LineupPlannerViewModel : ObservableObject
     {
         LockSuggestions.Clear();
         var text = value.Trim();
-        if (text.Length == 0) return;
-        foreach (var op in _operators.Concat(_strategyOperators.Where(o => o.RequiredStrategyId == PlannerStrategies.StrategyId(Strategy)))
-                     .Where(o => o.IsAvailableForSelection && SearchMatch.Matches(text, o.Name) && LockedOperators.All(l => l.Name != o.Name))
-                     .OrderBy(o => o.Name.StartsWith(text, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                     .ThenBy(o => o.Name.Length)
-                     .Take(8))
+        var candidates = _operators.Concat(_strategyOperators.Where(o => o.RequiredStrategyId == PlannerStrategies.StrategyId(Strategy)))
+            .Where(o => o.IsAvailableForSelection && SearchMatch.Matches(text, o.Name) && LockedOperators.All(l => l.Name != o.Name)).ToList();
+        LockCovenants.UpdateCounts(candidates);
+        if (text.Length == 0 && !LockCovenants.Active) { OnPropertyChanged(nameof(NoLockMatches)); return; }
+        var suggestions = candidates.Where(LockCovenants.Matches)
+            .OrderByDescending(o => o.Name.StartsWith(text, StringComparison.OrdinalIgnoreCase)).ThenBy(o => o.Name.Length);
+        foreach (var op in LockCovenants.Active ? suggestions.AsEnumerable() : suggestions.Take(8))
             LockSuggestions.Add(op);
+        OnPropertyChanged(nameof(NoLockMatches));
     }
 
     partial void OnSelectedVariantChanged(PlannerVariantCell? value)
@@ -710,7 +720,13 @@ public partial class LineupPlannerViewModel : ObservableObject
         GoalsChanged();
     }
 
-    [RelayCommand] private void ShowGoalPage() { LeaveAutoPage(); ShowResults = false; }
+    [RelayCommand]
+    private void ShowGoalPage()
+    {
+        LeaveAutoPage();
+        if (ShowRoute) CloseRoute();
+        ShowResults = false;
+    }
     [RelayCommand] private void ShowResultPage() { LeaveAutoPage(); ShowResults = true; }
 
     [RelayCommand]
@@ -963,7 +979,7 @@ public partial class LineupPlannerViewModel : ObservableObject
             lineup.EditorStages.Add(new() { Id = index switch { 1 => "early", 2 => "mid", _ => $"route-{index}" },
                 Name = visibleStages[index].Title, Slots = slots, StartRound = index * 3 + 1, EndRound = (index + 1) * 3,
                 ActiveCovenants = stage.Covenants.Where(c => c.Level > 0).Select(c => c.Name).ToList(),
-                OperationIdea = $"终端 {stage.Definition.TerminalLevel} · {stage.Definition.People} 人"
+                OperationIdea = RouteFromAuto ? "" : $"终端 {stage.Definition.TerminalLevel} · {stage.Definition.People} 人"
                     + (stage.Summary.Warnings.Count > 0 ? "\n" + string.Join("；", stage.Summary.Warnings) : "") });
         }
         if (_currentAutoRoute is { } plan)
@@ -1117,7 +1133,8 @@ public partial class LineupPlannerViewModel : ObservableObject
             PeopleOptions = PeopleOptions,
             TransformOptions = TransformOptions,
             Strategy = Strategy,
-            MechElite = MechElite
+            MechElite = MechElite,
+            IncludeSubstitutes = RepairSource is null
         };
     }
 
@@ -1260,7 +1277,12 @@ public partial class LineupPlannerViewModel : ObservableObject
         if (variant is not null)
         {
             var index = 0;
-            foreach (var lineup in variant.Lineups) VisibleLineups.Add(BuildItem(lineup, index++));
+            foreach (var lineup in variant.Lineups)
+            {
+                var item = BuildItem(lineup, index++);
+                item.SubstitutionAdvice = LineupSubstitutionAdvice.Describe(lineup, _operatorByName, _autoRunState);
+                VisibleLineups.Add(item);
+            }
         }
         OnPropertyChanged(nameof(HasVisibleLineups));
     }

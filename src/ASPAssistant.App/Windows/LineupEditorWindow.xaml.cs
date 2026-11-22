@@ -34,6 +34,11 @@ public partial class LineupEditorWindow : Window
         UpgradeLevelBox.ItemStringFormat = "{0}级";
         UpgradeStartBox.ItemsSource = Enumerable.Range(TerminalUpgradeReminder.MinRound, TerminalUpgradeReminder.MaxRound - TerminalUpgradeReminder.MinRound + 1).ToList();
         UpgradeEndBox.ItemsSource = UpgradeStartBox.ItemsSource;
+        if (vm.AutoRouteContext.Length > 0)
+        {
+            AutoRouteSourcePanel.Visibility = Visibility.Visible;
+            AutoRouteContextText.Text = vm.AutoRouteContext;
+        }
         if (!string.IsNullOrEmpty(vm.SourceUrl))
         {
             SourcePanel.Visibility = Visibility.Visible;
