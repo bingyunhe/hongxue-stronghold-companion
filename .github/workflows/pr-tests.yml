@@ -24,7 +24,7 @@ jobs:
       matrix:
         group: [core, ui, update]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -48,7 +48,7 @@ jobs:
           ./.github/scripts/Test-ReleaseTestReuse.ps1
           ./.github/scripts/Test-ParallelTests.ps1
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6.1.0
         with:
           dotnet-version: "8.0.x"
       - name: Verify portable entry points
@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ needs.groups.result }}' -ne 'success') { throw 'A public test group failed, was cancelled, or was skipped.' }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 2
