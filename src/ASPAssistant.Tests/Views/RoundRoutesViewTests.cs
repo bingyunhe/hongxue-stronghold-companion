@@ -56,7 +56,7 @@ internal static class RoundRoutesViewTests
                     Pump(650);
                     Assert.Same(current, deploy.CurrentPlan);
                     Assert.Contains(current!.Placed, p => p.Name == "灰喉");
-                    ToggleGreyThroat();
+                    SetGreyThroatOwned(false);
                     AwaitPlan(4);
                 }
                 var plan = deploy.CurrentPlan!;
@@ -80,7 +80,7 @@ internal static class RoundRoutesViewTests
             Assert.Contains(benchRow.Children.OfType<Border>(), tile => tile.ToolTip?.ToString()?.Contains("风丸") == true);
             modes.SelectedIndex = 1;
             AwaitPlan(4);
-            ToggleGreyThroat();
+            SetGreyThroatOwned(true);
             AwaitPlan(5);
             Assert.Contains(deploy.CurrentPlan!.Placed,p => p.Name == "灰喉");
             modes.SelectedIndex = 0;
@@ -92,14 +92,22 @@ internal static class RoundRoutesViewTests
         }
         finally { host.Close(); }
 
-        void ToggleGreyThroat()
+        void SetGreyThroatOwned(bool owned)
         {
             deploy.FocusOperator("灰喉");
             var groups = (Panel)deploy.FindName("PoolGroups");
             var card = groups.Children.OfType<System.Windows.Controls.Primitives.UniformGrid>()
                 .SelectMany(grid => grid.Children.OfType<Grid>()).Single(g => g.ToolTip?.ToString()?.StartsWith("灰喉 ·") == true);
-            card.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice,0,System.Windows.Input.MouseButton.Left)
+            UIElement target = card;
+            if (!owned)
+            {
+                var dock = card.Children.OfType<DockPanel>().Single();
+                target = dock.Children.OfType<Border>().Select(b => b.Child).OfType<StackPanel>()
+                    .SelectMany(p => p.Children.OfType<TextBlock>()).Single(t => t.Text == "−");
+            }
+            target.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice,0,System.Windows.Input.MouseButton.Left)
                 { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+            Assert.Equal(owned, manual.IsOwned("灰喉"));
             deploy.ShowPage(false);
         }
 
