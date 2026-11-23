@@ -19,6 +19,8 @@
 - 修复第 14 回合敌情翻页可能提前停止、少读小怪的问题，并修复地图模拟的游戏内格子、名字和朝向叠层可能不显示的问题。
 - 改善沙漠棋盘部分格子漏报、干员外观区分和换位后的复核提示。修复策略选中后核心、优选、次选按钮被右侧裁切的问题。
 
+- 修复从托盘菜单退出时，助手偶尔无法正常结束的问题。
+
 [点击加入 QQ 交流群（1104531618）](https://qm.qq.com/q/x5Z2uPdJRK)
 
 已有 Mirror酱 CDK 可以 [前往 Mirror酱 高速下载](https://mirrorchyan.com/zh/projects?rid=hongxue-stronghold-companion)

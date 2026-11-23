@@ -41,7 +41,11 @@ internal sealed class AssistantTray : IDisposable
         var open = new MenuItem { Header = "打开助手" };
         open.Click += (_, _) => Restore();
         var exit = new MenuItem { Header = "退出程序" };
-        exit.Click += (_, _) => Application.Current.Shutdown();
+        exit.Click += (_, _) =>
+        {
+            RemoveIcon();
+            Application.Current.Shutdown();
+        };
         _menu.Items.Add(open);
         _menu.Items.Add(exit);
         var icons = new IntPtr[1];
