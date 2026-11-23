@@ -385,6 +385,7 @@ internal static class SklandImportViewTests
                 Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
             view.Status.Text.Should().Contain("已加载");
             guide = (SklandBrowseGuide)cards.Items[0];
+            panel.Height = Math.Min(690, SystemParameters.WorkArea.Height);
             foreach (var night in new[] { false, true })
             {
                 ThemeManager.Apply(GameShopTheme.Closure, night);
@@ -395,6 +396,8 @@ internal static class SklandImportViewTests
                 panel.UpdateLayout();
                 ToolTip Hover(FrameworkElement owner, string sample)
                 {
+                    owner.BringIntoView();
+                    panel.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
                     var opening = (ToolTipEventArgs)Activator.CreateInstance(typeof(ToolTipEventArgs),
                         System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null, new object[] { true }, null)!;
                     owner.RaiseEvent(opening);
@@ -508,6 +511,7 @@ internal static class SklandImportViewTests
                 Hover(bond, "covenant").DataContext.Should().BeSameAs(covenant);
                 hovering.IsOpen = false;
                 var gear = Descendants<StackPanel>(view.StagePanel).First(p => Equals(p.Tag, "Equipment") && Equals(p.DataContext, "盟约之币"));
+                view.StageScroll.ScrollableHeight.Should().BeGreaterThan(0);
                 Hover(gear, "equipment").Tag.Should().Be("此装备会销毁，导入时跳过。");
                 hovering.DataContext.Should().BeOfType<Equipment>();
                 hovering.IsOpen = false;

@@ -94,11 +94,16 @@ public partial class ThemeAndHighlightTests
             var chip = Descendants<ToggleButton>(panel.OperatorView).First(b => PanelToolTip.GetCovenant(b) == "精准");
             panel.Left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - panel.Width) / 2; Pump();
             Hover(chip, panel);
+            ((ToolTip)chip.ToolTip).IsOpen = false;
+            panel.Left = SystemParameters.WorkArea.Right - panel.ActualWidth; Pump();
+            Hover(chip, panel, false);
             panel.HoverSide.SelectedIndex = 0; Saved();
             Hover(chip, panel, false);
             panel.HoverSide.SelectedIndex = 1; Saved();
+            var work = SystemParameters.WorkArea;
             var picker = new OperatorPickerWindow(operators, "", new HashSet<string>()) { Owner = panel, Width = 580, Height = 520,
-                Opacity = 0, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = 90, Top = 60 };
+                Opacity = 0, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = Math.Max(work.Left + 8, work.Right - 580 - 420), Top = work.Top + 60 };
             picker.Show(); Pump();
             var other = Descendants<ToggleButton>(picker).First(b => PanelToolTip.GetCovenant(b) == "精准");
             Hover(other, picker);
