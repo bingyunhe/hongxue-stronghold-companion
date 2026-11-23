@@ -287,6 +287,24 @@ public class LineupPlannerTests
     }
 
     [Fact]
+    public void MultiGoalTransfersUseDistinctCarriersInEitherOrder()
+    {
+        Operator[] ops = [new() { Name = "角峰" }, new() { Name = "迷迭香", CoreCovenants = ["炎"], AdditionalCovenants = ["精准"] }];
+        CovenantInfo[] covenants = [new() { Name = "精准", ActivateCount = 2 }, new() { Name = "迅捷", ActivateCount = 1 }];
+        var planner = new LineupPlanner(ops, covenants);
+        PlannerGoal[] goals = [new("迅捷", 1, 1, false, false), new("精准", 1, 2, false, false)];
+        foreach (var ordered in new[] { goals, goals.Reverse().ToArray() })
+        {
+            var plans = planner.Solve(new PlannerRequest { Goals = ordered, PeopleOptions = [2], TransformOptions = [1, 2],
+                BannedCovenants = new HashSet<string> { "精准" }, TransformAllowed = planner.DefaultTransformAllowed() });
+            var plan = plans.Should().ContainSingle().Subject;
+            plan.Transforms.Should().Be(2);
+            plan.Operators.Single(o => o.Name == "角峰").TransformedCovenant.Should().Be("精准");
+            plan.Operators.Single(o => o.Name == "迷迭香").TransformedCovenant.Should().Be("迅捷");
+        }
+    }
+
+    [Fact]
     public void Plan_BannedAdditionalCovenantCanStillBeTargeted()
     {
         // 突袭 is banned: 纯突袭 (only covenant banned) leaves the pool, but operators who also have a core covenant stay.

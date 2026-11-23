@@ -1,10 +1,10 @@
 # Added for ASP Assistant Arknights on 2026-11-13; see NOTICE.
 """Pinyin initials for search (冻河 → dh, 集结指示 → jjzs).
 
-Run after updating operators / equipment / strategies / covenants:
+Run after updating the operator, equipment, strategy, covenant, boss or bounty catalogues:
     pip install pypinyin
     python data/build_search_keys.py
-Writes data/search_keys.json ({"name": "initials"}). Latin letters and digits are kept, other symbols dropped.
+Writes the name index and character initials used for player-written lineup names.
 """
 import json
 from pathlib import Path
@@ -27,14 +27,20 @@ def initials(text: str) -> str:
 
 def main() -> None:
     names: set[str] = set()
-    names |= {o["name"] for o in json.loads((DATA / "operators.json").read_text(encoding="utf-8"))["operators"]}
+    for file in ("operators.json", "custom_operators.json"):
+        names |= {o["name"] for o in json.loads((DATA / file).read_text(encoding="utf-8"))["operators"]}
     names |= {e["name"] for e in json.loads((DATA / "equipment.json").read_text(encoding="utf-8"))["equipment"]}
     strategies = json.loads((DATA / "strategies.json").read_text(encoding="utf-8"))
     strategies = strategies["strategies"] if isinstance(strategies, dict) else strategies
     names |= {s["name"] for s in strategies} | {s["initiator"] for s in strategies if s.get("initiator")}
     names |= {c["name"] for c in json.loads((DATA / "covenants.json").read_text(encoding="utf-8"))["covenants"]}
+    for boss in json.loads((DATA / "bosses.json").read_text(encoding="utf-8"))["bosses"]:
+        names.update([boss["name"], *boss["aliases"]])
+    names |= {b["title"] for b in json.loads((DATA / "bounties.json").read_text(encoding="utf-8"))["entries"]}
     keys = {n: initials(n) for n in sorted(names)}
-    out = {"_modificationNotice": "Added for ASP Assistant Arknights on 2026-11-13; see NOTICE.", "initials": keys}
+    # One ASCII initial per code point for player-written lineup names (CJK Extension A and Unified Ideographs).
+    han = "".join(initials(chr(code)) or "." for code in range(0x3400, 0xA000))
+    out = {"_modificationNotice": "Added for ASP Assistant Arknights on 2026-11-13; see NOTICE.", "initials": keys, "hanInitials": han}
     (DATA / "search_keys.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{len(keys)} names")
 

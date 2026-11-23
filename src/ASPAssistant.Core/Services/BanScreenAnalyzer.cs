@@ -15,7 +15,8 @@ public record CovenantBanState(string Name, bool IsBanned, double X);
 public record BanScreenResult(
     IReadOnlyList<CovenantBanState> CoreCovenants,
     IReadOnlyList<CovenantBanState> AdditionalCovenants,
-    string? EnemyFaction);
+    string? EnemyFaction,
+    IReadOnlySet<string> MissingCovenants);
 
 /// <summary>
 /// Orchestrates the ban-screen analysis: one screenshot of the "确认本局信息" screen,
@@ -92,7 +93,7 @@ public sealed class BanScreenAnalyzer
         _ocrStrategy = ocrStrategy;
         _enemyRecognizer = enemyRecognizer;
         _informationDetector = new InformationScreenDetector(ocr, ocrStrategy);
-        _operators = operators.Where(o => o.RequiredStrategyId.Length == 0).ToList();
+        _operators = operators;
         _coreCovenantNames = coreCovenantNames;
         _additionalCovenantNames = additionalCovenantNames;
     }
@@ -254,11 +255,22 @@ public sealed class BanScreenAnalyzer
             var enemyFaction = hasEnemy ? enemy!.BossName : null;
 
             sw.Stop();
-            var result = new BanScreenResult(read.Core, read.Additional, enemyFaction);
+            // Low-level solo and express show four selected cores out of eight, even on the
+            // in-game page without a difficulty label. Co-op can show eight active cores.
+            var reducedSolo = read.CoreSlots == 8 && read.AdditionalSlots == 10
+                && read.Core.Count(c => c.IsBanned) == 4 && read.Additional.Count(c => c.IsBanned) == 2;
+            var missing = new HashSet<string>(StringComparer.Ordinal);
+            if (reducedSolo)
+            {
+                missing.UnionWith(_coreCovenantNames.Except(read.Core.Select(c => c.Name)));
+                missing.UnionWith(_additionalCovenantNames.Except(read.Additional.Select(c => c.Name)));
+            }
+            var result = new BanScreenResult(read.Core, read.Additional, enemyFaction, missing);
             if (PrepareNewRunAsync is { } prepare)
             {
                 var bansChanged = _lastResult is not null
-                    && (!result.CoreCovenants.Where(c => c.IsBanned).Select(c => c.Name).ToHashSet(StringComparer.Ordinal)
+                    && (!result.MissingCovenants.SetEquals(_lastResult.MissingCovenants)
+                        || !result.CoreCovenants.Where(c => c.IsBanned).Select(c => c.Name).ToHashSet(StringComparer.Ordinal)
                             .SetEquals(_lastResult.CoreCovenants.Where(c => c.IsBanned).Select(c => c.Name))
                         || !result.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name).ToHashSet(StringComparer.Ordinal)
                             .SetEquals(_lastResult.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name)));
@@ -343,7 +355,8 @@ public sealed class BanScreenAnalyzer
                 continue;
 
             // Share the planner's core-first covenant ban rule.
-            if (CovenantBanRules.IsExcluded(op.CoreCovenants, op.AdditionalCovenants, bannedCovenants))
+            if (CovenantBanRules.HasMissingCovenant(op, result.MissingCovenants)
+                || op.RequiredStrategyId.Length == 0 && CovenantBanRules.IsExcluded(op, bannedCovenants))
                 autoBannedOperators.Add(op.Name);
         }
 

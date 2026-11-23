@@ -15,12 +15,16 @@ internal sealed partial class LiveFieldState
         internal double Score(FieldMark mark)
         {
             if (Recent.TryGetValue(mark.Slot,out var last) && last.Mark.Tier==mark.Tier && last.Mark.StandaloneName==mark.StandaloneName &&
+                last.Mark.Camera==mark.Camera && ReferenceEquals(last.Mark.ShapeCandidates,mark.ShapeCandidates) &&
                 ReferenceEquals(last.Mark.Portrait,mark.Portrait) &&
                 ReferenceEquals(last.Mark.MemoryPatch,mark.MemoryPatch)) return last.Score;
             double best=40;
             foreach (var sample in Samples)
             {
-                if (sample.Tier!=mark.Tier || sample.Slot.Bench!=mark.Slot.Bench && mark.StandaloneName!=Name) continue;
+                if (sample.Tier!=mark.Tier && !(mark.Tier==0 && sample.Camera==mark.Camera && sample.Slot.Bench==mark.Slot.Bench &&
+                    mark.ShapeCandidates is [var first,var second,..] && first.Name==Name && first.Tier==sample.Tier &&
+                    first.Score>=.55 && first.Score-second.Score>=.065)) continue;
+                if (sample.Slot.Bench!=mark.Slot.Bench && mark.StandaloneName!=Name) continue;
                 if (mark.Portrait.Length>0 && sample.Portrait.Length==mark.Portrait.Length)
                 {
                     double raw=Difference(sample.Portrait,mark.Portrait);

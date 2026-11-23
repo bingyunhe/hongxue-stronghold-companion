@@ -10,7 +10,9 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ASPAssistant.App.Converters;
+using ASPAssistant.App.Controls;
 using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
 using ASPAssistant.Core.ViewModels;
 
 namespace ASPAssistant.App.Views;
@@ -42,7 +44,7 @@ public partial class ReferenceCatalogueView : UserControl
         public string Icon { get; } = icon;
         public string DetailLabel { get; } = detailLabel;
         public string Details { get; } = details;
-        public int InitialHp { get; init; }
+        public Strategy? Strategy { get; init; }
         public string Category { get; init; } = "";
         public BossInfo? Boss { get; init; }
         public CodexBounty? Bounty { get; init; }
@@ -63,7 +65,10 @@ public partial class ReferenceCatalogueView : UserControl
     {
         InitializeComponent();
         DetailsPopup.CustomPopupPlacementCallback = (size, target, offset) =>
-            [new CustomPopupPlacement(new Point(-size.Width - 8 * VisualTreeHelper.GetDpi(this).DpiScaleX, 0), PopupPrimaryAxis.Vertical)];
+        {
+            var gap = 8 * VisualTreeHelper.GetDpi(this).DpiScaleX;
+            return PanelToolTip.Sides(-size.Width - gap, target.Width + gap);
+        };
         IsVisibleChanged += (_, _) => { if (!IsVisible) CloseDetails(); };
         Unloaded += (_, _) => CloseDetails();
     }
@@ -84,7 +89,7 @@ public partial class ReferenceCatalogueView : UserControl
         SetEntries("搜索策略、发起人或效果", strategies.Select(s => new Entry(s.Name,
             s.Initiator, s.Description, s.IconPath, "解锁条件", s.UnlockRequirement)
         {
-            InitialHp = s.InitialHp,
+            Strategy = s,
             Category = s.BandType switch { "GENERAL" => "泛用型策略", "BONDRELEVANT" => "盟约型策略", _ => "未分类策略" }
         }));
         Entries.GroupStyle.Add((GroupStyle)FindResource("StrategyGroups"));
@@ -98,7 +103,7 @@ public partial class ReferenceCatalogueView : UserControl
 
     private void OnPortraitEnter(object sender, MouseEventArgs e)
     {
-        if (!_pinned) ShowDetails((Button)sender);
+        if (PanelToolTip.Enabled && !_pinned) ShowDetails((Button)sender);
     }
 
     private void OnPortraitLeave(object sender, MouseEventArgs e)
@@ -108,6 +113,7 @@ public partial class ReferenceCatalogueView : UserControl
 
     private void OnPortraitClick(object sender, RoutedEventArgs e)
     {
+        if (!PanelToolTip.Enabled) return;
         _pinned = !_pinned || !ReferenceEquals(((Button)sender).DataContext, Entries.Tag);
         ShowDetails((Button)sender);
     }
@@ -123,7 +129,10 @@ public partial class ReferenceCatalogueView : UserControl
         }
         if (!ReferenceEquals(Entries.Tag, portrait.DataContext))
         {
-            DetailsScroll.ScrollToTop();
+            if (StrategyMetadata.Content is Strategy && VisualTreeHelper.GetChildrenCount(StrategyMetadata) > 0)
+                ((ScrollViewer)StrategyMetadata.ContentTemplate.FindName("StrategyScroll", StrategyMetadata)).ScrollToTop();
+            else
+                DetailsScroll.ScrollToTop();
             if (portrait.DataContext is Entry { Bounty: { } bounty })
             {
                 BountyVariants.Tag = bounty;
@@ -190,6 +199,7 @@ public partial class ReferenceCatalogueView : UserControl
 
     private void SetEnemyPopupLayout()
     {
+        EnemyDivider.Visibility = DetailsScroll.Visibility = Visibility.Visible;
         DetailsScroll.MaxHeight = 360;
         DetailsCard.Width = 280;
         StrategyMetadata.Visibility = DetailDescription.Visibility = Visibility.Collapsed;
@@ -259,7 +269,8 @@ public partial class ReferenceCatalogueView : UserControl
             (_roundsFilter == null || row.Bounty?.Rounds == _roundsFilter) &&
             (_conditionFilter == null || row.Bounty?.Condition == _conditionFilter) &&
             row.Text.Contains(_usageFilter) && row.Text.Contains(_limitFilter) &&
-            (row.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+            (SearchMatch.Matches(query, row.Title, row.Strategy?.Initiator)
+            || row.Boss?.Aliases.Any(alias => SearchMatch.Matches(query, alias)) == true
             || row.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase)
             || row.Text.Contains(query, StringComparison.OrdinalIgnoreCase)
             || row.Details.Contains(query, StringComparison.OrdinalIgnoreCase)

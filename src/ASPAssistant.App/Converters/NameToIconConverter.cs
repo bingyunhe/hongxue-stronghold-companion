@@ -13,7 +13,8 @@ public sealed class NameToIconConverter : IValueConverter
 
     public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is not string name || string.IsNullOrWhiteSpace(name) || parameter is not string folder)
+        if (value is not string name || string.IsNullOrWhiteSpace(name) || parameter is not string folder
+            || name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0)
             return null;
         return Loader.Convert($"icons/{folder}/{name}.png", targetType, parameter, culture);
     }

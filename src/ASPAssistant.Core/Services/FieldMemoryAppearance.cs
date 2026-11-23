@@ -26,6 +26,23 @@ internal static class FieldMemoryAppearance
         return patch;
     }
 
+    // Compare upper and lower body independently, in place. A matching background or coat alone is insufficient.
+    internal static bool SameIdleBody(int[] reference, int[] current)
+    {
+        for (int start = 3; start <= 9; start += 6)
+        {
+            int error = 0;
+            for (int row=start; row<start+6; row++)
+            for (int col=3; col<14; col++)
+            {
+                int a=reference[row*17+col], b=current[row*17+col];
+                error += Math.Abs((a>>16)-(b>>16)) + Math.Abs(((a>>8)&255)-((b>>8)&255)) + Math.Abs((a&255)-(b&255));
+            }
+            if (error > 10 * 6 * 11 * 3) return false;
+        }
+        return true;
+    }
+
     internal static double Distance(int[] reference,int[] observed)
     {
         const int channels=13*7*3;

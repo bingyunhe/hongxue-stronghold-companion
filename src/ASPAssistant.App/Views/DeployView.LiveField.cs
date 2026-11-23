@@ -24,6 +24,7 @@ public partial class DeployView
     public void ConnectLiveField(OcrScannerService scanner)
     {
         _liveScanner = scanner;
+        scanner.SetReviewExclusions(_runExcluded);
         AutomaticFieldToggle.IsChecked = scanner.AutomaticLiveField = _state.AutomaticLiveField;
         long appliedSequence = 0;
         scanner.FieldOwnershipChanged += evidence =>
@@ -146,17 +147,23 @@ public partial class DeployView
             DockPanel.SetDock(location,Dock.Right);
             content.Children.Add(location);
             var body = new StackPanel { Margin = new Thickness(5,0,0,0) };
-            if (unit.Suggestion is {} hint)
+            if (unit.Suggestion is {} hint && CanChooseOperator(hint.Name))
             {
                 var confirm=new Button { Content=$"确认{hint.Name}", HorizontalAlignment=HorizontalAlignment.Left,
                     Padding=new Thickness(4,0,4,0), FontSize=11, ToolTip=$"将本格确认为{hint.Name}，上次位于 {hint.LastSlot}" };
                 confirm.SetResourceReference(StyleProperty,"SmallActionButton");
-                confirm.Click+=(_,e)=>{ e.Handled=true; ConfirmSuggestion(unit); };
+                var observed = _roster.Observations.LastOrDefault();
+                confirm.Click+=async (_,e)=>{ e.Handled=true; await ConfirmSuggestion(unit, observed, [hint.Name]); };
                 body.Children.Add(confirm);
                 body.Children.Add(Text($"上次 {hint.LastSlot}",10,"TextSecondaryBrush"));
             }
             else body.Children.Add(Text(name,11,"TextPrimaryBrush",bold:true));
-            if (op != null) body.Children.Add(Text(string.Join(" · ",op.CoreCovenants),9.5,"TextSecondaryBrush"));
+            if (op != null)
+            {
+                var covenants = Text("", 9.5, "TextSecondaryBrush");
+                Controls.PanelToolTip.AppendNames(covenants, op.CoreCovenants, " · ");
+                body.Children.Add(covenants);
+            }
             content.Children.Add(body);
             var card = new Border { Child=content, Padding=new Thickness(5,3,5,3), Margin=new Thickness(0,1,4,2),
                 CornerRadius=new CornerRadius(4), BorderThickness=new Thickness(1), ContextMenu=LiveMenu(unit), ToolTip=unit.IdentitySource };
@@ -186,10 +193,14 @@ public partial class DeployView
     private ContextMenu LiveMenu(LiveUnit unit)
     {
         var menu = new ContextMenu();
-        if (unit.Suggestion is {} hint)
+        var observed = _liveScanner?.LiveRoster.Observations.LastOrDefault(o =>
+            o.Units.Any(u => ReferenceEquals(u.Mark, unit.Mark)));
+        var displayed = new List<string>();
+        if (unit.Suggestion is {} hint && CanChooseOperator(hint.Name))
         {
             var accept=new MenuItem { Header=$"确认{hint.Name}（上次 {hint.LastSlot}）" };
-            accept.Click+=(_,_)=>ConfirmSuggestion(unit);
+            displayed.Add(hint.Name);
+            accept.Click+=async (_,_)=>await ConfirmSuggestion(unit, observed, displayed.ToArray());
             menu.Items.Add(accept);
         }
         var review = new MenuItem {Header="复核此格"};
@@ -200,18 +211,26 @@ public partial class DeployView
             {
                 foreach (var old in quick) menu.Items.Remove(old);
                 quick.Clear();
+                displayed.RemoveAll(n => n != unit.Suggestion?.Name);
                 if (_liveScanner is not {} scanner) return;
-                var names=await Task.Run(()=>scanner.GetLiveReviewCandidates(unit));
+                var ranked = await Task.Run(() =>
+                {
+                    var names = scanner.GetLiveReviewCandidates(unit, out var frame);
+                    return (names, frame);
+                });
                 await menu.Dispatcher.InvokeAsync(() =>
                 {
                     if (!menu.IsOpen || quick.Count>0) return;
-                    foreach (string name in names.Where(n=>n!=unit.Suggestion?.Name))
+                    foreach (string name in ranked.names.Where(n=>n!=unit.Suggestion?.Name && CanChooseOperator(n)))
                     {
                         var item=new MenuItem { Header=$"确认{name}" };
-                        item.Click+=(_,_)=>{
+                        displayed.Add(name);
+                        item.Click+=async (_,_)=>{
                             LiveMessage.Visibility=Visibility.Visible;
-                            LiveMessage.Text=scanner.ConfirmLiveReviewName(unit,name)
-                                ? $"{unit.Mark.Slot} 已确认 · {name}" : "该格候选已变化，请重新打开菜单";
+                            bool accepted = CanChooseOperator(name) && scanner.ConfirmLiveReviewName(unit,name);
+                            LiveMessage.Text = accepted ? $"{unit.Mark.Slot} 已确认 · {name}" : "该格候选已变化，请重新打开菜单";
+                            if (accepted && ranked.frame != null)
+                                await scanner.SavePlayerCorrectionAsync(ranked.frame, unit.Mark.Slot, "右键·快捷确认", displayed.ToArray(), name);
                         };
                         menu.Items.Insert(menu.Items.IndexOf(review),item);
                         quick.Add(item);
@@ -222,18 +241,18 @@ public partial class DeployView
         review.Click += async (_,_) => await ReadField(unit);
         menu.Items.Add(review);
         var correct = new MenuItem {Header="更换干员并记住"};
-        correct.Click += (_,_) =>
+        correct.Click += async (_,_) =>
         {
-            var strategies = _operators.Values.Select(o => o.RequiredStrategyId).Where(s => s.Length > 0).ToHashSet();
-            var picker = new OperatorPickerWindow(_operators.Values, unit.Name ?? "", strategies,
-                reviewCandidates: _liveScanner?.GetLiveReviewCandidates(unit))
-                { Owner = Window.GetWindow(this) };
-            picker.ClearSlotButton.Visibility = Visibility.Collapsed;
-            picker.ShowDialog();
-            if (picker.Result is not { Length: > 0 } name) return;
+            var scanner = _liveScanner;
+            FieldObservation? pickedFrame = null;
+            var ranked = scanner?.GetLiveReviewCandidates(unit, out pickedFrame).Where(CanChooseOperator).ToArray();
+            if (PickRunOperator(_operators.Values, unit.Name ?? "", ranked)
+                is not { Length: > 0 } name) return;
             LiveMessage.Visibility = Visibility.Visible;
-            LiveMessage.Text = _liveScanner?.SetLiveIdentity(unit, name) == true
-                ? $"本局已记住 · {unit.Mark.Slot} {name}" : "该干员已移动，请重新选择";
+            bool accepted = scanner?.SetLiveIdentity(unit, name) == true;
+            LiveMessage.Text = accepted ? $"本局已记住 · {unit.Mark.Slot} {name}" : "该干员已移动，请重新选择";
+            if (accepted && pickedFrame != null)
+                await scanner!.SavePlayerCorrectionAsync(pickedFrame, unit.Mark.Slot, "右键·更换干员", ranked!, name);
         };
         menu.Items.Add(correct);
         if (unit.MemberId is long member) AddForgetItem(menu,member);
@@ -241,11 +260,18 @@ public partial class DeployView
         return menu;
     }
 
-    private void ConfirmSuggestion(LiveUnit unit)
+    private async Task ConfirmSuggestion(LiveUnit unit, FieldObservation? observed, string[] displayed)
     {
         LiveMessage.Visibility=Visibility.Visible;
-        LiveMessage.Text=_liveScanner?.ConfirmLiveSuggestion(unit)==true
-            ? $"本局已记住 · {unit.Mark.Slot} {unit.Suggestion!.Name}" : "该格候选已变化，请查看最新识别结果";
+        var scanner = _liveScanner;
+        if (unit.Suggestion is not { } suggestion || !CanChooseOperator(suggestion.Name) || scanner?.ConfirmLiveSuggestion(unit) != true)
+        {
+            LiveMessage.Text = "该格候选已变化，请查看最新识别结果";
+            return;
+        }
+        LiveMessage.Text = $"本局已记住 · {unit.Mark.Slot} {suggestion.Name}";
+        if (observed != null)
+            await scanner.SavePlayerCorrectionAsync(observed, unit.Mark.Slot, "同局位置建议", displayed, suggestion.Name);
     }
 
     private void AddForgetItem(ContextMenu menu,long id)
@@ -322,6 +348,7 @@ public partial class DeployView
     private async Task ReadField(LiveUnit? unit, bool ownBoard = false)
     {
         if (_readingField || _liveScanner == null) return;
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         if (!ShowingLive) _returnMode = ModeList.SelectedIndex;
         ModeList.SelectedIndex=0;
         HideCorrection();
@@ -344,6 +371,10 @@ public partial class DeployView
                     OpenSlot(observed.UncertainSlots[0]);
                 else FinishCorrection($"阵容识别完成 · 已认出 {roster.Units.Count} 人");
             }
+            if (unit == null && IsVisible)
+                _ = Dispatcher.InvokeAsync(() => ASPAssistant.Core.AppLogger.Info("LiveField",
+                    $"manual click-to-render-queue={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}ms"),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
         }
         finally { _readingField=false; ReadFieldButton.IsEnabled=true; }
     }

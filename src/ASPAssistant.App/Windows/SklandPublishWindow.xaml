@@ -1,0 +1,31 @@
+<Window x:Class="ASPAssistant.App.Windows.SklandPublishWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="发布到森空岛" Width="515" Height="680" MinWidth="380" MinHeight="390" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource PanelBackgroundBrush}" Foreground="{DynamicResource TextPrimaryBrush}">
+    <Border Background="{DynamicResource PanelBackgroundBrush}" Padding="16"><DockPanel>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <Button x:Name="Submit" DockPanel.Dock="Right" Content="确认并提交审核" Style="{StaticResource DialogPrimaryButton}" Click="OnSubmit"/>
+            <Button x:Name="CopyGuide" DockPanel.Dock="Right" Content="复制攻略链接" Style="{StaticResource SmallActionButton}" Visibility="Collapsed" Click="OnCopyGuide"/>
+            <TextBlock x:Name="Status" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        </DockPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,8,0">
+                <TextBlock x:Name="Account" FontWeight="Bold" FontSize="16" Margin="0,0,0,10"/>
+                <TextBlock Text="攻略名称"/><TextBox x:Name="DraftTitle" MaxLength="40" Style="{StaticResource DialogTextBox}" Margin="0,3,0,8"/>
+                <TextBlock Text="适用范围"/><TextBox x:Name="Scope" MaxLength="1000" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="52" Style="{StaticResource DialogTextBox}" Margin="0,3,0,8"/>
+                <TextBlock x:Name="StrategyText" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                <ItemsControl x:Name="StageList"><ItemsControl.ItemTemplate><DataTemplate>
+                    <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,6"><StackPanel>
+                        <TextBlock Text="{Binding Heading}" FontWeight="Bold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Operators}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding Gear}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Bonds}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Notes}" TextWrapping="Wrap"/>
+                    </StackPanel></Border>
+                </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                <CheckBox x:Name="Original" Content="我确认有权以当前账号发布以上攻略。" Margin="0,8,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel></Border>
+</Window>

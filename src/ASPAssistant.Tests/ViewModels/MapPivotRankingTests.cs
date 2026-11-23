@@ -35,6 +35,23 @@ public class MapPivotRankingTests
     }
 
     [Fact]
+    public async Task SavedPivotAcceptsGreyTransferButSkipsAbsentTransfer()
+    {
+        Operator[] ops = [new() { Name = "角峰", CoreCovenants = ["谢拉格"] }];
+        CovenantInfo[] covenants = [new() { Name = "精准", BondType = "REGULAR", ActivateCount = 2 }];
+        var calculator = new CovenantCalculator(ops, covenants, new Dictionary<string, string> { ["精准狙击镜"] = "精准" });
+        var library = new LineupViewModel(new LineupStore(Path.GetTempPath(), calculator.EquipmentRules), calculator);
+        library.LoadLineups([new() { Name = "已存转职", Slots = [new() { OperatorName = "角峰", Equipments = ["变形同构体", "精准狙击镜"] }] }]);
+        var bans = new BanViewModel();
+        var vm = new LineupPlannerViewModel(new(ops, covenants), ops, bans, calculator.EquipmentRules);
+        var held = new Dictionary<string, int> { ["角峰"] = 1 };
+        bans.SetCovenantBans(["精准"]);
+        Assert.Contains(await vm.FindMapPivotsAsync(library, held, new HashSet<string>(), 8, 4, default), c => c.Lineup.Name == "已存转职");
+        bans.SetCovenantBans([], new HashSet<string> { "精准" });
+        Assert.DoesNotContain(await vm.FindMapPivotsAsync(library, held, new HashSet<string>(), 8, 4, default), c => c.Lineup.Name == "已存转职");
+    }
+
+    [Fact]
     public async Task ManualGoalsAndSavedCoreCardsAffectPivotChoices()
     {
         var names = Enumerable.Range(1, 9).Select(i => "干员" + i).ToArray();

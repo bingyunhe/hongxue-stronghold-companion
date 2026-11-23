@@ -5,12 +5,13 @@ namespace ASPAssistant.Core.Services;
 
 public sealed record StageRepairChange(string Name, string BoundsText, string MembersText, string ChangeText, string WarningText, int Missing)
 {
+    public bool HasUnavailableTransformation { get; init; }
     public bool HasWarning => WarningText.Length > 0;
 }
 
 public sealed record StageRepairPreview(Lineup Lineup, IReadOnlyList<StageRepairChange> Stages)
 {
-    public bool CanSave => Stages.All(s => s.Missing == 0);
+    public bool CanSave => Stages.All(s => s.Missing == 0 && !s.HasUnavailableTransformation);
     public string Summary => CanSave ? "各阶段修补已就绪，可另存、覆盖或追踪" : "部分阶段仍有缺口，请调整原阶段或本局禁用后重新修补";
 }
 
@@ -18,7 +19,7 @@ public sealed record StageRepairPreview(Lineup Lineup, IReadOnlyList<StageRepair
 public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, CovenantCalculator calculator)
 {
     public StageRepairPreview Repair(Lineup source, Lineup repaired, IReadOnlySet<string> bannedOperators,
-        IReadOnlySet<string> bannedCovenants, CancellationToken token = default)
+        IReadOnlySet<string> bannedCovenants, CancellationToken token = default, IReadOnlySet<string>? transformAllowed = null)
     {
         var copy = JsonSerializer.Deserialize<Lineup>(JsonSerializer.Serialize(repaired))!;
         var byName = operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -131,10 +132,22 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
                     case "mid": copy.MidSlots = slots; break;
                     case "support": copy.SupportSlots = slots; break;
                 }
-            if (!stage.IsFinal) continue;
+            var invalid = slots.SelectMany(calculator.EquipmentRules.Transformations)
+                .Where(t => transformAllowed is not null && !transformAllowed.Contains(t.Covenant)).Select(t => t.Covenant).Distinct().ToList();
+            var issue = invalid.Count > 0 ? $"本局不可转入：{string.Join("、", invalid)}" : "";
+            if (!stage.IsFinal)
+            {
+                if (invalid.Count > 0)
+                {
+                    var change = changes[stage.Id];
+                    changes[stage.Id] = change with { HasUnavailableTransformation = true,
+                        WarningText = string.Join("；", new[] { change.WarningText, issue }.Where(x => x.Length > 0)) };
+                }
+                continue;
+            }
             var before = Slots(stage).Select(s => s.OperatorName).ToHashSet(StringComparer.Ordinal);
             changes.Add(stage.Id, new(stage.Name, $"成型 {slots.Count} 人", string.Join("、", slots.Select(s => s.OperatorName)),
-                $"换下 {string.Join("、", before.Except(finalNames))} → 补入 {string.Join("、", finalNames.Except(before))}", "", 0));
+                $"换下 {string.Join("、", before.Except(finalNames))} → 补入 {string.Join("、", finalNames.Except(before))}", issue, 0) { HasUnavailableTransformation = invalid.Count > 0 });
         }
         // Keep retained loadouts independent from both the original lineup and the preview's temporary search values.
         copy = JsonSerializer.Deserialize<Lineup>(JsonSerializer.Serialize(copy))!;

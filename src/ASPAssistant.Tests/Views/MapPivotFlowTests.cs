@@ -40,9 +40,11 @@ public partial class ThemeAndHighlightTests
         using var ocr = new MaaOcrEngine(data);
         using var connection = new GameConnectionService(new() { Source = GameCaptureSource.Adb });
         int captures = 0;
+        var saved = new System.Collections.Concurrent.ConcurrentQueue<RecognitionSample>();
         using var scanner = new OcrScannerService(() => { captures++; return frame; }, new GarrisonOcrStrategy(),
             new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
         {
+            SaveFieldReview = (_, sample) => saved.Enqueue(sample),
             EconomyReader = new(ocr), BoardRecognizer = new(maps), LiveReader = new(data, maps),
             FieldTiers = ops.ToDictionary(p => p.Key, p => p.Value.Tier)
         };
@@ -123,6 +125,7 @@ public partial class ThemeAndHighlightTests
             }
             Tap(place);
             var options = Get<WrapPanel>("CorrectionChoices");
+            var emptyChoices = options.Children.OfType<Button>().Select(b => (string)b.Content).ToArray();
             var grey = options.Children.OfType<Button>().Single(b => Equals(b.Content, "灰喉"));
             grey.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             Assert.Contains("定位到", Get<Button>("ConfirmCorrectionButton").Content.ToString());
@@ -133,6 +136,17 @@ public partial class ThemeAndHighlightTests
                 Pump();
             }
             Click("ConfirmCorrectionButton");
+            Until(() => saved.Count == 1);
+            var empty = saved.First();
+            Assert.Same(captured.Observations[^1].Frame, Assert.Single(empty.Frames));
+            Assert.Equal(1, empty.InputFrame);
+            Assert.Equal(emptyChoices, empty.Correction!.Candidates);
+            Assert.Equal((place.ToString(), "空格补记·快捷确认", "灰喉"), (empty.Correction.Slot, empty.Correction.Entry, empty.Correction.Chosen));
+            var evidenceDir = Path.Combine(tmp, "correction-case");
+            FieldFeedback.Save(evidenceDir,empty.Game!.Value,empty);
+            var loaded = Assert.Single(Assert.Single(FieldFeedback.LoadGames(evidenceDir)).GameRecords);
+            Assert.Equal(emptyChoices, loaded.Correction!.Candidates);
+            Assert.Equal(frame, Assert.Single(loaded.Frames).Image);
             Assert.Equal("灰喉", scanner.LiveRoster.Units.Single(u => u.Mark.Slot == place).Name);
             Assert.Equal(1, holdings.CountOf("灰喉"));
             Assert.True(holdings.IsElite("灰喉"));
@@ -142,7 +156,33 @@ public partial class ThemeAndHighlightTests
             Until(() => options.Children.OfType<Button>().Any(b => Equals(b.Content, "蛇屠箱")));
             options.Children.OfType<Button>().Single(b => Equals(b.Content, "蛇屠箱")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Save("review");
+            var reviewChoices = options.Children.OfType<Button>().Select(b => (string)b.Content).ToArray();
+            if (night)
+            {
+                host.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+                {
+                    var picker = host.OwnedWindows.OfType<OperatorPickerWindow>().Single();
+                    try
+                    {
+                        var filters = (OperatorBrowseViewModel)picker.DataContext;
+                        filters.TierChips.Single(c => c.Value == ops["蛇屠箱"].Tier.ToString()).IsSelected = true;
+                        filters.SearchText = "蛇屠箱";
+                        picker.UpdateLayout();
+                        var list = (ListBox)picker.FindName("OperatorsList");
+                        var row = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(list.Items.Cast<Operator>().Single(op => op.Name == "蛇屠箱"));
+                        OperatorPickerTests.RaiseMouse(row, Mouse.PreviewMouseDownEvent);
+                        OperatorPickerTests.RaiseMouse(row, Mouse.MouseUpEvent);
+                    }
+                    finally { if (picker.IsVisible) picker.Close(); }
+                });
+                Click("PickCorrectionButton");
+                Assert.Equal(1, saved.Count);
+            }
             Click("ConfirmCorrectionButton");
+            Until(() => saved.Count == 2);
+            var review = saved.Last().Correction!;
+            Assert.Equal(reviewChoices, review.Candidates);
+            Assert.Equal(("D7", night ? "地图复核·选其他干员" : "地图复核·快捷确认", "蛇屠箱"), (review.Slot, review.Entry, review.Chosen));
             Assert.Equal("蛇屠箱", scanner.LiveRoster.Units.Single(u => u.Mark.Slot == pending.Mark.Slot).Name);
             Assert.Equal(1, holdings.CountOf("蛇屠箱"));
             Click("LeaveCorrectionButton");
@@ -152,6 +192,7 @@ public partial class ThemeAndHighlightTests
             var wei = options.Children.OfType<Button>().Single(b => Equals(b.Content, "维伊"));
             wei.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             Click("CountOnlyButton");
+            Assert.Equal(2, saved.Count);
             Assert.Equal(2, holdings.CountOf("维伊"));
             Assert.DoesNotContain(scanner.LiveRoster.Units, u => u.Mark.Slot == nextSlot);
             int requestedReads = night ? 2 : 1;

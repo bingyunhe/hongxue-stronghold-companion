@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using ASPAssistant.App.Controls;
 using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
 using ASPAssistant.Core.ViewModels;
 
 namespace ASPAssistant.App.Windows;
@@ -25,9 +26,9 @@ public partial class CustomOperatorSelectionWindow : Window
             name.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
             var covenants = new TextBlock
             {
-                Text = string.Join(" · ", op.CoreCovenants.Concat(op.AdditionalCovenants)),
                 FontSize = 10, Margin = new Thickness(0, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
             };
+            PanelToolTip.AppendNames(covenants, op.CoreCovenants.Concat(op.AdditionalCovenants), " · ");
             covenants.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             var body = new DockPanel { Width = 208 };
             var avatar = new Avatar { Width = 30, Height = 30, Text = op.Name, Source = op.IconPath, Margin = new Thickness(0, 0, 8, 0) };
@@ -73,7 +74,7 @@ public partial class CustomOperatorSelectionWindow : Window
         {
             var card = (Border)check.Parent;
             var op = (Operator)card.Tag;
-            bool matchesName = op.Name.Contains(SearchBox.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+            bool matchesName = SearchMatch.Matches(SearchBox.Text, op.Name);
             if (matchesName) candidates.Add(op);
             card.Visibility = matchesName && _missing.Matches(op) ? Visibility.Visible : Visibility.Collapsed;
         }

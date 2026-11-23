@@ -9,6 +9,13 @@ public sealed record SklandGuideImportResult(Lineup Lineup, string Notice);
 
 public sealed class SklandGuideImporter(HttpClient http, IReadOnlyList<Operator> operators, IReadOnlyList<Strategy> strategies)
 {
+    // Official equipment descriptions start with the activation clause, optionally inside rich-text tags.
+    private static readonly System.Text.RegularExpressions.Regex DestroysItself = new(
+        @"^\s*(?:<[^>]+>)*(?:装备时销毁|使用后销毁|装备后下个回合开始时销毁|装备时目标干员和本装备销毁)(?=<|[，,。；;\s]|$)");
+
+    internal static bool KeepEquipmentOnImport(JsonElement item) =>
+        item.GetProperty("name").GetString() == "人事部文档" || !DestroysItself.IsMatch(item.GetProperty("effectDesc").GetString()!);
+
     public static bool IsOfficialGuideUrl(string input) => Uri.TryCreate(input.Trim(), UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps && uri.IdnHost.Equals("game.skland.com", StringComparison.OrdinalIgnoreCase)
         && uri.IsDefaultPort && uri.UserInfo.Length == 0
@@ -45,6 +52,22 @@ public sealed class SklandGuideImporter(HttpClient http, IReadOnlyList<Operator>
             var guide = item.GetProperty("guide");
             if (guide.GetProperty("guideId").GetString() != guideId)
                 throw new InvalidDataException("官方返回的攻略与链接不匹配，未导入阵容。");
+            var resource = SklandGuideCatalogue.ResourceFor(data, guide);
+            return ParseLineup(item, resource, operators, strategies);
+        }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or JsonException)
+        {
+            throw new InvalidDataException("官方攻略数据格式无法识别，未导入阵容。", ex);
+        }
+    }
+
+    public static SklandGuideImportResult ParseLineup(JsonElement item, JsonElement resource,
+        IReadOnlyList<Operator> operators, IReadOnlyList<Strategy> strategies)
+    {
+        try
+        {
+            var guide = item.GetProperty("guide");
+            var guideId = guide.GetProperty("guideId").GetString()!;
             var tabs = guide.GetProperty("tabs").EnumerateArray().ToArray();
             var formations = tabs.Where(tab => tab.GetProperty("tabType").GetInt32() == 1).ToArray();
             if (formations.Length != 1)
@@ -53,8 +76,7 @@ public sealed class SklandGuideImporter(HttpClient http, IReadOnlyList<Operator>
             var chars = formation.GetProperty("recChars").EnumerateArray().ToArray();
             if (chars.Length == 0)
                 throw new InvalidDataException("攻略没有推荐干员，未导入阵容。");
-            var resource = data.GetProperty("seasonResourceMap").GetProperty(guide.GetProperty("seasonId").GetString()!)
-                .GetProperty("versionResourceMap").GetProperty(guide.GetProperty("versionId").GetString()!);
+
             var lineup = new Lineup
             {
                 Name = guide.GetProperty("title").GetString()!,
@@ -109,8 +131,7 @@ public sealed class SklandGuideImporter(HttpClient http, IReadOnlyList<Operator>
                     EndRound = final ? null : tab.GetProperty("endRound").GetInt32(), Slots = ReadSlots(tab),
                     RecommendedEquipments = tab.GetProperty("recItems").EnumerateArray()
                         .Select(x => resource.GetProperty("items").GetProperty(x.GetProperty("itemId").GetString()!))
-                        .Where(x => x.GetProperty("name").GetString() == "人事部文档"
-                            || !x.GetProperty("effectDesc").GetString()!.Contains("销毁", StringComparison.Ordinal))
+                        .Where(KeepEquipmentOnImport)
                         .Select(x => x.GetProperty("name").GetString()!).ToList(),
                     OperationIdea = tab.GetProperty("operationIdea").GetString()! };
                 stage.Name = stage.RangeText;
@@ -129,7 +150,11 @@ public sealed class SklandGuideImporter(HttpClient http, IReadOnlyList<Operator>
                 var id = entry.GetString()!;
                 if (!strategies.Any(strategy => strategy.Id == id))
                     throw new InvalidDataException($"本地尚未收录攻略策略“{resource.GetProperty("strategies").GetProperty(id).GetProperty("name").GetString()}”，请更新数据后导入。");
-                lineup.Strategies.Add(new LineupStrategySlot { StrategyId = id });
+                lineup.Strategies.Add(new LineupStrategySlot
+                {
+                    StrategyId = id,
+                    Tags = lineup.Strategies.Count == 0 ? [StrategyTag.阵容核心] : []
+                });
             }
             var finalStage = content.Stages.Single(s => s.IsFinal);
             var customNotice = unselectedCustom.Count > 0

@@ -91,12 +91,12 @@
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource ClickableListBoxItemBase}">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="Margin" Value="0,0,4,6" />
+                                <Setter Property="MaxWidth" Value="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ScrollContentPresenter}}" />
                                 <Setter Property="ToolTip" Value="{Binding Summary}" />
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListBoxItem">
-                                            <Border x:Name="row" MinHeight="64" Padding="10,8,12,8" BorderThickness="1" CornerRadius="{DynamicResource CardCornerRadius}"
+                                            <Border x:Name="row" Margin="0,0,4,6" MinHeight="64" Padding="10,8,12,8" BorderThickness="1" CornerRadius="{DynamicResource CardCornerRadius}"
                                                     Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}">
                                                 <ContentPresenter />
                                             </Border>

@@ -162,6 +162,8 @@ public class LineupShareService
         return lineup;
     }
 
+    public SklandGuideCatalogue CreateGuideCatalogue() => new(_http);
+
     public Task<SklandGuideImportResult> ImportOfficialGuideAsync(string input,
         IReadOnlyList<Operator> operators, IReadOnlyList<Strategy> strategies, CancellationToken ct = default)
         => new SklandGuideImporter(_http, operators, strategies).ImportAsync(input, ct);

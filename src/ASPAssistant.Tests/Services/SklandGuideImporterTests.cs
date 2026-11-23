@@ -33,6 +33,7 @@ public class SklandGuideImporterTests
         result.Lineup.Slots.Select(x => x.OperatorName).Should().Equal("蓝毒", "瑰盐", "霍尔海雅", "棘刺", "空弦", "流明", "旅骨", "海沫");
         result.Lineup.Slots.Should().OnlyContain(x => x.IsElite && x.Equipments.Count == 0 && x.Tags.Count == 0);
         result.Lineup.Strategies.Should().ContainSingle().Which.StrategyId.Should().Be("band_bonus");
+        result.Lineup.Strategies[0].Tags.Should().Equal(StrategyTag.阵容核心);
         result.Lineup.EarlySlots.Should().BeEmpty();
         result.Lineup.MidSlots.Should().BeEmpty();
         result.Lineup.SupportSlots.Should().BeEmpty();
@@ -86,6 +87,51 @@ public class SklandGuideImporterTests
         var restored = JsonSerializer.Deserialize<Lineup>(JsonSerializer.Serialize(saved))!;
         restored.SklandGuide!.Stages.Should().OnlyContain(s => s.RecommendedEquipments.Contains("人事部文档")
             && !s.RecommendedEquipments.Intersect(excluded).Any());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TwentyPersistentRecommendationsSurviveEditorSaveAndReopen(bool withConsumables)
+    {
+        var (operators, strategies) = await CatalogAsync();
+        var store = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data"));
+        var (equipment, _) = await store.LoadEquipmentAsync();
+        var expected = equipment.Where(e => !e.Normal.EffectDescription.Contains("销毁") && e.Name != "人事部文档")
+            .Take(19).Select(e => e.Name).Append("人事部文档").ToList();
+        expected.Should().HaveCount(20);
+        var root = JsonNode.Parse(Fixture)!;
+        var items = root["data"]!["seasonResourceMap"]!["act3autochess"]!["versionResourceMap"]!["V3_1"]!["items"]!;
+        var list = new JsonArray();
+        foreach (var (name, i) in expected.Select((name, i) => (name, i)))
+        {
+            string id = $"permanent-{i}";
+            string effect = i == 0 ? "装备时销毁另一件装备，自身保留" : equipment.Single(e => e.Name == name).Normal.EffectDescription;
+            items[id] = new JsonObject { ["name"] = name, ["effectDesc"] = effect };
+            list.Add(new JsonObject { ["itemId"] = id });
+        }
+        if (withConsumables)
+        {
+            foreach (var name in new[] { "人事部记录", "博士投影" })
+            {
+                string id = items.AsObject().Single(kv => kv.Value!["name"]!.GetValue<string>() == name).Key;
+                list.Insert(1, new JsonObject { ["itemId"] = id });
+            }
+        }
+        foreach (var tab in root["data"]!["guide"]!["guide"]!["tabs"]!.AsArray()) tab!["recItems"] = list.DeepClone();
+        using var http = new HttpClient(new GuideHandler(root.ToJsonString()));
+        var imported = await new SklandGuideImporter(http, operators, strategies).ImportAsync(Url);
+        var calc = new CovenantCalculator(operators, [], new Dictionary<string, string>());
+        var editor = new LineupEditorViewModel(imported.Lineup, operators, equipment, calc);
+        var folder = Directory.CreateTempSubdirectory("skland-20-");
+        try
+        {
+            var lineups = new LineupStore(folder.FullName, calc.EquipmentRules);
+            await lineups.SaveAsync(editor.ToLineup());
+            var reopened = (await lineups.LoadAllAsync()).Single();
+            foreach (var stage in reopened.SklandGuide!.Stages) stage.RecommendedEquipments.Should().Equal(expected);
+        }
+        finally { folder.Delete(true); }
     }
 
     [Theory]

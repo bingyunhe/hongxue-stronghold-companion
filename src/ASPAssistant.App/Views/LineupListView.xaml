@@ -89,7 +89,8 @@
         <Style x:Key="GridChip" TargetType="ToggleButton" BasedOn="{StaticResource ClickableToggleButtonBase}">
             <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=TwoWay}" />
             <Setter Property="IsEnabled" Value="{Binding IsBlocked, Converter={StaticResource FilterNotConverter}}" />
-            <Setter Property="ToolTip" Value="{Binding Label}" />
+            <Setter Property="controls:PanelToolTip.Covenant" Value="{Binding Label}" />
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Margin" Value="0,0,5,5" />
@@ -212,7 +213,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Style="{StaticResource TonePill}" Tag="{Binding Tone}" ToolTip="{Binding ToolTip}">
+                                    <Border Style="{StaticResource TonePill}" Tag="{Binding Tone}" controls:PanelToolTip.Covenant="{Binding Name}" controls:PanelToolTip.Note="{Binding ToolTip}">
                                         <TextBlock Text="{Binding Text}" FontSize="10" FontWeight="Bold" />
                                     </Border>
                                 </DataTemplate>
@@ -393,7 +394,15 @@
                                 <Border Height="24" Margin="0,0,5,5" Padding="8,0,2,0" CornerRadius="{DynamicResource PillCornerRadius}" BorderThickness="1"
                                         Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource AccentBorderBrush}">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
+                                        <TextBlock Text="{Binding}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}">
+                                            <TextBlock.Style><Style TargetType="TextBlock">
+                                                <Setter Property="controls:PanelToolTip.Covenant" Value="{Binding}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding}" Value="仅 Ⅰ 档"><Setter Property="controls:PanelToolTip.Covenant" Value="{x:Null}"/></DataTrigger>
+                                                    <DataTrigger Binding="{Binding}" Value="仅 Ⅱ 档"><Setter Property="controls:PanelToolTip.Covenant" Value="{x:Null}"/></DataTrigger>
+                                                </Style.Triggers>
+                                            </Style></TextBlock.Style>
+                                        </TextBlock>
                                         <Button Width="18" Height="18" Margin="3,0,0,0" Tag="{StaticResource IconClose}" Style="{StaticResource RowIconButton}"
                                                 ToolTip="去掉这个条件" Click="OnRemoveTag" />
                                     </StackPanel>
@@ -446,7 +455,7 @@
                                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Style="{StaticResource TonePill}" Tag="bad" Margin="0,2,4,2" VerticalAlignment="Center">
+                                                <Border Style="{StaticResource TonePill}" Tag="bad" controls:PanelToolTip.Covenant="{Binding}" controls:PanelToolTip.Note="本局此盟约干员不完整" Margin="0,2,4,2" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding StringFormat='{}{0} 不完整'}" FontSize="10" FontWeight="Bold" />
                                                 </Border>
                                             </DataTemplate>

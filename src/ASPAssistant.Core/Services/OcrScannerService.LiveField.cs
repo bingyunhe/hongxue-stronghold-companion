@@ -12,6 +12,7 @@ public partial class OcrScannerService
     private LiveFieldState? _liveState;
     private (BmpPixels Frame, BoardMatch Board, LiveRoster Roster, IReadOnlyList<FieldMark> Marks)? _reviewBoard;
     private int _manualField;
+    private ShopEconomy? _manualPreparation;
     private bool _automaticLiveField;
     public bool AutomaticLiveField
     {
@@ -67,14 +68,43 @@ public partial class OcrScannerService
         LiveFieldChanged?.Invoke();
     }
     internal Action<Guid, RecognitionSample> SaveFieldReview { get; init; } = FieldFeedback.Save;
+    public async Task SavePlayerCorrectionAsync(FieldObservation observation, FieldSlot slot, string entry, string[] candidates, string chosen)
+    {
+        var frame = observation.Frame;
+        var correction = new RecognitionSample.PlayerCorrection(observation.Map, slot.ToString(), entry, candidates, chosen);
+        var sample = new RecognitionSample(observation.Round, $"棋盘纠错 · {slot}", $"{slot} · 玩家选择{chosen}",
+            DateTimeOffset.Now, frame.Image.Length > 0 ? [frame] : [])
+        {
+            Game = observation.Game, Correction = correction, InputFrame = frame.Image.Length > 0 ? 1 : null,
+            Actions = [$"{observation.Map} · {slot} · {entry}", $"当时显示的候选（按顺序）：{string.Join("、", candidates)}",
+                $"玩家选择：{chosen}"]
+        };
+        try { await Task.Run(() => SaveFieldReview(observation.Game, sample)).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { AppLogger.Warn("Feedback", "玩家纠错留样失败：" + ex.GetType().Name); }
+    }
+
     private Guid _fieldGame = Guid.NewGuid();
     private FieldObservation[] _fieldObservations = [];
     private (FieldObservation Scan,LiveRoster Roster,long Track,string[] Names)? _reviewNames;
     public LiveRoster LiveRoster { get { lock (_runLock) return _liveState is null ? new(null,null,[]) : _liveState.Roster with { Observations = _fieldObservations }; } }
 
-    public string[] GetLiveReviewCandidates(LiveUnit target)
+    private IReadOnlySet<string>? _reviewExcluded;
+
+    public void SetReviewExclusions(IReadOnlySet<string>? excluded)
     {
-        if (target.Name != null) return [];
+        lock (_runLock)
+        {
+            _reviewExcluded = excluded;
+            _reviewNames = null;
+        }
+    }
+
+    public string[] GetLiveReviewCandidates(LiveUnit target) => GetLiveReviewCandidates(target, out _);
+
+    public string[] GetLiveReviewCandidates(LiveUnit target, out FieldObservation? observation)
+    {
+        observation = null;
         BmpPixels? frame;
         BoardMatch? board;
         byte[] original;
@@ -83,18 +113,21 @@ public partial class OcrScannerService
         LiveRoster roster;
         FieldMark mark;
         HashSet<string> known;
+        IReadOnlySet<string>? excluded;
         lock (_runLock)
         {
             if (_reviewBoard is not { } snapshot || _fieldObservations.Length == 0 ||
                 _liveState?.Roster.Units.FirstOrDefault(u => u.Id == target.Id && u.Mark.Slot == target.Mark.Slot)
-                    is not { Name: null } current || !ReferenceEquals(current.Mark,target.Mark)) return [];
-            scan=_fieldObservations[^1];
+                    is not {} current || !ReferenceEquals(current.Mark,target.Mark)) return [];
+            observation = scan = _fieldObservations[^1];
+            if (current.Name != null) return [];
             roster=_liveState.Roster;
             if (_reviewNames is {} cached && cached.Track==target.Id && ReferenceEquals(cached.Scan,scan) &&
                 ReferenceEquals(cached.Roster,roster)) return cached.Names;
             mark=current.Mark;
             known=_liveState.KnownReviewNames();
-            shapeNames=_liveState.ReviewShapeCandidates(mark);
+            excluded = _reviewExcluded;
+            shapeNames=_liveState.ReviewShapeCandidates(mark, excluded);
             // A detail retry may have moved the camera since the roster was read.
             frame = snapshot.Marks.Any(m => ReferenceEquals(m, current.Mark)) ? snapshot.Frame : null;
             board = snapshot.Board;
@@ -108,8 +141,9 @@ public partial class OcrScannerService
                 board = frame==null ? null : BoardRecognizer!.Recognize(frame);
             }
         }
-        var heads=frame==null || board==null ? [] : LiveReader!.RankReviewCandidates(frame,board,mark.Slot);
+        var heads=frame==null || board==null ? [] : LiveReader!.RankReviewCandidates(frame,board,mark.Slot,excluded);
         var parts=frame==null || board?.Map.Id!=scan.Map ? [] : LiveReader!.ReviewVisibleParts(frame,mark,known);
+        if (excluded is { Count: > 0 }) parts = parts.Where(n => !excluded.Contains(n)).ToArray();
         string? visible = null;
         if (heads.Length < 3 && frame != null && board?.Map.Id == scan.Map)
         {
@@ -117,11 +151,15 @@ public partial class OcrScannerService
             visible = LiveReader!.ReviewVisibleBody(frame, mark, reading.BadgeTier, scan.Units.Select(u => u.Mark.Slot));
         }
         // Reserve room for the original whole-body runner even when the two parts disagree.
-        var names=heads.Concat(visible == null ? [] : new[]{visible}).Concat(parts.Take(1)).Concat(shapeNames.Take(1)).Concat(parts.Skip(1))
+        var names=heads.Concat(visible == null || excluded?.Contains(visible) == true ? [] : new[]{visible}).Concat(parts.Take(1)).Concat(shapeNames.Take(1)).Concat(parts.Skip(1))
             .Concat(shapeNames).Distinct().Take(3).ToArray();
         lock (_runLock)
         {
-            if (!ReferenceEquals(scan,_fieldObservations.LastOrDefault()) || !ReferenceEquals(roster,_liveState?.Roster)) return [];
+            if (!ReferenceEquals(excluded,_reviewExcluded) || !ReferenceEquals(scan,_fieldObservations.LastOrDefault()) || !ReferenceEquals(roster,_liveState?.Roster))
+            {
+                observation = null;
+                return [];
+            }
             _reviewNames=(scan,roster,target.Id,names);
             return names;
         }
@@ -244,15 +282,46 @@ public partial class OcrScannerService
         var clock = Stopwatch.StartNew();
         if (FieldDetailFocus.Visible(pixels)) return;
         var readings = new Dictionary<FieldSlot, SlotReading>();
-        var marks = LiveReader!.ReadWithTrace(pixels, match, true, manual, cancellation, readings);
+        bool solo = mode == "入门协议" || mode?.StartsWith("规程等级", StringComparison.Ordinal) == true;
+        bool personal = solo || declaredOwn;
+        Dictionary<FieldSlot,FieldMark>? unchanged = null;
+        if (manual)
+        {
+            lock (_runLock)
+            {
+                if (_manualPreparation != null && _reviewBoard is {} last && _liveState != null &&
+                    _fieldObservations.LastOrDefault() is {} prior && prior.Game == _fieldGame &&
+                    prior.RunRevision == run && prior.CaptureRevision == revision && ReferenceEquals(prior.Connection, connection) &&
+                    prior.PersonalRoster == personal && prior.Map == match.Map.Id && last.Board.Camera == match.Camera &&
+                    round >= prior.Round && pixels.Width == last.Frame.Width && pixels.Height == last.Frame.Height)
+                {
+                    unchanged = [];
+                    foreach (var unit in _liveState.Roster.Units)
+                    {
+                        var slot = unit.Mark.Slot;
+                        if (unit.Name == null || unit.NeedsReview || unit.Suggestion != null || prior.UncertainSlots.Contains(slot)) continue;
+                        var m = last.Marks.FirstOrDefault(old => old.Slot == slot);
+                        if (m == null) continue;
+                        // Cover the full pose, including adjacent weapons and the blur border.
+                        if (pixels.SameRegion(last.Frame, (int)(m.Foot.X-1.2*m.Tile), (int)(m.Foot.Y-2.1*m.Tile),
+                            (int)Math.Ceiling(m.Foot.X+1.2*m.Tile), (int)Math.Ceiling(m.Foot.Y+.55*m.Tile)) ||
+                            personal && !slot.Bench && round == prior.Round && m.ShapeCenter != null && m.MemoryPatch.Length > 0 &&
+                            m.StandaloneName == unit.Name && m.ShapeCandidates.FirstOrDefault()?.Name == unit.Name &&
+                            FieldMemoryAppearance.SameIdleBody(m.MemoryPatch, FieldMemoryAppearance.Sample(pixels,m)) &&
+                            !last.Marks.Any(other => other.Slot != slot && other.Tier == m.Tier && other.MemoryPatch.Length > 0 &&
+                                FieldMemoryAppearance.SameIdleBody(m.MemoryPatch,other.MemoryPatch)))
+                            unchanged.Add(m.Slot,m);
+                    }
+                }
+            }
+        }
+        var marks = LiveReader!.ReadWithTrace(pixels, match, true, manual, cancellation, readings, unchanged);
         bool changed;
         FieldOwnership? ownership;
         lock (_runLock)
         {
             if ((!manual && !_automaticLiveField) || cancellation.IsCancellationRequested ||
                 run != _runRevision || !IsCurrentCapture(connection, revision)) return;
-            bool solo = mode == "入门协议" || mode?.StartsWith("规程等级", StringComparison.Ordinal) == true;
-            bool personal = solo || declaredOwn;
             if (_fieldObservations.LastOrDefault() is { } prior)
             {
                 if (!ReferenceEquals(prior.Connection, connection) || prior.CaptureRevision != revision)
@@ -270,6 +339,7 @@ public partial class OcrScannerService
             _liveState.Observe(match.Map.Id, round, marks, tick, (mark, name) => LiveReader.SamplePurchasePose(pixels, mark, name));
             var after = _liveState.Roster;
             _reviewBoard = (pixels, match, after, marks);
+            _manualPreparation = manual ? economy : null;
             changed = !before.Bought.SequenceEqual(after.Bought) || before.Map != after.Map || before.Round != round || before.Units.Count != after.Units.Count ||
                 !before.Unlocated.SequenceEqual(after.Unlocated) || after.Units.Any(u => !before.Units.Any(p =>
                     p.Id == u.Id && p.Mark.Slot == u.Mark.Slot && p.Name == u.Name && p.IdentitySource == u.IdentitySource && p.Suggestion == u.Suggestion));
@@ -293,6 +363,13 @@ public partial class OcrScannerService
         if (changed || manual)
         {
             AppLogger.Info("LiveField",$"round={round} cells={marks.Count} manual={manual} recognition={clock.ElapsedMilliseconds}ms capture-to-notify={Environment.TickCount64-tick}ms");
+            if (manual && unchanged != null)
+            {
+                int reused = marks.Count(m => unchanged.TryGetValue(m.Slot, out var old) &&
+                    (m.ShapeCandidates.Length > 0 && ReferenceEquals(m.ShapeCandidates,old.ShapeCandidates) ||
+                     m.Scores != null && ReferenceEquals(m.Scores,old.Scores)));
+                AppLogger.Info("LiveField",$"manual identity reused={reused} occupied={marks.Count}");
+            }
             PublishField(ownership);
         }
     }
@@ -316,6 +393,18 @@ public partial class OcrScannerService
 
     internal static readonly TimeSpan ManualRecognitionLimit = TimeSpan.FromSeconds(8);
 
+    internal static async Task<bool> WaitForGameForegroundAsync(IntPtr game, Func<IntPtr> foreground, CancellationToken token)
+    {
+        // SetForegroundWindow may succeed before the desktop has finished handing off focus.
+        var timer = Stopwatch.StartNew();
+        while (foreground() != game)
+        {
+            if (timer.ElapsedMilliseconds >= 600) return false;
+            await Task.Delay(20, token);
+        }
+        return true;
+    }
+
     private async Task<string> ReadLiveFieldCoreAsync(LiveUnit? target, bool ownBoard, CancellationToken token)
     {
         bool acquired = false;
@@ -327,6 +416,7 @@ public partial class OcrScannerService
             int run = RunRevision;
             bool Current() => !token.IsCancellationRequested && !_disposed && !_pauseBanScreenDetection && !_banScreenActive &&
                 run == RunRevision && IsCurrentCapture(connection, revision);
+            var activatedGame = IntPtr.Zero;
             if (!connection.IsAdb)
             {
                 var game = connection.FindGameWindow();
@@ -334,6 +424,7 @@ public partial class OcrScannerService
                 User32.GetWindowThreadProcessId(foreground, out var pid);
                 if (game == IntPtr.Zero || foreground != game && (pid != Environment.ProcessId || !User32.SetForegroundWindow(game)))
                     return "请回到游戏的休整画面";
+                if (foreground != game) activatedGame = game;
             }
             var timer = Stopwatch.StartNew();
             while (!(acquired = Interlocked.CompareExchange(ref _scanning, 1, 0) == 0))
@@ -342,13 +433,33 @@ public partial class OcrScannerService
                 if (!Current() || target is not null && timer.ElapsedMilliseconds > 6000) return "当前识别仍在进行，请稍后重试";
                 await Task.Delay(35, token);
             }
+            if (activatedGame != IntPtr.Zero && !await WaitForGameForegroundAsync(activatedGame, User32.GetForegroundWindow, token))
+                return "游戏窗口未切到前台，请回到游戏的休整画面";
             long captureTick = Environment.TickCount64;
+            var queueMs = timer.Elapsed.TotalMilliseconds;
             if (!Current() || _captureScreen() is not { } image) return "未取得当前游戏画面";
+            var capturedMs = timer.Elapsed.TotalMilliseconds;
             token.ThrowIfCancellationRequested();
             var size = ImageBytes.GetDimensions(image);
             var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(image))!;
             bool detailOpen = FieldDetailFocus.Visible(pixels);
-            var hud = await EconomyReader.ReadPreparationAsync(image, size.Width, size.Height);
+            ShopEconomy? hud = null;
+            if (target == null && !detailOpen)
+            {
+                lock (_runLock)
+                {
+                    // Include the right/bottom overhang of the separate round-number OCR crop.
+                    double scale = Math.Min(size.Width/1920d, size.Height/1080d);
+                    if (_manualPreparation is { IsPreparation: true, Round: not null } previous &&
+                        _reviewBoard is {} previousBoard && _fieldObservations.LastOrDefault() is {} prior &&
+                        prior.RunRevision == run && prior.CaptureRevision == revision && ReferenceEquals(prior.Connection, connection) &&
+                        pixels.SameRegion(previousBoard.Frame, 0, 0, (int)Math.Ceiling(size.Width*.6+66*scale),
+                            (int)Math.Ceiling(size.Height*.09+6*scale)))
+                        hud = previous;
+                }
+            }
+            bool hudReused = hud != null;
+            hud ??= await EconomyReader.ReadPreparationAsync(image, size.Width, size.Height);
             token.ThrowIfCancellationRequested();
             if (!hud.IsPreparation || hud.Round is not int round || !Current()) return "请在休整阶段识别阵容";
             if (target == null)
@@ -356,7 +467,8 @@ public partial class OcrScannerService
                 if (detailOpen) return "请先收起干员详情，再识别全场";
                 var board = BoardRecognizer.Recognize(pixels);
                 if (board == null || LiveFieldReader.IsDragging(pixels)) return "请回到可见完整棋盘的休整画面";
-                ObserveField(image, pixels, board, round, [], null, false, captureTick, run, connection, revision, true, hud.Mode, true, ownBoard, token);
+                var preparedMs = timer.Elapsed.TotalMilliseconds;
+                ObserveField(image, pixels, board, round, [], hud, false, captureTick, run, connection, revision, true, hud.Mode, true, ownBoard, token);
                 token.ThrowIfCancellationRequested();
                 var roster = LiveRoster;
                 if (!Current() || roster.Map != board.Map.Id || roster.Round != round) return "对局已切换，请重新识别";
@@ -366,6 +478,7 @@ public partial class OcrScannerService
                 var summary = $"上场 {units.Count-bench} 人 · 整备区 {bench} 人 · 已认出 {units.Count-pending.Length} 人";
                 if (pending.Length > 0) summary += $" · {pending.Length} 人待复核（{string.Join("、",pending)}）";
                 AppLogger.Info("LiveField",$"round={round} 阵容识别：{summary}");
+                AppLogger.Info("LiveField",$"manual timing queue={queueMs:F1}ms capture={capturedMs-queueMs:F1}ms prepare={preparedMs-capturedMs:F1}ms field={timer.Elapsed.TotalMilliseconds-preparedMs:F1}ms hudReused={hudReused}");
                 return summary;
             }
             (BmpPixels Frame, BoardMatch Board, LiveRoster Roster, IReadOnlyList<FieldMark> Marks)? reference;

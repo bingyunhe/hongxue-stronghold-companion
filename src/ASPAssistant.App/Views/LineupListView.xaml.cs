@@ -22,6 +22,7 @@ public partial class LineupListView : UserControl
     public event Action<Lineup>? EditLineupRequested;
     public event Action<Lineup>? OpenAutoRouteRequested;
     public event Action<Lineup>? ShareLineupRequested;
+    public event Action<Lineup>? PublishLineupRequested;
     public event Action<Lineup>? TrackLineupRequested;
     public event Action<Lineup>? DeleteLineupRequested;
     public event Action<IReadOnlyList<Lineup>>? DeleteSelectedRequested;
@@ -285,7 +286,18 @@ public partial class LineupListView : UserControl
 
     private void OnEditLineup(object sender, RoutedEventArgs e) { if (Card(sender) is { } c) EditLineupRequested?.Invoke(c.Lineup); }
     private void OnOpenAutoRoute(object sender, RoutedEventArgs e) { if (Card(sender) is { } c) OpenAutoRouteRequested?.Invoke(c.Lineup); }
-    private void OnShareLineup(object sender, RoutedEventArgs e) { if (Card(sender) is { } c) ShareLineupRequested?.Invoke(c.Lineup); }
+    private void OnShareLineup(object sender, RoutedEventArgs e)
+    {
+        if (Card(sender) is not { } card) return;
+        var menu = new ContextMenu { PlacementTarget = (Button)sender, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        var link = new MenuItem { Header = "复制分享链接" };
+        link.Click += (_, _) => ShareLineupRequested?.Invoke(card.Lineup);
+        var publish = new MenuItem { Header = "发布到森空岛…" };
+        publish.Click += (_, _) => PublishLineupRequested?.Invoke(card.Lineup);
+        menu.Items.Add(link);
+        menu.Items.Add(publish);
+        menu.IsOpen = true;
+    }
     private void OnTrackLineup(object sender, RoutedEventArgs e) { if (Card(sender) is { } c) TrackLineupRequested?.Invoke(c.Lineup); }
     private void OnDeleteLineup(object sender, RoutedEventArgs e) { if (Card(sender) is { } c) DeleteLineupRequested?.Invoke(c.Lineup); }
     private void OnRepairLineup(object sender, RoutedEventArgs e)
@@ -301,7 +313,7 @@ public sealed record LineupAvatarItem(string Name, bool IsBanned)
 }
 
 /// <summary>A target covenant pill. Tone: ok / warn / bad / accent (core, no run) / neutral.</summary>
-public sealed record LineupTargetPill(string Text, string Tone, string? ToolTip);
+public sealed record LineupTargetPill(string Name, string Text, string Tone, string? ToolTip);
 
 public sealed class LineupCardItem
 {
@@ -336,14 +348,14 @@ public sealed class LineupCardItem
         List<LineupTargetPill> targets;
         if (rec is not null)
             targets = [.. rec.Targets.Select(t => t.CovenantBanned
-                ? new LineupTargetPill(t.Label, "bad", $"本局{t.Name}不完整")
+                ? new LineupTargetPill(t.Name, t.Label, "bad", $"本局{t.Name}不完整")
                 : t.Reached
-                    ? new LineupTargetPill(t.Label, "ok", $"{t.Count}/{t.Needed} 人")
-                    : new LineupTargetPill($"{t.Label} 差 {t.Missing}", "warn", $"{t.Count}/{t.Needed} 人"))];
+                    ? new LineupTargetPill(t.Name, t.Label, "ok", $"{t.Count}/{t.Needed} 人")
+                    : new LineupTargetPill(t.Name, $"{t.Label} 差 {t.Missing}", "warn", $"{t.Count}/{t.Needed} 人"))];
         else
         {
             var core = vm.Calculator.AllCovenants.Where(c => c.BondType == "SEASON").Select(c => c.Name).ToHashSet();
-            targets = [.. vm.TargetsOf(lineup).Select(t => new LineupTargetPill(
+            targets = [.. vm.TargetsOf(lineup).Select(t => new LineupTargetPill(t.Name,
                 $"{t.Name} {(t.Tier >= 2 ? "Ⅱ" : "Ⅰ")}", core.Contains(t.Name) ? "accent" : "neutral", null))];
         }
         var banned = rec?.Banned.ToHashSet() ?? [];

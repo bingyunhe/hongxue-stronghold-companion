@@ -14,6 +14,8 @@ public sealed record SidePanelPositionSettings
     /// where the player leaves it.
     /// </summary>
     public bool FreeMovement { get; init; } = true;
+    public bool HoverEnabled { get; init; } = true;
+    public bool HoverOnRight { get; init; }
     public bool ForceTopmost { get; init; }
     public bool HideOverlayWithAssistant { get; init; }
     public bool FocusLossEnabled { get; init; }

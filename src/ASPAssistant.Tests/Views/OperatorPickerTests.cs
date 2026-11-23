@@ -29,9 +29,11 @@ internal static class OperatorPickerTests
         using var ocr = new MaaOcrEngine(data);
         using var connection = new GameConnectionService(new() { Source = GameCaptureSource.Adb });
         int captures = 0;
+        var saved = new System.Collections.Concurrent.ConcurrentQueue<RecognitionSample>();
         using var scanner = new OcrScannerService(() => { captures++; return frame; }, new GarrisonOcrStrategy(),
             new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
         {
+            SaveFieldReview = (_, sample) => saved.Enqueue(sample),
             EconomyReader = new(ocr), BoardRecognizer = new(maps), LiveReader = new(data, maps),
             FieldTiers = new JsonDataStore(data).LoadOperatorsAsync().GetAwaiter().GetResult()
                 .GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First().Tier)
@@ -57,6 +59,11 @@ internal static class OperatorPickerTests
             Assert.Same(first,scanner.GetLiveReviewCandidates(target));
             var cachedMs=timer.Elapsed.TotalMilliseconds;
             Assert.Contains("蛇屠箱",first);
+            scanner.SetReviewExclusions(new HashSet<string> { "蛇屠箱" });
+            Assert.DoesNotContain("蛇屠箱", scanner.GetLiveReviewCandidates(target));
+            Assert.False(scanner.ConfirmLiveReviewName(target, "蛇屠箱"));
+            scanner.SetReviewExclusions(null);
+            Assert.Contains("蛇屠箱", scanner.GetLiveReviewCandidates(target));
             Assert.Equal(1,captures);
             Task.Run(() => scanner.ReadLiveFieldAsync()).GetAwaiter().GetResult();
             Assert.False(scanner.ConfirmLiveReviewName(target,"蛇屠箱"));
@@ -75,7 +82,14 @@ internal static class OperatorPickerTests
                     if (item==null) Thread.Sleep(5);
                 } while (item==null && deadline.ElapsedMilliseconds<10000);
                 Assert.NotNull(item);
+                var shown = menu.Items.OfType<MenuItem>().Select(i => i.Header as string)
+                    .Where(h => h?.StartsWith("确认") == true).Select(h => h![2..]).ToArray();
                 item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                Assert.True(SpinWait.SpinUntil(() => !saved.IsEmpty, 2000));
+                var sample = Assert.Single(saved);
+                Assert.Equal(shown, sample.Correction!.Candidates);
+                Assert.Equal(("D7", "右键·快捷确认", "蛇屠箱"), (sample.Correction.Slot, sample.Correction.Entry, sample.Correction.Chosen));
+                Assert.Same(frame, Assert.Single(sample.Frames).Image);
                 Assert.Equal("蛇屠箱",scanner.LiveRoster.Units.Single(u=>u.Id==target.Id).Name);
                 Assert.False(scanner.LiveRoster.Observations[^1].PersonalBoard);
                 Assert.Empty(holdings.Owned);
@@ -119,7 +133,14 @@ internal static class OperatorPickerTests
             finally { menu.IsOpen=false;owner.Close(); }
             return;
         }
+        var pickerNames = scanner.GetLiveReviewCandidates(scanner.LiveRoster.Units.Single(u => u.Mark.Slot == new FieldSlot(4,0)));
         VerifyLiveCorrection(night, scanner);
+        Assert.True(SpinWait.SpinUntil(() => !saved.IsEmpty, 2000));
+        var chosen = Assert.Single(saved);
+        Assert.Equal("夜莺", chosen.Correction!.Chosen);
+        Assert.Equal("右键·更换干员", chosen.Correction.Entry);
+        Assert.Equal(pickerNames, chosen.Correction.Candidates);
+        Assert.Same(frame, Assert.Single(chosen.Frames).Image);
         var corrected = scanner.LiveRoster.Units.Single(u => u.Mark.Slot == new FieldSlot(4, 0));
         Assert.Equal("夜莺", corrected.Name);
         Assert.Empty(scanner.GetLiveReviewCandidates(corrected));
@@ -191,6 +212,106 @@ internal static class OperatorPickerTests
                 Assert.Equal(1, holdings.CountOf("夜莺"));
             }
             Assert.Contains(scanner == null ? "已移动" : "本局已记住", ((TextBlock)deploy.FindName("LiveMessage")).Text);
+        }
+        finally { owner.Close(); }
+    }
+
+    internal static void VerifyRunHoldings(bool night)
+    {
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var store = new JsonDataStore(data);
+        var ops = store.LoadOperatorsAsync().GetAwaiter().GetResult().ToDictionary(o => o.Name);
+        var (bonds, _) = store.LoadCovenantsAsync().GetAwaiter().GetResult();
+        var holdings = new DeployPoolState();
+        holdings.SetCount("角峰", 1);
+        var tracking = new TrackingViewModel();
+        tracking.AddTracking("耶拉", TrackingType.Operator);
+        tracking.AddTracking("折桠", TrackingType.Operator);
+        var deploy = new DeployView();
+        deploy.Initialize(ops, bonds, GarrisonBoardStore.LoadAsync(data).GetAwaiter().GetResult(), tracking,
+            new SettingsManager(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString())), holdings, false);
+        var owner = new Window { Content = deploy, Width = 400, Height = 600, ShowInTaskbar = false, ShowActivated = false };
+        Button ButtonNamed(string name) => (Button)deploy.FindName(name);
+        void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        void Open(Button button, Action<OperatorPickerWindow, OperatorBrowseViewModel> inspect)
+        {
+            Exception? failure = null;
+            owner.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+            {
+                var picker = Assert.Single(owner.OwnedWindows.OfType<OperatorPickerWindow>());
+                try { inspect(picker, (OperatorBrowseViewModel)picker.DataContext); }
+                catch (Exception ex) { failure = ex; }
+                finally { if (picker.IsVisible) picker.Close(); }
+            });
+            Click(button);
+            Assert.Null(failure);
+        }
+        try
+        {
+            owner.Show(); Pump();
+            var record = ButtonNamed("RecordHoldingButton");
+            Open(record, (_, vm) => Assert.Contains(vm.OtherChips, c => c.Value == "奇迹"));
+            string[] active = ["炎", "伊比利亚", "乌萨斯", "谢拉格"];
+            string[] greyCore = ["维多利亚", "萨尔贡", "莱塔尼亚", "叙拉古"];
+            string[] extra = ["精准", "迅捷", "助力", "不屈", "调和", "协防干员", "聚合", "奥术", "坚守", "远见"];
+            var missing = bonds.Select(c => c.Name).Except(active).Except(greyCore).Except(extra).ToHashSet();
+            var grey = greyCore.Concat(["坚守", "远见"]).ToHashSet();
+            var run = new BanScreenResult(active.Concat(greyCore).Select(c => new CovenantBanState(c, grey.Contains(c), 0)).ToList(),
+                extra.Select(c => new CovenantBanState(c, grey.Contains(c), 0)).ToList(), null, missing);
+            deploy.SetRunCovenants(run, ops.Values.Where(o => CovenantBanRules.HasMissingCovenant(o, missing)
+                || o.RequiredStrategyId.Length == 0 && CovenantBanRules.IsExcluded(o, grey)).Select(o => o.Name));
+            Open(record, (picker, vm) =>
+            {
+                Assert.Equal(active.Order(), vm.AvailableCoreCovenants.Skip(1));
+                Assert.Equal(extra.Order(), vm.AvailableOtherCovenants.Skip(1));
+                Assert.DoesNotContain(vm.FilteredOperators, o => o.Name == "耶拉");
+                var chip = vm.OtherChips.Single(c => c.Value == "坚守");
+                chip.IsSelected = true;
+                Assert.Equal(vm.FilteredOperators.Count, chip.Count);
+                Assert.Contains(vm.FilteredOperators, o => o.Name == "角峰");
+                vm.ResetFilters();
+                Assert.DoesNotContain(vm.OtherChips, c => c.Value == "奇迹");
+                chip.IsSelected = true;
+                picker.UpdateLayout();
+                SavePicker(picker, $"run-holdings-Closure-{night}.png");
+                vm.SearchText = "角峰";
+                PressEnter((ListBox)picker.FindName("OperatorsList"), (FrameworkElement)picker.Content);
+            });
+            Click(ButtonNamed("CountOnlyButton"));
+            Assert.Equal(2, holdings.CountOf("角峰"));
+            var change = typeof(DeployView).GetMethod("ChangeCount", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            holdings.SetCount("耶拉", 1);
+            change.Invoke(deploy, ["耶拉", 1]);
+            Assert.Equal(1, holdings.CountOf("耶拉"));
+            change.Invoke(deploy, ["耶拉", -1]);
+            Assert.Equal(0, holdings.CountOf("耶拉"));
+            var bulk = Descendants<Button>(deploy).Single(b => Equals(b.Content, "本阶段已获取"));
+            Click(bulk);
+            Assert.Equal(0, holdings.CountOf("耶拉"));
+            Assert.Equal(1, holdings.CountOf("折桠"));
+            Open(Descendants<Button>(deploy).Single(b => Equals(b.Content, "＋ 添加")), (_, vm) =>
+            {
+                Assert.Contains(vm.OtherChips, c => c.Value == "坚守");
+                Assert.DoesNotContain(vm.OtherChips, c => c.Value == "奇迹");
+                Assert.DoesNotContain(vm.FilteredOperators, o => o.Name == "怒潮凛冬");
+            });
+            Open(record, (picker, _) =>
+            {
+                deploy.SetRunCovenants(run with { CoreCovenants = run.CoreCovenants.Select(c => c with { IsBanned = !c.IsBanned }).ToList() }, ["角峰"]);
+                Assert.False(picker.IsVisible);
+            });
+            Open(record, (_, vm) =>
+            {
+                Assert.DoesNotContain(vm.CoreChips, c => c.Value == "谢拉格");
+                Assert.DoesNotContain(vm.FilteredOperators, o => o.Name == "角峰");
+            });
+            Open(record, (picker, _) =>
+            {
+                deploy.SetRunCovenants(null, []);
+                Assert.False(picker.IsVisible);
+            });
+            Open(record, (_, vm) => Assert.Contains(vm.FilteredOperators, o => o.Name == "耶拉"));
         }
         finally { owner.Close(); }
     }
@@ -327,7 +448,7 @@ internal static class OperatorPickerTests
         finally { CultureInfo.CurrentCulture = culture; }
     }
 
-    private static void RaiseMouse(UIElement source, RoutedEvent routedEvent)
+    internal static void RaiseMouse(UIElement source, RoutedEvent routedEvent)
         => source.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
         { RoutedEvent = routedEvent });
 

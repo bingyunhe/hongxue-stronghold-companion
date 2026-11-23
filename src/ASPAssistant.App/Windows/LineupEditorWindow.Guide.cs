@@ -15,7 +15,8 @@ public partial class LineupEditorWindow
         var stage = _vm.CurrentStage;
         if (stage.ActiveCovenants.Count > 0)
         {
-            var bonds = Text("攻略标注盟约：" + string.Join("、", stage.ActiveCovenants), 11, "TextSecondaryBrush");
+            var bonds = Text("攻略标注盟约：", 11, "TextSecondaryBrush");
+            Controls.PanelToolTip.AppendNames(bonds, stage.ActiveCovenants, "、");
             bonds.Margin = new Thickness(0, 0, 0, 6); bonds.TextWrapping = TextWrapping.Wrap;
             GuideContentHost.Children.Add(bonds);
         }

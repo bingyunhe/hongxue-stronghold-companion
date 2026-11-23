@@ -134,6 +134,59 @@ internal static class PlannerLockedBanViewTests
         }
     }
 
+    public static void VerifyPrecisionTransfer(bool night)
+    {
+        var data = new ASPAssistant.Core.Data.JsonDataStore(Path.Combine(AppContext.BaseDirectory, "TestData", "Regulation"));
+        var ops = Task.Run(() => data.LoadOperatorsAsync()).GetAwaiter().GetResult()
+            .Where(o => new[] { "迷迭香", "角峰", "烈夏", "折桠", "初雪", "蛇屠箱", "砾", "古米" }.Contains(o.Name)
+                && (o.Name == "迷迭香" || !o.AdditionalCovenants.Contains("精准"))).ToArray();
+        var (covenants, mappings) = Task.Run(() => data.LoadCovenantsAsync()).GetAwaiter().GetResult();
+        var bans = new BanViewModel();
+        var vm = new LineupPlannerViewModel(new(ops, covenants), ops, bans, new(mappings))
+            { DebounceMilliseconds = 0, IsActive = true, Strategy = PlannerStrategy.Shapeshifter };
+        var view = new LineupPlannerView { DataContext = vm };
+        var host = new Window { Content = view, Opacity = 0, ShowActivated = false, ShowInTaskbar = false,
+            Left = -20000, Top = -20000, Height = 900, Width = 470 };
+        var previous = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(host.Dispatcher));
+            host.Show();
+            ThemeManager.Apply(GameShopTheme.Closure, night);
+            bans.SetCovenantBans(["精准"]);
+            var target = vm.AllCovenants.Single(c => c.Name == "精准");
+            target.AvailableMembers.Should().Be(1);
+            target.ToggleLevel1Command.Execute(null);
+            Pump();
+            vm.TransferGoalDetail.Should().Contain("迷迭香").And.Contain("还需 1 名转职");
+            var detail = Desc<TextBlock>(view).Single(t => t.IsVisible && t.Text == vm.TransferGoalDetail);
+            detail.BringIntoView();
+            Pump();
+            Save(view, GameShopTheme.Closure, night, 470, "precision-goal");
+            vm.ShowResultPageCommand.Execute(null);
+            var deadline = DateTime.UtcNow.AddSeconds(12);
+            while (vm.PendingSearch?.IsCompleted == false && DateTime.UtcNow < deadline) Pump();
+            Pump();
+            vm.SelectedVariant!.Transforms.Should().Be(1);
+            vm.SelectedVariant = vm.VariantCells.Single(v => v.People == vm.SelectedVariant.People && v.Transforms == 3);
+            var first = vm.VisibleLineups.First();
+            first.Source.Transforms.Should().Be(1);
+            Pump();
+            first.EquipmentText.Should().Contain("变形同构体 ×1 + 精准狙击镜 ×1");
+            var gear = Desc<TextBlock>(view).First(t => t.Text == first.EquipmentText && t.IsVisible);
+            gear.BringIntoView();
+            Pump();
+            Save(view, GameShopTheme.Closure, night, 470, "precision-result");
+            target.ToggleLevel2Command.Execute(null);
+            while (vm.PendingSearch?.IsCompleted == false && DateTime.UtcNow < deadline) Pump();
+            var tierTwo = vm.VisibleLineups.First().Source;
+            tierTwo.Transforms.Should().Be(2);
+            tierTwo.Operators.Where(o => o.TransformedCovenant == "精准").Select(o => o.Name)
+                .Should().HaveCount(2).And.OnlyHaveUniqueItems();
+        }
+        finally { SynchronizationContext.SetSynchronizationContext(previous); host.Close(); }
+    }
+
     private static void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
 
     private static IEnumerable<T> Desc<T>(DependencyObject parent) where T : DependencyObject

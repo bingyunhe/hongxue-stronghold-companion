@@ -52,6 +52,31 @@ public sealed class SoloBanSamplesTests : IDisposable
             covenants.Where(c => c.BondType != "SEASON").Select(c => c.Name).ToList());
     }
 
+    [Theory, Trait("Category", "LocalScreenshot")]
+    [InlineData("solo-level4-info.png", "炎|伊比利亚|乌萨斯|谢拉格", "坚守|远见")]
+    [InlineData("solo-express-info.png", "炎|莱塔尼亚|伊比利亚|萨尔贡", "迅捷|助力")]
+    [InlineData("solo-no-title-info.png", "谢拉格|叙拉古|乌萨斯|伊比利亚", "坚守|助力")]
+    public async Task ReducedSoloPoolExcludesEveryHolderOfAnAbsentCovenant(string file, string active, string grey)
+    {
+        var analyzer = await CreateAnalyzerAsync(Load(file));
+        BanScreenResult? result = null;
+        IReadOnlyList<string> banned = [];
+        string? failure = null;
+        analyzer.AnalysisCompleted += read => result = read;
+        analyzer.AutoBanListComputed += names => banned = names;
+        analyzer.AnalysisFailed += message => failure = message;
+        await analyzer.RunAnalysisAsync(false);
+
+        failure.Should().BeNull();
+        result!.CoreCovenants.Where(c => !c.IsBanned).Select(c => c.Name).Should().BeEquivalentTo(active.Split('|'));
+        result.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name).Should().BeEquivalentTo(grey.Split('|'));
+        result.MissingCovenants.Should().BeEquivalentTo("卡西米尔", "阿戈尔", "奇迹", "投资人", "灵巧", "独行", "突袭", "绝技");
+        banned.Should().Contain(["薇薇安娜", "锏", "怒潮凛冬", "遥"]);
+        // Both 乌萨斯 and 迅捷 are present on all three frames. The grey additional alone
+        // cannot exclude a holder whose core is selected.
+        banned.Contains("冻河").Should().Be(!active.Split('|').Contains("乌萨斯"));
+    }
+
     [Fact]
     public async Task SoloLayoutA_ReadsEightCoreAndTenAdditional()
     {
@@ -121,6 +146,7 @@ public sealed class SoloBanSamplesTests : IDisposable
         result.Should().NotBeNull();
         result!.CoreCovenants.Should().HaveCount(10);
         result.AdditionalCovenants.Should().HaveCount(16);
+        result.MissingCovenants.Should().BeEmpty();
     }
 
     [Fact]

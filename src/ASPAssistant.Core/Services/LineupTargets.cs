@@ -70,7 +70,7 @@ public static class LineupTargets
     /// (their transformations go with them). A banned core covenant cannot be reached at all.
     /// </summary>
     public static IReadOnlyList<TargetState> States(Lineup lineup, CovenantCalculator calculator,
-        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants)
+        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants, IReadOnlySet<string>? missingCovenants = null)
     {
         var infos = calculator.AllCovenants.ToDictionary(c => c.Name, StringComparer.Ordinal);
         var remaining = new Lineup { Slots = [.. lineup.Slots.Where(s => !unavailable(s.OperatorName))] };
@@ -80,16 +80,17 @@ public static class LineupTargets
             var info = infos[t.Name];
             var isCore = info.BondType == "SEASON";
             var goal = LineupPlanner.CreateGoal(info, t.Tier);
-            return new TargetState(t.Name, t.Tier, isCore, counts.GetValueOrDefault(t.Name), goal.Count,
-                isCore && bannedCovenants.Contains(t.Name));
+            var absent = missingCovenants?.Contains(t.Name) == true;
+            return new TargetState(t.Name, t.Tier, isCore, absent ? 0 : counts.GetValueOrDefault(t.Name), goal.Count,
+                absent || isCore && bannedCovenants.Contains(t.Name));
         })];
     }
 
     public static LineupRecommendation Recommend(Lineup lineup, CovenantCalculator calculator,
-        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants)
+        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants, IReadOnlySet<string>? missingCovenants = null)
     {
         var banned = lineup.Slots.Select(s => s.OperatorName).Where(n => n.Length > 0 && unavailable(n)).Distinct().ToList();
-        var targets = States(lineup, calculator, unavailable, bannedCovenants);
+        var targets = States(lineup, calculator, unavailable, bannedCovenants, missingCovenants);
         var broken = targets.Where(t => t.CovenantBanned).ToList();
         var short_ = targets.Where(t => !t.CovenantBanned && !t.Reached).ToList();
         var kind = broken.Count > 0 ? RecommendationKind.Broken
@@ -110,9 +111,9 @@ public static class LineupTargets
 
     /// <summary>Best first: kind, then fewer banned people, then more targets reached.</summary>
     public static IReadOnlyList<LineupRecommendation> Rank(IEnumerable<Lineup> lineups, CovenantCalculator calculator,
-        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants)
+        Func<string, bool> unavailable, IReadOnlySet<string> bannedCovenants, IReadOnlySet<string>? missingCovenants = null)
         => [.. lineups.Where(l => l.Slots.Any(s => s.OperatorName.Length > 0))
-            .Select(l => Recommend(l, calculator, unavailable, bannedCovenants))
+            .Select(l => Recommend(l, calculator, unavailable, bannedCovenants, missingCovenants))
             .OrderBy(r => r.Kind).ThenBy(r => r.Banned.Count).ThenByDescending(r => r.Targets.Count(t => t.Reached))
             .ThenByDescending(r => r.Lineup.UpdatedAt)];
 

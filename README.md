@@ -200,7 +200,7 @@ ADB 模式使用 MaaFramework 读取游戏截图，游戏被其他窗口遮挡�
 
 当前实测范围为 MuMu 12 的 1920×1080 终端主题商店，已读出四格商品并验证坐标。ADB 模式拒绝竖屏与非 16∶9 画面。其他商店等级、主题和模拟器版本仍需更多实机验证。
 
-开发验证可通过 `ASPASSISTANT_SETTINGS_DIR` 环境变量指定独立设置目录，使用 `dotnet ASPAssistant.App.dll` 启动已构建的托管入口。
+开发验证可通过 `ASPASSISTANT_SETTINGS_DIR` 环境变量指定独立设置目录，使用 `dotnet HongxueCompanion.dll` 启动已构建的托管入口。
 
 ## 当前数据与限制
 

@@ -164,9 +164,11 @@ public partial class LineupViewModel : ObservableObject
     {
         var q = SearchText.Trim();
         if (q.Length == 0) return true;
-        return lineup.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+        return SearchMatch.MatchesLineupName(q, lineup.Name)
             || lineup.Slots.Concat(lineup.EarlySlots).Concat(lineup.MidSlots).Concat(lineup.SupportSlots)
-                .Any(s => s.OperatorName.Contains(q, StringComparison.OrdinalIgnoreCase));
+                .Concat((lineup.EditorStages ?? []).SelectMany(stage => stage.Slots))
+                .Concat((lineup.SklandGuide?.Stages ?? []).SelectMany(stage => stage.Slots))
+                .Any(s => SearchMatch.Matches(q, s.OperatorName));
     }
 
     // ── 本局推荐 ──────────────────────────────────────────────────────────
@@ -182,14 +184,16 @@ public partial class LineupViewModel : ObservableObject
     /// <summary>This run's banned operators and incomplete core covenants (the 本局禁用 strip).</summary>
     public IReadOnlyList<string> RunBannedNames { get; private set; } = [];
     public IReadOnlyCollection<string> RunBannedCovenants => _bannedCovenants;
+    private IReadOnlySet<string>? _missingCovenants;
 
     /// <summary>
     /// This run's bans: <paramref name="unavailable"/> applies the shared name and covenant ban rules.
     /// Null clears the run (no recommendations).
     /// </summary>
     public void SetRunInfo(Func<string, bool>? unavailable, IReadOnlySet<string>? bannedCovenants,
-        IReadOnlyCollection<string>? bannedNames = null)
+        IReadOnlyCollection<string>? bannedNames = null, IReadOnlySet<string>? missingCovenants = null)
     {
+        _missingCovenants = missingCovenants;
         _unavailable = unavailable;
         _bannedCovenants = bannedCovenants ?? new HashSet<string>();
         RunBannedNames = unavailable is null ? [] : [.. bannedNames ?? []];
@@ -208,7 +212,7 @@ public partial class LineupViewModel : ObservableObject
     {
         Recommendations.Clear();
         if (_unavailable is { } unavailable)
-            foreach (var r in LineupTargets.Rank(Lineups, Calculator, unavailable, _bannedCovenants))
+            foreach (var r in LineupTargets.Rank(Lineups, Calculator, unavailable, _bannedCovenants, _missingCovenants))
                 Recommendations.Add(r);
         FilteredLineups.Clear();
         foreach (var l in VisibleLineups.Where(MatchesSearch)

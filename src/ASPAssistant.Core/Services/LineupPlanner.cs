@@ -57,8 +57,9 @@ public sealed class LineupPlanner
         return new PlannerGoal(covenant.Name, 1, basic, false, false);
     }
 
-    public IReadOnlySet<string> DefaultTransformAllowed(IReadOnlySet<string>? bannedCovenants = null)
-        => _covenants.Where(c => !NoTransform.Contains(c.Name) && bannedCovenants?.Contains(c.Name) != true)
+    public IReadOnlySet<string> DefaultTransformAllowed(IReadOnlySet<string>? bannedCovenants = null, IReadOnlySet<string>? missingCovenants = null)
+        => _covenants.Where(c => !NoTransform.Contains(c.Name) && missingCovenants?.Contains(c.Name) != true
+                && (c.BondType != "SEASON" || bannedCovenants?.Contains(c.Name) != true))
             .Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Operators that cannot appear because of covenant bans (see <see cref="CovenantBanRules"/>).</summary>
@@ -77,12 +78,14 @@ public sealed class LineupPlanner
         if (request.Goals.Count == 0) return new PlannerResult();
         // A banned additional covenant removes coreless operators when all their additional covenants are banned; the rest can still
         // reach its activation count, so only banned core covenants are rejected as targets.
+        var absent = request.Goals.FirstOrDefault(g => request.MissingCovenants.Contains(g.Name));
+        if (absent is not null) return new PlannerResult { Error = $"盟约“{absent.Name}”本局未出现。" };
         var bannedGoal = request.Goals.FirstOrDefault(g => g.IsCore && request.BannedCovenants.Contains(g.Name));
         if (bannedGoal is not null) return new PlannerResult { Error = $"核心盟约“{bannedGoal.Name}”本局已被 Ban。" };
         if (request.LockedOperators.Count > MaxLockedOperators) return new PlannerResult { Error = $"必带干员不能超过 {MaxLockedOperators} 人。" };
 
         var candidates = _operators.Where(o => o.IsAvailableForSelection)
-            .Where(o => !request.BannedOperators.Contains(o.Name))
+            .Where(o => !request.BannedOperators.Contains(o.Name) && !CovenantBanRules.HasMissingCovenant(o, request.MissingCovenants))
             .Where(o => !request.ExcludeMixedBannedOperators || !IsExcludedByBans(o, request.BannedCovenants))
             .ToList();
         var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -92,11 +95,11 @@ public sealed class LineupPlanner
         if (missingLocked is not null)
             return new PlannerResult { Error = $"必带干员“{missingLocked}”本局不可用（被禁用），请解除锁定。", CandidateCount = candidates.Count };
 
-        var allowed = _covenants.Select(c => c.Name)
-            .Where(n => request.TransformAllowed.Contains(n) && !request.BannedCovenants.Contains(n) && !NoTransform.Contains(n))
+        var allowed = _covenants.Where(c => c.BondType != "SEASON" || !request.BannedCovenants.Contains(c.Name)).Select(c => c.Name)
+            .Where(n => request.TransformAllowed.Contains(n) && !request.MissingCovenants.Contains(n) && !NoTransform.Contains(n))
             .ToList();
         // Transform targets that are not in covenant data (tests, custom data) still count.
-        allowed.AddRange(request.TransformAllowed.Where(n => !allowed.Contains(n) && !request.BannedCovenants.Contains(n) && !NoTransform.Contains(n) && _covenants.All(c => c.Name != n)));
+        allowed.AddRange(request.TransformAllowed.Where(n => !allowed.Contains(n) && !request.MissingCovenants.Contains(n) && !NoTransform.Contains(n) && _covenants.All(c => c.Name != n)));
 
         var ctx = new SearchContext(request, candidates, allowed, _covenants,
             [.. request.LockedOperators.Select(n => indexByName[n])], maxResultsPerVariant, maxNodes, cancellationToken);
@@ -351,7 +354,8 @@ public sealed class LineupPlanner
             {
                 if (_used[i]) continue;
                 if (_hasSoloGoal && _native[i].Contains(SoloCovenant) && counts[ SoloCovenant ] >= 1) continue;
-                if (pivot is not null && !Contributes(i, pivot, counts)) continue;
+                if (pivot is not null && !Contributes(i, pivot, counts)
+                    && (!_allowed.Contains(pivot.Name) || !missing.Any(g => Contributes(i, g, counts)))) continue;
                 if (needHealer && slots == 1 && !_healer[i] && trLeft == 0) continue;
                 var gain = missing.Count(g => Contributes(i, g, counts));
                 var extra = _native[i].Count(c => _additionalNames.Contains(c));
@@ -422,46 +426,57 @@ public sealed class LineupPlanner
             var mech = new List<string>();
             int Used() => tr.Count + mech.Count;
 
-            // 暴躁铁皮 first: it carries several job-change gear on one 变形同构体.
-            bool Assign(string covenant)
+            var deficits = _request.Goals.SelectMany(g => Enumerable.Repeat(g.Name, TransformDeficit(g, nativeCounts))).ToArray();
+            if (deficits.Length > _transforms || deficits.Any(n => !_allowed.Contains(n))) return false;
+            var carriers = team.OrderBy(i => _lockedSet.Contains(i)).ToArray();
+            bool Assign(int slot)
             {
-                if (mech.Count < _mechCap && !mech.Contains(covenant)) { mech.Add(covenant); return true; }
-                foreach (var i in team.OrderBy(i => _lockedSet.Contains(i)))
-                    if (!tr.ContainsKey(i) && !_native[i].Contains(covenant)) { tr[i] = covenant; return true; }
+                if (slot == deficits.Length) return true;
+                var name = deficits[slot];
+                if (mech.Count < _mechCap && !mech.Contains(name))
+                {
+                    mech.Add(name);
+                    if (Assign(slot + 1)) return true;
+                    mech.Remove(name);
+                }
+                foreach (var i in carriers)
+                {
+                    if (tr.ContainsKey(i) || _native[i].Contains(name)) continue;
+                    tr.Add(i, name);
+                    if (Assign(slot + 1)) return true;
+                    tr.Remove(i);
+                }
                 return false;
             }
-
-            foreach (var g in _request.Goals)
-            {
-                var deficit = TransformDeficit(g, nativeCounts);
-                for (var k = 0; k < deficit; k++)
-                {
-                    if (Used() >= _transforms || !_allowed.Contains(g.Name)) return false;
-                    if (!Assign(g.Name)) return false;
-                }
-            }
+            if (!Assign(0)) return false;
 
             var forced = 0;
-            var goalTargets = _request.Goals.Select(g => g.Name).Where(_allowed.Contains).ToList();
-            while (Used() < _transforms && mech.Count < _mechCap)
+            while (Used() < _transforms)
             {
-                var target = goalTargets.FirstOrDefault(n => !mech.Contains(n))
-                    ?? _allowedOrdered.Where(n => !mech.Contains(n))
-                        .OrderByDescending(n => TransformScore(n, team, tr, mech)).FirstOrDefault();
-                if (target is null) break;
-                mech.Add(target); forced++;
-            }
-            foreach (var i in team.OrderBy(i => _lockedSet.Contains(i)).ToList())
-            {
-                if (Used() >= _transforms) break;
-                if (tr.ContainsKey(i)) continue;
-                var target = goalTargets.FirstOrDefault(n => !_native[i].Contains(n));
-                target ??= _allowedOrdered
-                    .Where(n => !_native[i].Contains(n))
-                    .OrderByDescending(n => TransformScore(n, team, tr, mech))
-                    .FirstOrDefault();
-                if (target is null) continue;
-                tr[i] = target; forced++;
+                var (current, _) = Count(team, tr, mech);
+                int Gain(string name)
+                {
+                    if (!_additionalNames.Contains(name)) return 0;
+                    var count = current.GetValueOrDefault(name);
+                    if (IsKnownSecond(name) && count == 2) return 2;
+                    return count + 1 == (_covenants.First(c => c.Name == name).ActivateCount ?? 2) ? 1 : 0;
+                }
+                var placed = false;
+                foreach (var name in _allowedOrdered.OrderByDescending(Gain)
+                    .ThenByDescending(n => mech.Count < _mechCap && !mech.Contains(n)))
+                {
+                    if (mech.Count < _mechCap && !mech.Contains(name)) mech.Add(name);
+                    else
+                    {
+                        var i = carriers.FirstOrDefault(i => !tr.ContainsKey(i) && !_native[i].Contains(name), -1);
+                        if (i < 0) continue;
+                        tr.Add(i, name);
+                    }
+                    if (Gain(name) == 0) forced++;
+                    placed = true;
+                    break;
+                }
+                if (!placed) break;
             }
             if (Used() != _transforms) return false;
 
@@ -498,24 +513,13 @@ public sealed class LineupPlanner
             };
             _found.Add(lineup);
             _found = _found
-                .OrderByDescending(x => x.AdditionalScore)
+                .OrderBy(x => x.ForcedTransforms)
+                .ThenByDescending(x => x.AdditionalScore)
                 .ThenByDescending(x => x.AdditionalCovenants.Count)
                 .ThenBy(x => x.Operators.Sum(o => o.IsLocked ? 0 : 1))
                 .Take(_maxResults)
                 .ToList();
             return true;
-        }
-
-        private int TransformScore(string covenant, IReadOnlyList<int> team, IReadOnlyDictionary<int, string> tr,
-            IReadOnlyCollection<string> mech)
-        {
-            if (!_additionalNames.Contains(covenant)) return 0;
-            var (counts, _) = Count(team, tr, mech);
-            var current = counts.GetValueOrDefault(covenant);
-            var info = _covenants.FirstOrDefault(c => c.Name == covenant);
-            var threshold = info?.ActivateCount ?? 2;
-            if (current + 1 < threshold) return 0;
-            return IsKnownSecond(covenant) && current + 1 >= 3 ? 3 : 1;
         }
 
         private (int Score, IReadOnlyDictionary<string, int> Levels) Score(IReadOnlyDictionary<string, int> counts)

@@ -96,7 +96,7 @@ public sealed record FeedbackReport(string Environment, string Logs, Recognition
                             }
                         using var manifest = zip.CreateEntry(folder + "recognition.json").Open();
                         System.Text.Json.JsonSerializer.Serialize(manifest, new { record.Round, record.Started, kind = Sanitize(record.Kind),
-                            result = Sanitize(record.Result), expected = Sanitize(record.Note), actions = record.Actions.Select(Sanitize), record.InputFrame, frames });
+                            result = Sanitize(record.Result), expected = Sanitize(record.Note), actions = record.Actions.Select(Sanitize), record.Correction, record.InputFrame, frames });
                     }
                 }
             File.Move(pending, path);

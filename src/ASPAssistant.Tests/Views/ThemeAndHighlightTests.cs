@@ -54,6 +54,12 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task DesertOverlayRestoresPlanAndCells(bool night)
+        => ui.RunAsync(() => RoundRoutesViewTests.VerifyDesertOverlay(night), $"DesertOverlay-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task RecognizedAndCorrectedUnitsReachAllThreePlans(bool night)
         => ui.RunAsync(() => RoundRoutesViewTests.VerifyLiveRecommendations(night), $"LiveRecommendations-{night}");
 
@@ -347,6 +353,12 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task LiveFieldPicker_ChecksRunCovenantsAndHoldings(bool night)
+        => ui.RunAsync(() => OperatorPickerTests.VerifyRunHoldings(night), $"{nameof(LiveFieldPicker_ChecksRunCovenantsAndHoldings)}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task LiveFieldPicker_SelectsFromRightEdge(bool night)
         => ui.RunAsync(() => OperatorPickerTests.VerifyLiveCorrection(night), $"{nameof(LiveFieldPicker_SelectsFromRightEdge)}-{night}");
 
@@ -614,6 +626,12 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task PrecisionTransfer_UsesOneCarrierUnderThreeCap(bool night)
+        => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyPrecisionTransfer(night), $"PrecisionTransfer-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task ManualSubstitution_ExpandsAndUpdatesAfterPurchase(bool night)
         => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyManualSubstitution(night), $"ManualSubstitution-{night}");
 
@@ -640,6 +658,16 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     [InlineData(GameShopTheme.Closure, true)]
     public Task EditorRedesign_PickersAndCovenantIcons(GameShopTheme theme, bool night)
         => ui.RunAsync(() => EditorRedesignViewTests.Verify(theme, night), $"{nameof(EditorRedesign_PickersAndCovenantIcons)}-{theme}-{night}");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task StrategyPicker_FirstSelectionFitsViewport(bool night)
+        => ui.RunAsync(() => EditorRedesignViewTests.VerifyStrategyViewport(night), $"StrategyPickerViewport-{night}");
+
+    [Fact]
+    public Task StrategyPicker_SavedPrioritiesAndCancellation()
+        => ui.RunAsync(EditorRedesignViewTests.VerifyStrategyOrder, nameof(StrategyPicker_SavedPrioritiesAndCancellation));
 
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
@@ -747,6 +775,19 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
 
     [Fact]
     public Task SklandImport_ReviewsAndSavesStages() => ui.RunAsync(SklandImportViewTests.Verify, nameof(SklandImport_ReviewsAndSavesStages));
+
+    [Fact]
+    public Task SklandBrowse_FiltersSwitchesStagesAndImports() => ui.RunAsync(SklandImportViewTests.VerifyBrowse, nameof(SklandBrowse_FiltersSwitchesStagesAndImports));
+
+    [Fact]
+    public Task LocalNameSearch_CompactInputsAndKeyboardSelection() =>
+        ui.RunAsync(SklandImportViewTests.VerifyLocalNameSearch, nameof(LocalNameSearch_CompactInputsAndKeyboardSelection));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task SklandPublish_ShowsStagesAndBlocksDisconnectedAccount(bool night) =>
+        ui.RunAsync(() => SklandImportViewTests.VerifyPublishPreview(night), $"SklandPublishPreview-{night}");
 
     [Fact]
     public Task UpdateDialog_ReportsDownloadProgress() => ui.RunAsync(() =>

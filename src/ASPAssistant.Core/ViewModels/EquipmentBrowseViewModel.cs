@@ -2,6 +2,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
 
 namespace ASPAssistant.Core.ViewModels;
 
@@ -193,7 +194,7 @@ public partial class EquipmentBrowseViewModel : ObservableObject
         // Name or effect text ("搜索装备或效果").
         if (!string.IsNullOrEmpty(SearchText))
             filtered = filtered.Where(e =>
-                e.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase)
+                SearchMatch.Matches(SearchText, e.Name)
                 || e.Normal.EffectDescription.Contains(SearchText, StringComparison.OrdinalIgnoreCase)
                 || e.Elite.EffectDescription.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
 

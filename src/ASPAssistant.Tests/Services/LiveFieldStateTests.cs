@@ -7,6 +7,51 @@ namespace ASPAssistant.Tests.Services;
 public class LiveFieldStateTests
 {
     [Fact]
+    public async Task ManualCaptureWaitsForTheGameAfterForegroundHandoff()
+    {
+        IntPtr game = 42;
+        var handles = new Queue<IntPtr>([7, 0, 0, game]);
+        Assert.True(await OcrScannerService.WaitForGameForegroundAsync(game, handles.Dequeue, CancellationToken.None));
+        Assert.Empty(handles);
+        Assert.False(await OcrScannerService.WaitForGameForegroundAsync(game, () => 7, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(9)]
+    public void IdleBodyCacheRejectsAChangeInEitherBand(int start)
+    {
+        var original = Enumerable.Repeat(0x303030, 17*20).ToArray();
+        var moved = (int[])original.Clone();
+        Assert.True(FieldMemoryAppearance.SameIdleBody(original,moved));
+        for (int row=start; row<start+6; row++)
+        for (int col=3; col<14; col++)
+            moved[row*17+col] = 0xa03010;
+        Assert.False(FieldMemoryAppearance.SameIdleBody(original,moved));
+    }
+
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    public void ReviewedNameFollowsOnlyOneCorroboratedMove(bool ambiguous,bool newRound)
+    {
+        var state=State();
+        state.RecordConfirmedPurchases(["烈夏","烈夏"]);
+        var source=Mark(2,0,1,80) with { Portrait=[80,80,80], MemoryPatch=Enumerable.Repeat(0x505050,340).ToArray() };
+        state.Observe("desert_crates",8,[source],0);
+        Assert.True(state.ConfirmReviewName(state.Roster.Units.Single().Id,source.Slot,"烈夏"));
+        var target=source with { Slot=new(4,0),Tier=0,ShapeCandidates=[new("烈夏",1,.65),new("陨星",1,.55)] };
+        state.Observe("desert_crates",newRound?9:8,ambiguous?[target,target with {Slot=new(5,0)}]:[target],31000);
+        Assert.All(state.Roster.Units,u=>
+        {
+            Assert.Equal(ambiguous||newRound?null:"烈夏",u.Name);
+            Assert.Null(u.MemberId);
+            if (u.Name!=null) Assert.Equal("本局复核外观匹配",u.IdentitySource);
+        });
+    }
+
+    [Fact]
     public void ReviewingANameWithTwoPossibleCopiesDoesNotAssignOrCreateAMember()
     {
         var state=State();

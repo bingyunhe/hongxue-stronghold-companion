@@ -135,8 +135,10 @@ public sealed partial class LiveFieldReader
         => ReadWithTrace(frame, board, identify, force, cancellation, null);
 
     internal List<FieldMark> ReadWithTrace(BmpPixels frame, BoardMatch board, bool identify, bool force,
-        CancellationToken cancellation, Dictionary<FieldSlot, SlotReading>? readings)
+        CancellationToken cancellation, Dictionary<FieldSlot, SlotReading>? readings,
+        IReadOnlyDictionary<FieldSlot, FieldMark>? unchanged = null)
     {
+        var cached = force ? unchanged : _previous;
         var marks = new List<FieldMark>();
         var unanchored = new HashSet<FieldSlot>();
         var phantoms = new HashSet<FieldSlot>();
@@ -167,7 +169,7 @@ public sealed partial class LiveFieldReader
         for (int col = 0; col < 10; col++)
             Inspect(new(col, -1), (expanded ? 254 + col * 121.2 : 170 + col * 149.5) * scale,
                 (expanded ? 609 : 798) * frame.Height / 1080d, (expanded ? 121.2 : 149.5) * scale);
-        InspectShapes(frame,board,marks,anchors,phantoms,identify,force,cancellation,readings);
+        InspectShapes(frame,board,marks,anchors,phantoms,identify,cached,force,cancellation,readings);
         cancellation.ThrowIfCancellationRequested();
         for (int i=0;i<marks.Count;i++)
             if (marks[i].MemoryPatch.Length==0 && marks[i].Portrait.Length!=0)
@@ -230,7 +232,8 @@ public sealed partial class LiveFieldReader
             if (foreground && !anchored && boardLook == null && badge == null) unanchored.Add(slot);
             Trace(foreground ? "与空城区的脚下、身体区域均不同" : "检测到占用");
             var appearance = BodySample(frame,foot,tile,false);
-            if (identify && !force && _map == board.Map.Id && _previous.TryGetValue(slot, out var prior) &&
+            if (identify && cached != null && _map == board.Map.Id && cached.TryGetValue(slot, out var prior) &&
+                (!force || prior.Foot == foot && prior.Tile == tile && prior.LowPose == null && prior.ShapeCenter == null) &&
                 prior.Camera == board.Camera && prior.Tier == tier && (boardLook == null || prior.StandaloneName == boardLook.Name) && LiveFieldState.Difference(prior.Appearance, appearance) < 5 &&
                 (!obscured || prior.SpriteName is string known && prior.Scores![known] <= 23))
             {
@@ -307,7 +310,7 @@ public sealed partial class LiveFieldReader
                 // Includes the full matcher crop and its blur border in either camera.
                 var digest=identify?frame.RegionDigest((int)(foot.X-tile*1.1),(int)(foot.Y-tile*2.05),
                     (int)Math.Ceiling(foot.X+tile*1.15),(int)Math.Ceiling(foot.Y+tile*.5)):null;
-                if (identify && !force && _map==board.Map.Id && _previous.TryGetValue(slot,out var previous) &&
+                if (identify && cached != null && _map==board.Map.Id && cached.TryGetValue(slot,out var previous) &&
                     previous.Camera==board.Camera && previous.Foot==foot && previous.Tile==tile && previous.Tier==tier &&
                     digest.AsSpan().SequenceEqual(previous.BenchShapeDigest))
                 {
@@ -370,7 +373,7 @@ public sealed partial class LiveFieldReader
         return anchored || feet >= 12 && (body >= 14 || topRow && feet >= 15 && upperBody >= 8);
     }
 
-    internal string[] RankReviewCandidates(BmpPixels pixels, BoardMatch board, FieldSlot slot)
+    internal string[] RankReviewCandidates(BmpPixels pixels, BoardMatch board, FieldSlot slot, IReadOnlySet<string>? excluded = null)
     {
         if (slot.Bench || board.Map.Id != "city" || board.Camera != BoardCamera.Expanded || _reviewHeads.Length == 0) return [];
         var projection = _maps.Cameras[board.Camera];
@@ -403,7 +406,7 @@ public sealed partial class LiveFieldReader
                 best[n] = Math.Max(best[n], correlation);
             }
         }
-        return Enumerable.Range(0, best.Length).Where(n => best[n] > 0)
+        return Enumerable.Range(0, best.Length).Where(n => best[n] > 0 && excluded?.Contains(_reviewHeads[n].Name) != true)
             .OrderByDescending(n => best[n]).Take(3).Select(n => _reviewHeads[n].Name).ToArray();
     }
 
@@ -459,6 +462,18 @@ public sealed partial class LiveFieldReader
             }
         }
         return match;
+    }
+
+    private static bool HasGoldStroke(BmpPixels pixels, int left, int top, int size)
+    {
+        for (int y = size / 2; y < size * 3 / 4; y += 2)
+        for (int x = size / 3; x < size * 2 / 3; x += 2)
+        {
+            int color = pixels.Color(left + x, top + y);
+            int red = color >> 16, green = (color >> 8) & 255, blue = color & 255;
+            if (red > 100 && green > blue + 35 && red > green) return true;
+        }
+        return false;
     }
 
     private FieldBadge? ReadBadge(BmpPixels px, int width, int height, double cx, double cy, bool board, bool expanded, out Rectangle bounds)
@@ -546,6 +561,8 @@ public sealed partial class LiveFieldReader
                                         || px.Gray(xx + outer, yy + mid) - px.Gray(xx + inner, yy + mid) < 30
                                         || px.Gray(xx + actualSize - outer - 1, yy + mid) - px.Gray(xx + actualSize - inner - 1, yy + mid) < 30) continue;
                                 }
+                                // Covenant text over the top row can make a grey I resemble a V in luminance.
+                                if (lower && t.Tier == 5 && !HasGoldStroke(px, xx, yy, actualSize)) continue;
                                 best = new FieldBadge(xx + actualSize / 2, yy + actualSize / 2, t.Tier, score, actualSize);
                             }
                         }

@@ -6,7 +6,8 @@ namespace ASPAssistant.Core.Services;
 public sealed partial class LiveFieldReader
 {
     private void InspectShapes(BmpPixels frame, BoardMatch board, List<FieldMark> marks,
-        List<(double X,double Y)> anchors, HashSet<FieldSlot> phantoms, bool identify, bool force, CancellationToken cancellation,
+        List<(double X,double Y)> anchors, HashSet<FieldSlot> phantoms, bool identify,
+        IReadOnlyDictionary<FieldSlot, FieldMark>? cached, bool force, CancellationToken cancellation,
         Dictionary<FieldSlot,SlotReading>? readings)
     {
         var projection=_maps.Cameras[board.Camera];
@@ -50,8 +51,18 @@ public sealed partial class LiveFieldReader
             // independently contain a body. A neighbour's head alone fails this test.
             bool occupied=mark!=null || body && (arrow || crowded);
             var foot=new Point((int)Math.Round(x-.085*tile),(int)Math.Round(floor-.11*tile));
-            if (mark==null && occupied && identify && !force && _map==board.Map.Id &&
-                _previous.TryGetValue(slot,out var previous) && previous.Camera==board.Camera &&
+            // A different row may shift the board projection even when this crop stays still.
+            if (force && mark != null && cached != null && cached.TryGetValue(slot,out var same) &&
+                same.Foot==mark.Foot && same.Tier==mark.Tier && same.Tile==tile &&
+                (mark.StandaloneName==null || mark.StandaloneName==same.StandaloneName) &&
+                same.ShapeCenter==(x+.02*tile,floor+.16*tile))
+            {
+                marks[index]=same;
+                continue;
+            }
+            if (mark==null && occupied && identify && cached != null && _map==board.Map.Id &&
+                cached.TryGetValue(slot,out var previous) && previous.Camera==board.Camera &&
+                (!force || previous.Foot==foot && previous.Tile==tile && previous.ShapeCenter==(x+.02*tile,floor+.16*tile)) &&
                 previous.ShapeCandidates.Length>0)
             {
                 var look=BodySample(frame,foot,tile,false);

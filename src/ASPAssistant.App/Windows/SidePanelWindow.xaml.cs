@@ -176,6 +176,12 @@ public partial class SidePanelWindow : Window
         };
         UpdateStatusChip();
         MultiLineupTrackingToggle.IsChecked = trackingVm.TrackMultipleLineups;
+        HoverEnabledToggle.IsChecked = positionSettings.HoverEnabled;
+        HoverSide.SelectedIndex = positionSettings.HoverOnRight ? 1 : 0;
+        ApplyHoverPreferences();
+        HoverEnabledToggle.Checked += OnHoverPreferencesChanged;
+        HoverEnabledToggle.Unchecked += OnHoverPreferencesChanged;
+        HoverSide.SelectionChanged += OnHoverPreferencesChanged;
         FreeSidePanelMovementToggle.IsChecked = positionSettings.FreeMovement;
         ForceTopmostToggle.IsChecked = positionSettings.ForceTopmost;
         HideOverlayWithAssistantToggle.IsChecked = positionSettings.HideOverlayWithAssistant;
@@ -239,9 +245,28 @@ public partial class SidePanelWindow : Window
         RunBanView.DataContext = operatorVm;
         LineupView.DataContext = lineupVm;
         LineupView.SetTracking(trackingVm);
-        bool CovenantBlocked(string name) => allOperators.Any(op => op.Name == name && CovenantBanRules.IsExcluded(op, banVm.BannedCovenants));
+        bool CovenantBlocked(string name) => allOperators.Any(op => op.Name == name &&
+            (CovenantBanRules.HasMissingCovenant(op, banVm.MissingCovenants) || CovenantBanRules.IsExcluded(op, banVm.BannedCovenants)));
         bool Unavailable(string name) => banVm.IsBanned(name) || CovenantBlocked(name);
         operatorVm.SetBanChecker(Unavailable);
+        SklandView.Configure(_lineupShareService.CreateGuideCatalogue(), () => GameStateVm.CurrentRound, stage =>
+        {
+            if (!LineupVm.HasRunInfo) return "本局适配：尚未取得本局禁用信息。";
+            var missing = stage.Operators.Intersect(LineupVm.RunBannedNames).ToArray();
+            return missing.Length == 0 ? "本阶段推荐干员与已知禁用名单无冲突。"
+                : "本阶段推荐干员中，本局禁用：" + string.Join("、", missing);
+        }, guide =>
+        {
+            var result = SklandGuideImporter.ParseLineup(guide.Item, guide.Resources, _allOperators, _allStrategies);
+            return OpenEditorAsync(result.Lineup, result.Notice);
+        }, (kind, key) => kind switch
+        {
+            "Operator" => _allOperators.FirstOrDefault(o => o.Name == key),
+            "Equipment" => _allEquipment.FirstOrDefault(e => e.Name == key),
+            "Strategy" => _allStrategies.FirstOrDefault(s => s.Id == key || s.Name == key),
+            "Covenant" => PlannerVm.CovenantDetails.FirstOrDefault(c => c.Name == key),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        });
         WireLineupView();
 
         OperatorView.IsTrackedCheck = trackingVm.IsTracked;
@@ -284,6 +309,7 @@ public partial class SidePanelWindow : Window
         {
             banVm.ClearRunBans();
             operatorVm.ClearCovenantHighlights();
+            TrackingView.DeployPage.SetRunCovenants(null, []);
             PlannerVm.OnlyCurrentRun = false;
         };
         RunBanView.ManualScanRequested += () => ManualScanRequested?.Invoke();
@@ -1192,6 +1218,27 @@ public partial class SidePanelWindow : Window
         await SavePreferenceAsync(() => _settingsManager.SaveSidePanelPositionAsync(_positionSettings), ForceTopmostToggle);
     }
 
+    private void OnToggleHoverSettings(object sender, RoutedEventArgs e) =>
+        HoverOptions.Visibility = HoverOptions.IsVisible ? Visibility.Collapsed : Visibility.Visible;
+
+    private void ApplyHoverPreferences()
+    {
+        bool enabled = _positionSettings.HoverEnabled;
+        PanelToolTip.SetPreferences(enabled, _positionSettings.HoverOnRight);
+        HoverSide.IsEnabled = enabled;
+        HoverSide.Opacity = enabled ? 1 : 0.48;
+        HoverSummary.Text = enabled ? (_positionSettings.HoverOnRight ? "优先显示在助手右侧" : "优先显示在助手左侧") : "已关闭";
+        HoverHelp.Text = enabled ? "所选一侧空间不足时，临时显示在另一侧。" : "悬停提示已关闭，地图模拟的攻略讲解仍可打开。";
+    }
+
+    private async void OnHoverPreferencesChanged(object sender, RoutedEventArgs e)
+    {
+        _positionSettings = _positionSettings with { HoverEnabled = HoverEnabledToggle.IsChecked == true, HoverOnRight = HoverSide.SelectedIndex == 1 };
+        if (ReferenceHost.Content is ReferenceCatalogueView catalogue) catalogue.CloseDetails();
+        ApplyHoverPreferences();
+        await SavePreferenceAsync(() => _settingsManager.SaveSidePanelPositionAsync(_positionSettings), HoverOptions);
+    }
+
     private async void OnVisibilitySettingChanged(object sender, RoutedEventArgs e)
     {
         _positionSettings = _positionSettings with {
@@ -1490,6 +1537,21 @@ public partial class SidePanelWindow : Window
             finally { LineupView.IsEnabled = true; }
         };
 
+        LineupView.PublishLineupRequested += async lineup =>
+        {
+            try
+            {
+                _ = SklandPublishDraft.FromLineup(lineup);
+                if (SklandView.SignedSession == null && !await SklandView.ConnectAsync())
+                {
+                    ShowToast(SklandView.Status.Text);
+                    return;
+                }
+                var preview = new SklandPublishWindow(lineup, _allStrategies, SklandView.SignedSession!) { Owner = this };
+                preview.ShowDialog();
+            }
+            catch (InvalidDataException ex) { ShowToast(ex.Message); }
+        };
         LineupView.ShareLineupRequested += async lineup =>
         {
             string url;
@@ -1590,7 +1652,8 @@ public partial class SidePanelWindow : Window
         bool Unavailable(string name) => BanVm.IsBanned(name)
             || (byName.TryGetValue(name, out var op) && CovenantBanRules.IsExcluded(op, bannedCovenants));
         LineupVm.SetRunInfo(Unavailable, new HashSet<string>(bannedCovenants),
-            [.. BanVm.BannedNames.Concat(byName.Keys.Where(Unavailable)).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal)]);
+            [.. BanVm.BannedNames.Concat(byName.Keys.Where(Unavailable)).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal)],
+            BanVm.MissingCovenants);
     }
 
     /// <summary>Opens the 阵容 tab on 我的阵容 (with 本局推荐 in view) or on 规划.</summary>
@@ -1605,14 +1668,20 @@ public partial class SidePanelWindow : Window
         }
     }
 
-    private void OnLineupsSegmentChanged(object sender, SelectionChangedEventArgs e)
+    private async void OnLineupsSegmentChanged(object sender, SelectionChangedEventArgs e)
     {
         e.Handled = true;
-        if (LineupView is null || PlannerView is null) return;
-        bool planner = LineupsSegment.SelectedIndex == 1;
-        LineupView.Visibility = planner ? Visibility.Collapsed : Visibility.Visible;
-        PlannerView.Visibility = planner ? Visibility.Visible : Visibility.Collapsed;
-        if (IsLoaded) PageTransition.SlideIn(planner ? PlannerView : LineupView, fromY: 8);
+        if (SklandView is null) return;
+        FrameworkElement active = LineupsSegment.SelectedIndex switch { 1 => PlannerView, 2 => SklandView, _ => LineupView };
+        LineupView.Visibility = active == LineupView ? Visibility.Visible : Visibility.Collapsed;
+        PlannerView.Visibility = active == PlannerView ? Visibility.Visible : Visibility.Collapsed;
+        SklandView.Visibility = active == SklandView ? Visibility.Visible : Visibility.Collapsed;
+        if (IsLoaded) PageTransition.SlideIn(active, fromY: 8);
+        if (active == SklandView)
+        {
+            UpdateLineupRunInfo();
+            await SklandView.ShowAsync();
+        }
     }
 
     private readonly Dictionary<int, ReferenceCatalogueView> _referencePages = [];

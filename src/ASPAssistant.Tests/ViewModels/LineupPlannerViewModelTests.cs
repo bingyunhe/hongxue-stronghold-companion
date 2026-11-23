@@ -214,7 +214,7 @@ public class LineupPlannerViewModelTests
     }
 
     [Fact]
-    public void BannedAdditionalCovenantIsBlockedWhenTooFewHoldersRemain()
+    public void VisibleAdditionalWithOneHolderCanTransformUntilAbsent()
     {
         var (vm, bans) = Create();
         vm.IsActive = true;
@@ -226,9 +226,14 @@ public class LineupPlannerViewModelTests
         bans.SetCovenantBans(["炎", "突袭"]);
 
         raid.AvailableMembers.Should().Be(1);
+        raid.IsBlocked.Should().BeFalse();
+        raid.Level.Should().Be(1);
+        raid.BanNote.Should().Contain("至少需 1 名转职");
+        vm.BuildRequest().TransformAllowed.Should().Contain("突袭");
+        bans.SetCovenantBans(["炎"], new HashSet<string> { "突袭" });
         raid.IsBlocked.Should().BeTrue();
         raid.Level.Should().Be(0);
-        raid.BanNote.Should().Contain("凑不齐");
+        vm.BuildRequest().TransformAllowed.Should().NotContain("突袭");
     }
 
     [Fact]
@@ -433,10 +438,11 @@ public class LineupPlannerViewModelTests
     [Fact]
     public async Task MechStrategyIsSavedWithItsTransformations()
     {
-        var (vm, _) = Create();
+        var (vm, bans) = Create();
         Lineup? saved = null;
         vm.SaveRequested += l => saved = l;
         vm.IsActive = true;
+        bans.SetBans(["炎3", "炎4", "炎5", "炎6", "炎突"]);
         vm.Strategy = PlannerStrategy.Mech;
         Item(vm, "炎").ToggleLevel1Command.Execute(null);
         await vm.PendingSearch!;
