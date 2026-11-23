@@ -76,6 +76,8 @@ internal static class AppExitProbe
             foreach (var resource in new[] { "Themes/Terminal.Dark.xaml", "Styles.xaml", "Logo.xaml" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary
                 { Source = new Uri($"/HongxueCompanion;component/Resources/{resource}", UriKind.Relative) });
+            app.Dispatcher.ShutdownStarted += (_, _) => Console.Error.WriteLine("Dispatcher shutdown started.");
+            app.Dispatcher.ShutdownFinished += (_, _) => Console.Error.WriteLine("Dispatcher shutdown finished.");
             var code = app.Run();
             Console.Error.WriteLine("Application dispatcher returned.");
             return app.ExitObserved ? code : 25;

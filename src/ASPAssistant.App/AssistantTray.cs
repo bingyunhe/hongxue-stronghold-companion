@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using ASPAssistant.App.Windows;
 using ASPAssistant.Core;
 
@@ -44,7 +45,7 @@ internal sealed class AssistantTray : IDisposable
         exit.Click += (_, _) =>
         {
             RemoveIcon();
-            Application.Current.Shutdown();
+            _panel.Dispatcher.BeginInvoke(new Action(Application.Current.Shutdown), DispatcherPriority.ApplicationIdle);
         };
         _menu.Items.Add(open);
         _menu.Items.Add(exit);
