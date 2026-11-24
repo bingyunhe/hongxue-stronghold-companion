@@ -205,26 +205,20 @@
                 </Style></TextBlock.Style>
             </TextBlock>
             <Popup x:Name="DetailsPopup" Placement="Custom" AllowsTransparency="True" StaysOpen="True" Focusable="False">
-                <Border x:Name="DetailsCard" Width="235" Padding="13" CornerRadius="{DynamicResource CardCornerRadius}"
-                        Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource AccentBorderBrush}" BorderThickness="1">
+                <Border x:Name="DetailsCard" Style="{StaticResource StrategyDetailsFrame}">
                     <StackPanel>
                         <DockPanel>
                             <TextBlock x:Name="PinnedLabel" DockPanel.Dock="Right" Text="已固定" Visibility="Collapsed"
                                        FontSize="11" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="6,0,0,0" />
                             <Image x:Name="BossPortrait" DockPanel.Dock="Left" Visibility="Collapsed" Width="32" Height="32"
                                    Margin="0,0,7,0" Source="{Binding Icon, Converter={StaticResource DetailsLocalImage}}" />
-                            <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource StrategyDetailsHeading}" />
                         </DockPanel>
-                        <DockPanel x:Name="StrategyMetadata" Margin="0,6,0,8">
-                            <TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}">初始生命 <Run Text="{Binding InitialHp, Mode=OneWay}" FontWeight="Bold" /></TextBlock>
-                            <TextBlock Text="{Binding Subtitle, StringFormat=发起人 · {0}}" FontSize="11"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
-                        </DockPanel>
+                        <ContentPresenter x:Name="StrategyMetadata" Content="{Binding Strategy}" ContentTemplate="{StaticResource StrategyDetailsBody}" Focusable="False" />
                         <TextBlock x:Name="BossMetadata" Visibility="Collapsed" Margin="0,6,0,8" Text="{Binding Subtitle}"
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
-                        <Border Height="1" Background="{DynamicResource LineBrush}" />
-                        <ScrollViewer x:Name="DetailsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="285">
+                        <Border x:Name="EnemyDivider" Visibility="Collapsed" Height="1" Background="{DynamicResource LineBrush}" />
+                        <ScrollViewer x:Name="DetailsScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="285">
                             <StackPanel>
                                 <TextBlock x:Name="DetailDescription" Margin="0,8,0,0" Text="{Binding Text}" FontSize="12" LineHeight="18"
                                            Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />

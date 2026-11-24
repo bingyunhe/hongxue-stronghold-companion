@@ -8,6 +8,9 @@ public sealed record SampleFrame(DateTimeOffset Time, string Step, byte[] Image)
 
 public sealed record RecognitionSample(int? Round, string Kind, string Result, DateTimeOffset Started, SampleFrame[] Frames)
 {
+    public sealed record PlayerCorrection(string Map, string Slot, string Entry, string[] Candidates, string Chosen);
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PlayerCorrection? Correction { get; init; }
     public sealed record MarkedCase(string Label, int? Round, string Result, int? InputFrame, string Expected);
     internal string? StoragePath { get; init; }
     internal RecognitionSample[] Records { get; init; } = [];

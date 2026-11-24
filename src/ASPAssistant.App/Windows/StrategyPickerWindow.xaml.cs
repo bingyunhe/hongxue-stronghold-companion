@@ -1,7 +1,6 @@
 // Added for ASP Assistant Arknights on 2026-11-13; see NOTICE.
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -26,11 +25,12 @@ public sealed class StrategyPickRow(Strategy strategy) : INotifyPropertyChanged
     public string Summary => $"{Name} · {Initiator}\n初始生命值：{InitialHp}\n{Strategy.Description}";
 
     private bool _chosen;
-    public List<StrategyTag> Tags { get; } = [];
+    internal LineupStrategySlot Slot { get; } = new() { StrategyId = strategy.Id };
+    public List<StrategyTag> Tags => Slot.Tags;
     public bool IsChosen { get => _chosen; set { _chosen = value; if (!value) Tags.Clear(); NotifyAll(); } }
     public StrategyTag? Tag
     {
-        get => Tags.Count > 0 ? Tags[0] : null;
+        get => Tags.Count > 0 ? Tags.Min() : null;
         set { Tags.Clear(); if (value is { } tag) Tags.Add(tag); NotifyAll(); }
     }
     public bool IsCore { get => Tag == StrategyTag.阵容核心; set => Tag = value ? StrategyTag.阵容核心 : null; }
@@ -48,8 +48,8 @@ public partial class StrategyPickerWindow : Window
     private readonly List<StrategyPickRow> _rows;
     private readonly ObservableCollection<StrategyPickRow> _shown = [];
     private readonly ObservableCollection<StrategyPickRow> _chosen = [];
-    // Strategies from shared lineups that are not in the data: kept as they are.
-    private readonly List<(int Index, LineupStrategySlot Slot)> _unknown = [];
+    // Keep the lineup's order (including unknown shared strategies) independent of the display order.
+    private readonly List<LineupStrategySlot> _slots = [];
 
     /// <summary>The picked strategies in order (set when 完成 is clicked).</summary>
     public IReadOnlyList<LineupStrategySlot> Picked { get; private set; } = [];
@@ -58,31 +58,24 @@ public partial class StrategyPickerWindow : Window
     {
         InitializeComponent();
         WindowUiScale.PrepareCentered(this);
-        _rows = [.. strategies.Select(s => new StrategyPickRow(s))];
-        foreach (var (slot, index) in current.Select((slot, index) => (slot, index)))
+        var rows = strategies.Select(s => new StrategyPickRow(s)).ToList();
+        foreach (var slot in current)
         {
-            if (_rows.FirstOrDefault(r => r.Id == slot.StrategyId) is not { } row)
+            if (rows.FirstOrDefault(r => r.Id == slot.StrategyId) is not { } row)
             {
-                _unknown.Add((index, new LineupStrategySlot { StrategyId = slot.StrategyId, Tags = [.. slot.Tags] }));
+                _slots.Add(new LineupStrategySlot { StrategyId = slot.StrategyId, Tags = [.. slot.Tags] });
                 continue;
             }
             row.IsChosen = true;
             row.Tags.AddRange(slot.Tags);
-            _chosen.Add(row);
+            _slots.Add(row.Slot);
         }
-        foreach (var row in _rows) row.PropertyChanged += (_, _) => RefreshChosen();
+        _rows = [.. rows.OrderByDescending(r => r.IsChosen).ThenBy(r => r.Tag is { } tag ? (int)tag : int.MaxValue)];
+        foreach (var row in _rows.Where(r => r.IsChosen)) _chosen.Add(row);
         ItemsList.ItemsSource = _shown;
         ChosenList.ItemsSource = _chosen;
         ApplyFilter();
         Loaded += (_, _) => { SearchBox.Focus(); Keyboard.Focus(SearchBox); };
-    }
-
-    private void RefreshChosen()
-    {
-        // re-render chips after a tag change
-        var copy = _chosen.ToList();
-        _chosen.Clear();
-        foreach (var r in copy) _chosen.Add(r);
     }
 
     private void OnFilterChanged(object sender, RoutedEventArgs e) => ApplyFilter();
@@ -107,29 +100,35 @@ public partial class StrategyPickerWindow : Window
         if (ItemsControl.ContainerFromElement(ItemsList, e.OriginalSource as DependencyObject) is not ListBoxItem { Content: StrategyPickRow row }) return;
         for (var d = e.OriginalSource as DependencyObject; d is not null && d != ItemsList; d = System.Windows.Media.VisualTreeHelper.GetParent(d))
             if (d is ToggleButton) return;
-        if (!row.IsChosen && _chosen.Count + _unknown.Count >= LineupEditorViewModel.MaxStrategySlots)
+        if (!row.IsChosen && _slots.Count >= LineupEditorViewModel.MaxStrategySlots)
         {
             HintText.Text = $"最多选择{LineupEditorViewModel.MaxStrategySlots}个策略，请先移出一个";
             return;
         }
         HintText.Text = $"单击加入或移出，可选多个（最多{LineupEditorViewModel.MaxStrategySlots}个）";
         row.IsChosen = !row.IsChosen;
-        if (row.IsChosen) _chosen.Add(row);
-        else _chosen.Remove(row);
+        if (row.IsChosen)
+        {
+            _chosen.Add(row);
+            _slots.Add(row.Slot);
+        }
+        else
+        {
+            _chosen.Remove(row);
+            _slots.Remove(row.Slot);
+        }
     }
 
     private void OnClearClick(object sender, RoutedEventArgs e)
     {
         foreach (var r in _chosen.ToList()) r.IsChosen = false;
         _chosen.Clear();
-        _unknown.Clear();
+        _slots.Clear();
     }
 
     private void OnConfirmClick(object sender, RoutedEventArgs e)
     {
-        var picked = _chosen.Select(r => new LineupStrategySlot { StrategyId = r.Id, Tags = [.. r.Tags] }).ToList();
-        foreach (var (index, slot) in _unknown) picked.Insert(Math.Min(index, picked.Count), slot);
-        Picked = picked;
+        Picked = _slots;
         DialogResult = true;
     }
 

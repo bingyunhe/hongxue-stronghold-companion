@@ -49,6 +49,7 @@ public sealed record PlannerGoal(string Name, int Level, int Count, bool Manual,
 public sealed class PlannerRequest
 {
     public IReadOnlyList<PlannerGoal> Goals { get; init; } = [];
+    public IReadOnlySet<string> MissingCovenants { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> BannedCovenants { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> BannedOperators { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> LockedOperators { get; init; } = new HashSet<string>();

@@ -340,6 +340,11 @@ public class LineupPlannerAutoTests
         fresh.PendingAutoPlan.Should().BeNull();
         restored.AutoRoute.Conditions.BannedCovenants.Should().Equal(originalBans);
         bans.ClearBans(); fresh.TrackRouteCommand.CanExecute(null).Should().BeTrue();
+        bans.SetCovenantBans([], new HashSet<string> { restored.AutoRoute!.Plan.Candidate.MainCovenant });
+        fresh.AutoRouteNotice.Should().Contain("本局未出现");
+        fresh.TrackRouteCommand.CanExecute(null).Should().BeFalse();
+        bans.SetCovenantBans([]);
+        fresh.TrackRouteCommand.CanExecute(null).Should().BeTrue();
         restored.EditorStages![1].Name = "已修改阶段";
         fresh.NotifySavedAutoRouteSourceChanged(restored);
         fresh.AutoRouteNotice.Should().Contain("阵容已修改");

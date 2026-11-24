@@ -16,6 +16,52 @@ namespace ASPAssistant.Tests.Views;
 
 internal static class RoundRoutesViewTests
 {
+    internal static void VerifyDesertOverlay(bool night)
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } dir) return;
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        var maps = GarrisonBoardStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory).GetAwaiter().GetResult()!;
+        var imagePath = Path.Combine(dir,"enemy-2-0.png");
+        var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(imagePath)))!;
+        var match = new BoardRecognizer(maps).RecognizePannedDesertOverlay(pixels)!;
+        var camera = match.OverlayProjection!;
+        var overlay = new ASPAssistant.App.Windows.OverlayWindow();
+        try
+        {
+            var canvas = (Canvas)overlay.FindName("OverlayCanvas");
+            overlay.Left = overlay.Top = -20000; overlay.Opacity = 0; overlay.Topmost = false;
+            overlay.Width = 1600; overlay.Height = 900;
+            overlay.Show(); overlay.UpdateLayout();
+            overlay.Measure(new Size(1600,900)); overlay.Arrange(new Rect(0,0,1600,900));
+            overlay.UpdateBoard(match.Map,camera,true);
+            overlay.UpdatePlacements(new PlacementPlan { Map = match.Map, ActiveCovenants = [], Checks = [], Bench = [],
+                Placed = [new("摆渡人",new(2,0),Facing.Right,PlacementRole.Damage,false,[],"摆渡人")] });
+            var layer = (Canvas)canvas.Children[0];
+            int gridAndPlan = layer.Children.Count;
+            overlay.UpdateBoard(match.Map,camera,false);
+            int onlyPlan = layer.Children.Count;
+            Assert.True(gridAndPlan > onlyPlan && onlyPlan >= 3);
+            overlay.UpdateBoard(null,null,false);
+            Assert.Empty(layer.Children);
+            overlay.UpdateBoard(match.Map,camera,true);
+            Assert.Equal(gridAndPlan,layer.Children.Count);
+            canvas.Measure(new Size(1600,900)); canvas.Arrange(new Rect(0,0,1600,900)); canvas.UpdateLayout();
+            var transparent = new RenderTargetBitmap(1600,900,96,96,PixelFormats.Pbgra32);
+            transparent.Render(canvas);
+            var visual = new DrawingVisual();
+            using (var ctx = visual.RenderOpen())
+            {
+                ctx.DrawImage(new BitmapImage(new Uri(imagePath)),new Rect(0,0,1600,900));
+                ctx.DrawImage(transparent,new Rect(0,0,1600,900));
+            }
+            var result = new RenderTargetBitmap(1600,900,96,96,PixelFormats.Pbgra32);
+            result.Render(visual);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(result));
+            using var output = File.Create(Path.Combine(TestOutput.Directory,$"desert-overlay-{night}.png")); png.Save(output);
+        }
+        finally { overlay.Close(); }
+    }
+
     internal static void VerifyLiveRecommendations(bool night)
     {
         ThemeManager.Apply(GameShopTheme.Closure, night);

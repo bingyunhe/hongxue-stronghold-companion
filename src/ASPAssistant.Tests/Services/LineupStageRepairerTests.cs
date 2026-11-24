@@ -25,7 +25,19 @@ public class LineupStageRepairerTests
          new() { Id = "empty", Name = "自定义空阶段", StartRound = 11, EndRound = 12 }] } };
         var final = JsonSerializer.Deserialize<Lineup>(JsonSerializer.Serialize(source))!;
         final.Slots = [new() { OperatorName = "保留" }, new() { OperatorName = "成型替补" }];
-        return (new(ops, new(ops, covenants, new Dictionary<string, string>())), source, final);
+        return (new(ops, new(ops, covenants, new Dictionary<string, string> { ["精准狙击镜"] = "精准" })), source, final);
+    }
+
+    [Fact]
+    public void RetainedStageWithAbsentTransferCannotBeSaved()
+    {
+        var (repairer, source, final) = Create();
+        var original = source.SklandGuide!.Stages[0].Slots[0];
+        original.Equipments = ["变形同构体", "精准狙击镜"];
+        var result = repairer.Repair(source, final, new HashSet<string>(), new HashSet<string>(), transformAllowed: new HashSet<string>());
+        result.CanSave.Should().BeFalse();
+        result.Stages[0].WarningText.Should().Contain("本局不可转入：精准");
+        original.Equipments.Should().Equal("变形同构体", "精准狙击镜");
     }
 
     [Fact]

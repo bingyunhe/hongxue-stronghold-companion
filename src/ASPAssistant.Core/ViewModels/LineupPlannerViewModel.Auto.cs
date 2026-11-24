@@ -52,8 +52,8 @@ public sealed class AutoPlanItem
     public bool HasLayerText => LayerText.Length > 0;
     public string StyleReason => Source.StyleReason + (Source.RouteComparison is { } replay ? $"\n{replay.Summary}" : "");
     public string BossNote { get; init; } = "";
-    public string Note => string.Join("\n", new[] { string.Join("；", Source.Notes), BossNote }.Where(t => t.Length > 0));
-    public bool HasNote => Source.Notes.Count > 0 || BossNote.Length > 0;
+    public string Note => string.Join("\n", new[] { string.Join("；", Source.Notes), BossNote, Lineup.EquipmentText }.Where(t => t.Length > 0));
+    public bool HasNote => Source.Notes.Count > 0 || BossNote.Length > 0 || Lineup.HasEquipment;
     /// <summary>The recommended style first.</summary>
     public IReadOnlyList<AutoStyleChoice> Styles { get; }
 }
@@ -154,9 +154,19 @@ public partial class LineupPlannerViewModel
             .Concat(plan.Route.Stages.SelectMany(s => s.Definition.Required.Concat(s.Definition.SmallGoals ?? [])))
             .Any(g => !knownGoals.Contains(g.Name))) issues.Add("部分目标盟约资料不存在");
         var banned = _banVm.BannedCovenants.ToHashSet(StringComparer.Ordinal);
-        var unavailable = plan.Route.Stages.SelectMany(s => s.Operators).Select(o => o.Name).Distinct(StringComparer.Ordinal)
+        var allowed = _planner.DefaultTransformAllowed(banned, _banVm.MissingCovenants);
+        var invalid = plan.Candidate.Final.Operators.Select(o => o.TransformedCovenant)
+            .Concat(plan.Candidate.Final.MechCovenants)
+            .Concat(plan.Route.Stages.SelectMany(s => s.Operators.Select(o => o.TransformedCovenant)))
+            .OfType<string>().Distinct().Where(n => !allowed.Contains(n) || !_equipmentRules.CanTransformInto(n)).ToList();
+        if (invalid.Count > 0) issues.Add($"本局不可转入：{string.Join("、", invalid)}");
+        if (plan.Candidate.Goals.Concat(plan.Candidate.SmallGoals).Append(plan.Candidate.MainGoal)
+            .Concat(plan.Route.Stages.SelectMany(s => s.Definition.Required.Concat(s.Definition.SmallGoals ?? [])))
+            .Any(g => _banVm.MissingCovenants.Contains(g.Name))) issues.Add("原路线含本局未出现的盟约");
+        var unavailable = plan.Route.Stages.SelectMany(s => s.Operators).Select(o => o.Name)
+            .Concat(plan.Candidate.Final.Operators.Select(o => o.Name)).Distinct(StringComparer.Ordinal)
             .Where(name => _banVm.BannedNames.Contains(name) || _operatorByName.TryGetValue(name, out var op)
-                && (!op.IsAvailableForSelection || archive.Conditions.ExcludeMixedBannedOperators && _planner.IsExcludedByBans(op, banned)))
+                && (!op.IsAvailableForSelection || CovenantBanRules.HasMissingCovenant(op, _banVm.MissingCovenants) || archive.Conditions.ExcludeMixedBannedOperators && _planner.IsExcludedByBans(op, banned)))
             .ToList();
         if (banned.Contains(plan.Candidate.MainCovenant)) issues.Add($"本局禁用主盟约{plan.Candidate.MainCovenant}");
         if (unavailable.Count > 0) issues.Add($"本局不可用人选：{string.Join("、", unavailable)}");
@@ -299,6 +309,7 @@ public partial class LineupPlannerViewModel
     }
     private string AutoKey(AutoPlanRequest request) => string.Join('|',
         string.Join(',', request.BannedCovenants.Order(StringComparer.Ordinal)),
+        string.Join(',', request.MissingCovenants.Order(StringComparer.Ordinal)),
         string.Join(',', request.BannedOperators.Order(StringComparer.Ordinal)),
         string.Join(',', request.LockedOperators.Order(StringComparer.Ordinal)),
         request.People, request.Strategy, request.MechElite,
@@ -309,9 +320,10 @@ public partial class LineupPlannerViewModel
         var banned = _banVm.BannedCovenants.ToHashSet(StringComparer.Ordinal);
         return new()
         {
+            MissingCovenants = _banVm.MissingCovenants.ToHashSet(),
             BannedCovenants = banned, BannedOperators = _banVm.BannedNames.ToHashSet(StringComparer.Ordinal),
             LockedOperators = LockedOperators.Where(l => !l.IsUnavailable).Select(l => l.Name).ToHashSet(StringComparer.Ordinal),
-            TransformAllowed = _planner.DefaultTransformAllowed(banned).Where(_equipmentRules.CanTransformInto).ToHashSet(),
+            TransformAllowed = _planner.DefaultTransformAllowed(banned, _banVm.MissingCovenants).Where(_equipmentRules.CanTransformInto).ToHashSet(),
             People = AutoNinePeople ? 9 : 8, Strategy = Strategy, MechElite = MechElite
         };
     }

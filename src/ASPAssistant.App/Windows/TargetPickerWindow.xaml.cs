@@ -110,7 +110,8 @@ public partial class TargetPickerWindow : Window
         frame.Child = dock;
         button.Content = frame;
         button.IsEnabled = !isTarget;
-        button.ToolTip = isTarget ? "已经是目标" : null;
+        PanelToolTip.SetCovenant(button, name);
+        PanelToolTip.SetNote(button, isTarget ? "已经是目标" : sub.Text);
         ToolTipService.SetShowOnDisabled(button, true);
     }
 

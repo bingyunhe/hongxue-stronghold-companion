@@ -120,6 +120,7 @@ public partial class OcrScannerService : IDisposable
 
     /// <summary>The recognised board changed (null: no board on screen).</summary>
     public event Action<BoardMatch?>? BoardChanged;
+    public bool ShowPlacementOverlay { get; set; }
     public BoardMatch? CurrentBoard => _board.Current;
     public Func<GameShopTheme>? ThemeProvider { get; init; }
     public GameShopThemeDetector? ThemeDetector { get; init; }
@@ -494,7 +495,9 @@ public partial class OcrScannerService : IDisposable
                 }
             }
             if (!IsCurrentCapture(connection, captureRevision)) return;
-            ObserveBoard(boardMatch);
+            if (!observedEnemyFrame)
+                ObserveBoard(boardMatch ?? (ShowPlacementOverlay && shopOpenThisScan && pixels is not null
+                    ? BoardRecognizer?.RecognizePannedDesertOverlay(pixels) : null));
             bool readClosedHud = !observedEnemyFrame && RoundEnemyReader != null && boardMatch != null &&
                 !shopOpenThisScan && rawItems.Count == 0;
             if (readClosedHud)

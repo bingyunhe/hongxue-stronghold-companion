@@ -43,6 +43,11 @@ public class ApplicationExitTests
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             process.ExitCode.Should().Be(0, await output + await error);
         }
+        catch (TimeoutException ex)
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+            throw new TimeoutException($"Close behavior probe '{action}' timed out. {await output}{await error}", ex);
+        }
         finally
         {
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
@@ -71,7 +76,10 @@ internal static class AppExitProbe
             foreach (var resource in new[] { "Themes/Terminal.Dark.xaml", "Styles.xaml", "Logo.xaml" })
                 app.Resources.MergedDictionaries.Add(new ResourceDictionary
                 { Source = new Uri($"/HongxueCompanion;component/Resources/{resource}", UriKind.Relative) });
+            app.Dispatcher.ShutdownStarted += (_, _) => Console.Error.WriteLine("Dispatcher shutdown started.");
+            app.Dispatcher.ShutdownFinished += (_, _) => Console.Error.WriteLine("Dispatcher shutdown finished.");
             var code = app.Run();
+            Console.Error.WriteLine("Application dispatcher returned.");
             return app.ExitObserved ? code : 25;
         }
         catch (Exception error)
@@ -93,6 +101,7 @@ internal static class AppExitProbe
 
         private void CreateWindows()
         {
+            Console.Error.WriteLine("Creating test windows.");
             var calculator = new CovenantCalculator([], [], new Dictionary<string, string>());
             var panel = new SidePanelWindow(new(), new(), new(), new(), new(), new(),
                 new(new LineupStore(Path.Combine(folder, "lineups"), calculator.EquipmentRules), calculator),
@@ -124,14 +133,19 @@ internal static class AppExitProbe
                     Dispatcher.UnhandledExceptionFilter += (_, error) => error.RequestCatch = false;
                     WindowUiScale.Initialize(new SidebarAppearance { UiScale = 1.25 });
                     var hwnd = new System.Windows.Interop.WindowInteropHelper(panel).Handle;
+                    Console.Error.WriteLine("Minimizing to tray.");
                     _tray.Toggle();
+                    Console.Error.WriteLine("Restoring via tray left click.");
                     User32.SendMessage(hwnd, 0x8000 + 73, IntPtr.Zero, (IntPtr)0x202);
                     if (panel.IsAssistantHidden) { Shutdown(29); return; }
                     _tray.Toggle();
+                    Console.Error.WriteLine("Restored and minimized again.");
                     var menu = (ContextMenu)typeof(AssistantTray).GetField("_menu", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(_tray)!;
                     void OpenFromTray(int notification, Action next) => Dispatcher.BeginInvoke(() =>
                     {
+                        Console.Error.WriteLine($"Opening tray menu via {notification:X}.");
                         User32.SendMessage(hwnd, 0x8000 + 73, IntPtr.Zero, (IntPtr)notification);
+                        Console.Error.WriteLine("Tray callback returned.");
                         Dispatcher.BeginInvoke(() =>
                         {
                             if (!panel.IsAssistantHidden || !menu.IsOpen || !menu.IsLoaded || menu.ActualWidth <= 0
@@ -141,6 +155,7 @@ internal static class AppExitProbe
                                 Shutdown(30);
                                 return;
                             }
+                            Console.Error.WriteLine("Tray menu layout verified.");
                             next();
                         }, DispatcherPriority.ApplicationIdle);
                     }, DispatcherPriority.ApplicationIdle);
@@ -162,11 +177,13 @@ internal static class AppExitProbe
 
         protected override void OnExit(ExitEventArgs e)
         {
+            Console.Error.WriteLine("Application exit reached.");
             if (action == "dialog" && File.ReadAllText(Path.Combine(folder, "close-behavior.json")) != "\"Exit\"")
                 e.ApplicationExitCode = 26;
             _tray?.Dispose();
             base.OnExit(e);
             ExitObserved = true;
+            Console.Error.WriteLine("Application exit completed.");
         }
     }
 }

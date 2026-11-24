@@ -51,7 +51,7 @@ public partial class LineupPlannerViewModel
                 var request = new AutoPlanRequest
                 {
                     People = people, Strategy = baseline.Strategy, MechElite = baseline.MechElite, LockedOperators = locks,
-                    BannedCovenants = baseline.BannedCovenants, BannedOperators = baseline.BannedOperators,
+                    MissingCovenants = baseline.MissingCovenants, BannedCovenants = baseline.BannedCovenants, BannedOperators = baseline.BannedOperators,
                     TransformAllowed = baseline.TransformAllowed, ExcludeMixedBannedOperators = baseline.ExcludeMixedBannedOperators
                 };
                 foreach (var candidate in _autoPlanner.Plan(request, token).Candidates)
@@ -65,6 +65,7 @@ public partial class LineupPlannerViewModel
 
             void AddPlan(PlannedLineup team, string goal, string name, string source)
             {
+                if (team.ForcedTransforms > 0) return;
                 var lineup = new PlannerLineupItem { Source = team, LineupName = name }.ToLineup(_equipmentRules);
                 lineup.TargetCovenants = team.Goals.Select(g => new TargetCovenant { Name = g.Name, Tier = g.Level }).ToList();
                 var key = string.Join("|", lineup.Slots.Select(s => s.OperatorName + ":" + string.Join(",", s.Equipments)).Order(StringComparer.Ordinal));
@@ -77,6 +78,8 @@ public partial class LineupPlannerViewModel
                 token.ThrowIfCancellationRequested();
                 var final = lineup.SklandGuide?.Stages.FirstOrDefault(s => s.IsFinal);
                 var slots = (final?.Slots ?? lineup.Slots).Where(s => !s.IsReserve && s.OperatorName.Length > 0).ToList();
+                if (lineup.TargetCovenants.Any(t => baseline.MissingCovenants.Contains(t.Name))
+                    || slots.SelectMany(_equipmentRules.Transformations).Any(t => !baseline.TransformAllowed.Contains(t.Covenant))) return;
                 if (slots.Count == 0 || slots.Count > people || slots.Any(s => !allowed.ContainsKey(s.OperatorName))
                     || lineup.Strategies.Any(s => s.StrategyId.Length > 0 && s.StrategyId != PlannerStrategies.StrategyId(baseline.Strategy))) return;
                 var remaining = new Dictionary<string, int>(holdings);

@@ -404,7 +404,9 @@ public partial class LineupEditorWindow : Window
             foreach (var c in op.CoreCovenants.Concat(op.AdditionalCovenants).Distinct())
             {
                 var core = op.CoreCovenants.Contains(c);
-                pills.Children.Add(Pill(c, targets.Contains(c) ? (core ? "goalCore" : "goal") : core ? "core" : "extra"));
+                var pill = Pill(c, targets.Contains(c) ? (core ? "goalCore" : "goal") : core ? "core" : "extra");
+                Controls.PanelToolTip.SetCovenant(pill, c);
+                pills.Children.Add(pill);
             }
         foreach (var tag in slot.Tags.Where(t => t != LineupTag.阵容核心))
             pills.Children.Add(Pill(tag.ToString(), "tag"));
@@ -797,9 +799,10 @@ public partial class LineupEditorWindow : Window
         grid.Children.Add(fill);
         track.Child = grid;
         box.Children.Add(track);
-        box.ToolTip = _vm.CurrentPhase == LineupPhase.后期
+        Controls.PanelToolTip.SetCovenant(box, state.Name);
+        Controls.PanelToolTip.SetNote(box, _vm.CurrentPhase == LineupPhase.后期
             ? $"{state.Label}：需要 {state.Needed} 人，后期 {state.Count} 人"
-            : $"{state.Label}：需要 {state.Needed} 人，后期 {state.Count} 人，{_vm.PhaseLabels[_vm.CurrentPhase]} {phaseCount} 人";
+            : $"{state.Label}：需要 {state.Needed} 人，后期 {state.Count} 人，{_vm.PhaseLabels[_vm.CurrentPhase]} {phaseCount} 人");
         return box;
     }
 
@@ -828,6 +831,7 @@ public partial class LineupEditorWindow : Window
         }
         DockPanel.SetDock(right, Dock.Right);
         row.Children.Add(right);
+        Controls.PanelToolTip.SetCovenant(row, stat.Name);
         row.Children.Add(Text(stat.Name, 12, stat.Activated ? "TextPrimaryBrush" : "TextSecondaryBrush", bold: stat.Activated));
         return row;
     }
@@ -851,6 +855,7 @@ public partial class LineupEditorWindow : Window
     {
         var chip = new Border { Padding = new Thickness(8, 0, 3, 0), Margin = new Thickness(0, 0, 5, 4), BorderThickness = new Thickness(1), Height = 28 };
         chip.SetResourceReference(Border.CornerRadiusProperty, "RowCornerRadius");
+        Controls.PanelToolTip.SetCovenant(chip, state.Name);
         chip.SetResourceReference(Border.BackgroundProperty, state.Reached ? "SuccessTintBrush" : "EliteTintBrush");
         chip.SetResourceReference(Border.BorderBrushProperty, state.Reached ? "SuccessBorderBrush" : "EliteBrush");
         var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -900,7 +905,7 @@ public partial class LineupEditorWindow : Window
         remove.Click += (_, _) => { _vm.RemoveTarget(target); RefreshEditor(); };
         content.Children.Add(remove);
         chip.Child = content;
-        chip.ToolTip = $"{state.Label}：需要 {state.Needed} 人，后期现在 {state.Count} 人";
+        Controls.PanelToolTip.SetNote(chip, $"{state.Label}：需要 {state.Needed} 人，后期现在 {state.Count} 人");
         return chip;
     }
 

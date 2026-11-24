@@ -1,0 +1,212 @@
+<UserControl x:Class="ASPAssistant.App.Views.SklandBrowseView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="clr-namespace:ASPAssistant.App.Controls"
+    xmlns:c="clr-namespace:ASPAssistant.App.Converters"
+    Foreground="{DynamicResource TextPrimaryBrush}" Background="{DynamicResource PanelBackgroundBrush}">
+    <UserControl.Resources>
+        <c:NameToIconConverter x:Key="Icon"/>
+        <ItemsPanelTemplate x:Key="Flow"><WrapPanel/></ItemsPanelTemplate>
+        <ToolTip x:Key="GuideDetailsTip" Placement="Left" Background="Transparent" BorderThickness="0" Padding="0"
+                 HasDropShadow="False" MaxHeight="700"/>
+        <DataTemplate x:Key="GuideOperatorDetails">
+            <Border Background="{DynamicResource PanelBackgroundBrush}" CornerRadius="{DynamicResource CardCornerRadius}" Padding="6"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource OperatorDetailsTemplate}"/>
+                </ScrollViewer>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="GuideStrategyDetails">
+            <Border Style="{StaticResource StrategyDetailsFrame}"><StackPanel>
+                <TextBlock Text="{Binding Name}" Style="{StaticResource StrategyDetailsHeading}"/>
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource StrategyDetailsBody}"/>
+            </StackPanel></Border>
+        </DataTemplate>
+        <DataTemplate x:Key="GuideEquipmentDetails">
+            <Border Width="310" Background="{DynamicResource PanelBackgroundBrush}" CornerRadius="{DynamicResource CardCornerRadius}" Padding="6"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>
+                    <controls:EquipmentCard ShowTrackingButton="False"/>
+                    <TextBlock Text="{Binding Tag, RelativeSource={RelativeSource AncestorType=ToolTip}}" TextWrapping="Wrap"
+                               Margin="5,2" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                </StackPanel></ScrollViewer>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="GuideNameOnly">
+            <Border Style="{StaticResource SettingsCard}"><TextBlock Text="{Binding}" Foreground="{DynamicResource TextPrimaryBrush}"/></Border>
+        </DataTemplate>
+        <DataTemplate x:Key="Portrait">
+            <StackPanel Width="55" Background="Transparent" Margin="0,2,2,5" Tag="Operator" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="250" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000">
+                <Image Width="32" Height="32" Source="{Binding Converter={StaticResource Icon}, ConverterParameter=operators}"/>
+                <TextBlock Text="{Binding}" TextAlignment="Center" FontSize="11" TextWrapping="Wrap"/>
+            </StackPanel>
+        </DataTemplate>
+        <Style x:Key="GuideChip" TargetType="ToggleButton" BasedOn="{StaticResource ClickableToggleButtonBase}">
+            <Setter Property="Margin" Value="0,2,4,2"/><Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton">
+                <Border x:Name="Frame" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="6" Padding="7,3">
+                    <ContentPresenter/>
+                </Border>
+                <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="Frame" Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+                    <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                </Trigger></ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="GuideCard" TargetType="Button" BasedOn="{StaticResource ClickableButtonBase}">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Frame" Style="{StaticResource SettingsCard}"><ContentPresenter/></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <DataTemplate x:Key="GuideTitle">
+            <DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding SeasonName}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="6,2"/>
+                <Image DockPanel.Dock="Left" Width="29" Height="29" Margin="0,0,7,0" Tag="Strategy" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="250" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000" Source="{Binding Primary.Id, Converter={StaticResource Icon}, ConverterParameter=strategies}"/>
+                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Bold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </DockPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="Bond">
+            <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="5" Tag="Covenant" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="{x:Static controls:PanelToolTip.CovenantInitialDelay}" ToolTipService.BetweenShowDelay="{x:Static controls:PanelToolTip.CovenantSwitchInterval}" ToolTipService.ShowDuration="60000" Padding="6,2" Margin="0,2,4,2">
+                <TextBlock Text="{Binding}" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="11"/>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="Gear">
+            <StackPanel Orientation="Horizontal" Background="Transparent" Tag="Equipment" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="250" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000" Margin="0,2,8,3">
+                <Image Width="22" Height="22" Source="{Binding Converter={StaticResource Icon}, ConverterParameter=equipment}"/>
+                <TextBlock Text="{Binding}" VerticalAlignment="Center" Margin="3,0,0,0"/>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <Grid Margin="10,7">
+        <DockPanel x:Name="Square">
+            <StackPanel DockPanel.Dock="Top">
+                <DockPanel>
+                    <Button x:Name="Refresh" DockPanel.Dock="Right" Content="刷新" Click="OnRefresh" Style="{StaticResource SmallActionButton}"/>
+                    <Button x:Name="Account" DockPanel.Dock="Right" Content="登录" Click="OnAccount" Style="{StaticResource SmallActionButton}" Margin="3,0"/>
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton x:Name="PublicTab" Content="攻略广场" Tag="square" IsChecked="True" Style="{StaticResource GuideChip}" Click="OnSection"/>
+                        <ToggleButton x:Name="SavedTab" Content="我的收藏" Tag="collected" Style="{StaticResource GuideChip}" Click="OnSection"/>
+                        <ToggleButton x:Name="OwnTab" Content="我发布的" Tag="published" Style="{StaticResource GuideChip}" Click="OnSection"/>
+                    </StackPanel>
+                </DockPanel>
+                <DockPanel Margin="0,7,0,3">
+                    <Button x:Name="FilterButton" DockPanel.Dock="Right" Content="筛选" Style="{StaticResource SmallActionButton}" Margin="5,0,0,0" Click="OnFilters"/>
+                    <Grid>
+                        <TextBox x:Name="Search" Style="{StaticResource CompactSingleLineTextBox}" TextChanged="OnSearch" AutomationProperties.Name="搜索攻略标题"/>
+                        <TextBlock x:Name="SearchHint" Text="搜索攻略标题" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{DynamicResource TextSecondaryBrush}">
+                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Search}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </DockPanel>
+                <ScrollViewer x:Name="Filters" Visibility="Collapsed" MaxHeight="260" VerticalScrollBarVisibility="Auto" Margin="0,4">
+                    <Border Style="{StaticResource SettingsCard}"><StackPanel>
+                        <DockPanel><Button x:Name="ClearFilters" DockPanel.Dock="Right" Content="清空" Style="{StaticResource SmallActionButton}" Click="OnClearFilters"/>
+                            <TextBlock Text="攻略筛选" FontWeight="Bold" VerticalAlignment="Center"/></DockPanel>
+                        <TextBlock Text="在已加载结果中查作者或干员" Style="{StaticResource SettingsCaption}"/>
+                        <TextBox x:Name="LocalSearch" Style="{StaticResource CompactSingleLineTextBox}" AutomationProperties.Name="在已加载结果中查作者或干员" TextChanged="OnLocalSearch"/>
+                        <TextBlock Text="核心盟约" Style="{StaticResource SettingsCaption}"/><WrapPanel x:Name="Core"/>
+                        <TextBlock Text="附加盟约 · 同一阶段全部满足" Style="{StaticResource SettingsCaption}"/><WrapPanel x:Name="Extra"/>
+                        <DockPanel x:Name="StrategyHeader" Margin="0,6,0,2">
+                            <Button x:Name="ChosenStrategy" DockPanel.Dock="Right" Visibility="Collapsed" Style="{StaticResource SmallActionButton}" Click="OnRemoveStrategy" ToolTip="取消已选策略"/>
+                            <Button x:Name="StrategyToggle" HorizontalAlignment="Left" Content="推荐策略 ▸ 展开" Style="{StaticResource SmallActionButton}" Click="OnToggleStrategies"/>
+                        </DockPanel>
+                        <StackPanel x:Name="StrategyBody" Visibility="Collapsed">
+                            <Grid Margin="0,2,0,4">
+                                <TextBox x:Name="StrategySearch" Style="{StaticResource CompactSingleLineTextBox}" AutomationProperties.Name="查找策略名或发起人" TextChanged="OnStrategySearch"/>
+                                <TextBlock Text="查找策略名或发起人" FontSize="12" Margin="10,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{DynamicResource TextSecondaryBrush}">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=StrategySearch}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <WrapPanel x:Name="Strategy"/>
+                            <TextBlock x:Name="NoStrategy" Text="未找到这个策略或发起人" Visibility="Collapsed" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <Button x:Name="CollapseStrategies" HorizontalAlignment="Left" Margin="0,4,0,0" Content="收起策略 ▴" Style="{StaticResource SmallActionButton}" Click="OnToggleStrategies"/>
+                        </StackPanel>
+                    </StackPanel></Border>
+                </ScrollViewer>
+                <TextBlock x:Name="Status" TextWrapping="Wrap" Margin="2,4" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                <TextBlock x:Name="CountText" TextWrapping="Wrap" Margin="2,0,0,4"/>
+                <Button x:Name="ClearEmpty" Content="清除筛选" HorizontalAlignment="Left" Style="{StaticResource SmallActionButton}" Visibility="Collapsed" Click="OnClearEmpty"/>
+            </StackPanel>
+            <ScrollViewer x:Name="ListScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <ItemsControl x:Name="Cards"><ItemsControl.ItemTemplate><DataTemplate>
+                        <Button Style="{StaticResource GuideCard}" Click="OnOpen" Margin="0,0,0,6" AutomationProperties.Name="{Binding Title}"><StackPanel>
+                            <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource GuideTitle}"/>
+                            <ItemsControl Margin="0,4" ItemsSource="{Binding Formation.Bonds}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Bond}"/>
+                            <ItemsControl ItemsSource="{Binding Portraits}" ItemsPanel="{StaticResource Flow}">
+                                <ItemsControl.ItemTemplate><DataTemplate><Grid Width="29" Height="31" Margin="0,0,3,2" Background="Transparent" Tag="Operator" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="250" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000">
+                                    <Image Source="{Binding Name, Converter={StaticResource Icon}, ConverterParameter=operators}"/>
+                                    <Viewbox Width="15" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top">
+                                        <Border Background="{DynamicResource CardBackgroundBrush}" CornerRadius="4"><ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource TrackingTierBadge}"/></Border>
+                                    </Viewbox>
+                                </Grid></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border BorderThickness="0,1,0,0" BorderBrush="{DynamicResource LineBrush}" Padding="0,6,0,0" Margin="0,5,0,0"><DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                                            IsEnabled="{Binding Tag, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                    <Button Content="{Binding CollectLabel}" Tag="collected" Click="OnReaction" Style="{StaticResource SmallActionButton}" ToolTip="收藏或取消收藏"/>
+                                    <Button Content="{Binding LikeLabel}" Tag="liked" Click="OnReaction" Style="{StaticResource SmallActionButton}" Margin="4,0,0,0" ToolTip="点赞或取消点赞"/>
+                                </StackPanel>
+                                <WrapPanel VerticalAlignment="Center">
+                                    <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="4,1" Margin="0,0,3,0"><TextBlock Text="{Binding AuthorInitial}" FontSize="10"/></Border>
+                                    <TextBlock Text="{Binding Author}" FontSize="10" FontWeight="SemiBold" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding Published}" FontSize="10" ToolTip="发布时间（北京时间）" Margin="0,0,4,0"/>
+                                    <TextBlock Text="{Binding Phase}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                    <TextBlock Text="{Binding ReviewStatus}" FontSize="10" Margin="3,0,0,0"/>
+                                </WrapPanel>
+                            </DockPanel></Border>
+                        </StackPanel></Button>
+                    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                    <Button x:Name="More" Visibility="Collapsed" Content="下一页" Style="{StaticResource SmallActionButton}" Click="OnMore"/>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+        <DockPanel x:Name="Detail" Visibility="Collapsed">
+            <Button x:Name="Back" DockPanel.Dock="Top" HorizontalAlignment="Left" Content="‹  攻略广场" Style="{StaticResource SmallActionButton}" Click="OnBack"/>
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,5,0,0">
+                <TextBlock x:Name="ImportMessage" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                <Button x:Name="Import" Content="导入完整攻略" Style="{StaticResource DialogPrimaryButton}" Click="OnImport"/>
+            </StackPanel>
+            <ScrollViewer x:Name="StageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <ContentPresenter Margin="0,7" Content="{Binding}" ContentTemplate="{StaticResource GuideTitle}"/>
+                    <WrapPanel><TextBlock Text="{Binding Author}" Margin="0,0,7,0"/><TextBlock Text="{Binding Phase}"/></WrapPanel>
+                    <Border Style="{StaticResource SettingsCard}" Margin="0,7"><Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <StackPanel x:Name="AlternatePanel" Width="143" Margin="0,0,7,0">
+                            <TextBlock Text="备选策略" FontWeight="Bold"/>
+                            <ItemsControl ItemsSource="{Binding Alternatives}" ItemsPanel="{StaticResource Flow}">
+                                <ItemsControl.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal" Background="Transparent" Tag="Strategy" ToolTip="{StaticResource GuideDetailsTip}" ToolTipOpening="OnDetailsOpening" ToolTipService.InitialShowDelay="250" ToolTipService.BetweenShowDelay="0" ToolTipService.ShowDuration="60000" Margin="0,3,5,1">
+                                    <Image Width="18" Height="18" Source="{Binding Id, Converter={StaticResource Icon}, ConverterParameter=strategies}"/>
+                                    <TextBlock Text="{Binding Name}" FontSize="11" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                                </StackPanel></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="适用范围" FontWeight="Bold"/>
+                            <TextBlock x:Name="ScopeText" SizeChanged="OnScopeSizeChanged" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <Button x:Name="ScopeToggle" Click="OnScopeToggle" HorizontalAlignment="Left" Style="{StaticResource SmallActionButton}"/>
+                        </StackPanel>
+                    </Grid></Border>
+                    <ListBox x:Name="Stages" AutomationProperties.Name="攻略阶段" Margin="0,0,0,7" Style="{StaticResource SegmentedListBox}"
+                        ItemContainerStyle="{StaticResource SegmentedItem}" DisplayMemberPath="Name" ItemsPanel="{StaticResource Flow}" SelectionChanged="OnStage"/>
+                    <Border Style="{StaticResource SettingsCard}"><StackPanel x:Name="StagePanel">
+                    <TextBlock Text="阶段推荐干员" FontWeight="Bold"/><ItemsControl ItemsSource="{Binding Operators}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Portrait}"/>
+                    <TextBlock Text="攻略达成的盟约" Style="{StaticResource SettingsCaption}"/><ItemsControl ItemsSource="{Binding Bonds}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Bond}"/>
+                    <TextBlock x:Name="BondStatus" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    <TextBlock Text="阶段推荐装备" Style="{StaticResource SettingsCaption}"/><ItemsControl ItemsSource="{Binding Equipment}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Gear}"/>
+                    <TextBlock x:Name="GearStatus" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    <TextBlock Text="运营讲解" Style="{StaticResource SettingsCaption}"/><TextBlock Text="{Binding Notes}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="Fit" Margin="0,8,0,2" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel></Border>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Grid>
+</UserControl>

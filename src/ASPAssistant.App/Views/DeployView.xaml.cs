@@ -101,6 +101,7 @@ public partial class DeployView : UserControl
 
     public async Task StartNewRunAsync()
     {
+        SetRunCovenants(null, []);
         CloseMapActions();
         Notice("");
         _replanTimer.Stop();
@@ -160,6 +161,7 @@ public partial class DeployView : UserControl
     {
         string? before = CurrentMap?.Id;
         _recognized = match;
+        UpdateInGameHint();
         if (match is not null) _lastSeen = match.Map;
         if (CurrentMap?.Id != before) OnMapChanged();
         else RefreshHeader();
@@ -333,7 +335,18 @@ public partial class DeployView : UserControl
         PublishPlan();
     }
 
-    private void PublishPlan() => PlanChanged?.Invoke(ShowInGame ? _plan : null);
+    private void PublishPlan()
+    {
+        UpdateInGameHint();
+        PlanChanged?.Invoke(ShowInGame ? _plan : null);
+    }
+
+    private void UpdateInGameHint()
+    {
+        InGameHint.Text = !ShowInGame ? "格子 · 名字 · 朝向" : _recognized is null ? "等待己方棋盘"
+            : _plan is null || _plan.Placed.Count == 0 ? "等待推荐站位"
+            : _plan.Map.Id != _recognized.Map.Id ? "等待方案对应的地图" : "格子 · 名字 · 朝向";
+    }
 
     private void SetStatus(string? text)
     {
@@ -905,7 +918,11 @@ public partial class DeployView : UserControl
             var body = new StackPanel { ClipToBounds = true, Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
             body.Children.Add(Text(Display(p.Key) + (_state.IsElite(p.Name) ? " · 精" : ""), 11, "TextPrimaryBrush", bold: true));
             if (opData is not null)
-                body.Children.Add(Text(string.Join(" · ", opData.CoreCovenants.Concat(opData.AdditionalCovenants)), 9.5, "TextSecondaryBrush"));
+            {
+                var covenants = Text("", 9.5, "TextSecondaryBrush");
+                Controls.PanelToolTip.AppendNames(covenants, opData.CoreCovenants.Concat(opData.AdditionalCovenants), " · ");
+                body.Children.Add(covenants);
+            }
             dock.Children.Add(body);
             grid.Children.Add(dock);
             card.Child = grid;
@@ -1319,7 +1336,7 @@ public partial class DeployView : UserControl
         if (_activeTier is null || !extItems.Any(i => i.Tier == _activeTier))
             // Start on a tier that already holds an owned operator, else the lowest tier with anyone in it.
             _activeTier = extItems.Where(i => i.Owned).Select(i => (int?)i.Tier).Min() ?? extItems.Select(i => (int?)i.Tier).Min();
-        bool MatchesPoolScope(DeployPoolItem item) => (!_ownedOnly || item.Owned) && (_poolQuery.Length == 0 || SearchMatch.Matches(_poolQuery, item.Name, item.Sub));
+        bool MatchesPoolScope(DeployPoolItem item) => (!_ownedOnly || item.Owned) && item.MatchesSearch(_poolQuery);
         _poolCovenants.UpdateCounts(groups.SelectMany(g => g.Items).Where(MatchesPoolScope).Select(i => i.Operator).OfType<Operator>().DistinctBy(o => o.Name));
         if (groups.Count == 0)
         {
@@ -1481,7 +1498,7 @@ public partial class DeployView : UserControl
             var n = Text(item.Count.ToString(), 11, "OnAccentBrush", bold: true);
             n.FontFamily = (FontFamily)FindResource("NumberFontFamily");
             sp.Children.Add(n);
-            sp.Children.Add(StepButton("+", () => ChangeCount(item.Name, +1)));
+            if (CanChooseOperator(item.Name)) sp.Children.Add(StepButton("+", () => ChangeCount(item.Name, +1)));
             step.Child = sp;
             step.ToolTip = "同名干员可以上场多个";
             DockPanel.SetDock(step, Dock.Right);
@@ -1545,7 +1562,12 @@ public partial class DeployView : UserControl
         root.Children.Add(dock);
         root.ToolTip = item.Name + (item.Owned ? " · 用 − / + 调整数量" : " · 点击标记已获取");
         if (_bouncePool == item.Name) { Bounce(root); _bouncePool = null; }
-        if (!item.Owned) root.MouseLeftButtonUp += (_, _) => ChangeCount(item.Name, 1);
+        if (!CanChooseOperator(item.Name))
+        {
+            root.ToolTip = item.Owned ? "本局不可选 · 可减少或清除原有记录" : "本局不可选";
+            if (!item.Owned) { root.Opacity = .55; root.Cursor = Cursors.Arrow; }
+        }
+        else if (!item.Owned) root.MouseLeftButtonUp += (_, _) => ChangeCount(item.Name, 1);
         return root;
     }
 
@@ -1570,6 +1592,7 @@ public partial class DeployView : UserControl
 
     private void ChangeCount(string name, int delta)
     {
+        if (delta > 0 && !CanChooseOperator(name)) return;
         _bouncePool = name;
         SetManualCount(name, _state.CountOf(name) + delta);
         if (delta < 0) _liveScanner?.LimitLiveMembers(name, _state.CountOf(name));
@@ -1643,7 +1666,7 @@ public partial class DeployView : UserControl
     {
         int level = _tracking?.TerminalLevel ?? 0;
         foreach (var entry in _tracking?.TrackedOperators.Where(t => t.IsStageActive && t.Type == TrackingType.Operator) ?? [])
-            if (!entry.ExpiredAt(level) && !_state.IsOwned(entry.Name)) SetManualCount(entry.Name, 1);
+            if (!entry.ExpiredAt(level) && !_state.IsOwned(entry.Name) && CanChooseOperator(entry.Name)) SetManualCount(entry.Name, 1);
         if (_locatedSearch is { } name) ClearLocatedSearchAfterAcquisition(name);
         _tracking?.SyncDeployPool();
         SaveState();
@@ -1653,10 +1676,9 @@ public partial class DeployView : UserControl
 
     private void OnAddOther(object sender, RoutedEventArgs e)
     {
-        var strategies = _operators.Values.Select(o => o.RequiredStrategyId).Where(s => s.Length > 0).ToHashSet();
-        var dlg = new OperatorPickerWindow(_operators.Values.ExceptBy(Groups().Where(g => g.Kind != DeployPoolGroupKind.Other).SelectMany(g => g.Items).Select(i => i.Name).Concat(_tracking!.TrackedOperators.Select(e => e.Name)), o => o.Name), "", strategies) { Owner = Window.GetWindow(this) };
-        dlg.ShowDialog();
-        if (dlg.Result is not { Length: > 0 } name) return;
+        var existing = Groups().Where(g => g.Kind != DeployPoolGroupKind.Other).SelectMany(g => g.Items)
+            .Select(i => i.Name).Concat(_tracking!.TrackedOperators.Select(e => e.Name));
+        if (PickRunOperator(_operators.Values.ExceptBy(existing, o => o.Name), "") is not { Length: > 0 } name) return;
         bool tracked = _tracking?.TrackedOperators.Any(t => t.Name == name) == true;
         bool extension = Groups().Any(g => g.Kind == DeployPoolGroupKind.Extension && g.Items.Any(i => i.Name == name));
         if (!tracked && !extension && !_state.Extra.Contains(name)) _state.Extra.Add(name);

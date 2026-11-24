@@ -12,7 +12,7 @@ public sealed record LiveUnit(FieldMark Mark, long Id, string? Name, string? Pur
     internal FieldMark? NameOnlySample { get; init; }
     public FieldMemoryLocation? Suggestion { get; init; }
     public string IdentitySource => Name == null ? "身份待确认" : Manual ? "手动指定" : Final ? "游戏详情已核实"
-        : MemberId.HasValue ? "本局外观与站位匹配" : FromPair ? "购买名单与棋子外观匹配" : FromPurchaseList ? "购买名单唯一匹配" : Purchase != null ? "购买与棋子外观匹配" : "棋子外观匹配";
+        : NameOnlySample != null ? "本局复核外观匹配" : MemberId.HasValue ? "本局外观与站位匹配" : FromPair ? "购买名单与棋子外观匹配" : FromPurchaseList ? "购买名单唯一匹配" : Purchase != null ? "购买与棋子外观匹配" : "棋子外观匹配";
 }
 public sealed record LiveRoster(string? Map, int? Round, IReadOnlyList<LiveUnit> Units)
 {
@@ -75,11 +75,11 @@ internal sealed partial class LiveFieldState(IReadOnlyDictionary<string, int> ti
     internal HashSet<string> KnownReviewNames() => _members.Values.Select(m=>m.Name)
         .Concat(_confirmedCopies.Where(p=>p.Value>0).Select(p=>p.Key)).ToHashSet();
 
-    internal string[] ReviewShapeCandidates(FieldMark mark)
+    internal string[] ReviewShapeCandidates(FieldMark mark, IReadOnlySet<string>? excluded = null)
     {
         // Purchase counts describe this observed batch only. Use unused copies
         // to break close review ranks without excluding gifts or untracked buys.
-        return mark.ShapeCandidates.OrderByDescending(c=>
+        return mark.ShapeCandidates.Where(c => excluded?.Contains(c.Name) != true).OrderByDescending(c=>
         {
             int bought=_boughtRound==Roster.Round?_bought.Count(n=>n==c.Name):0;
             int located=Roster.Units.Count(u=>u.Name==c.Name);
@@ -302,6 +302,29 @@ internal sealed partial class LiveFieldState(IReadOnlyDictionary<string, int> ti
             _batches[^1].FollowMoves(old.Values, next, previousMaxId);
         _lastObservation = now;
         BindMemory(next,map);
+        if (baseline && round == _observed.Round && !_purchasesChanged)
+        {
+            // A player may confirm the name without choosing which owned copy this was.
+            // Carry only that name when both the old and new slot have one visual match.
+            var moves = (from source in old.Values
+                         where source.NameOnlySample is { MemoryPatch.Length: > 0 } && source.Name != null
+                         from target in next
+                         where target.Id > previousMaxId && target.Name == null && target.MemberId == null &&
+                             target.Suggestion == null && source.Mark.Slot != target.Mark.Slot &&
+                             source.Mark.Slot.Bench == target.Mark.Slot.Bench && source.Mark.Camera == target.Mark.Camera &&
+                             (target.Mark.Tier == 0 || tiers[source.Name] == target.Mark.Tier) &&
+                             target.Mark.ShapeCandidates is [var first, var second, ..] && first.Name == source.Name &&
+                             first.Score >= .55 && first.Score - second.Score >= .065 &&
+                             source.Mark.MemoryPatch.Length > 0 && target.Mark.MemoryPatch.Length > 0 &&
+                             FieldMemoryAppearance.Distance(source.NameOnlySample.MemoryPatch,target.Mark.MemoryPatch) < 24 &&
+                             FieldMemoryAppearance.Distance(source.Mark.MemoryPatch,target.Mark.MemoryPatch) < 24
+                         select (source, target)).ToList();
+            foreach (var (source,target) in moves)
+            {
+                if (moves.Count(p => p.source.Id == source.Id || p.target.Id == target.Id) != 1) continue;
+                next[next.IndexOf(target)] = target with { Name = source.Name, NameOnlySample = source.NameOnlySample, NeedsReview = false };
+            }
+        }
         _observed = new(map, round, next) { Bought = _boughtRound == round ? _bought.ToArray() : [] };
         if (_offerBaselineTick == now)
         {

@@ -43,7 +43,7 @@ public sealed class AutoPlanner
     public AutoPlanResult Plan(AutoPlanRequest request, CancellationToken cancellationToken = default)
     {
         var pool = _operators.Where(o => o.IsAvailableForSelection)
-            .Where(o => !request.BannedOperators.Contains(o.Name))
+            .Where(o => !request.BannedOperators.Contains(o.Name) && !CovenantBanRules.HasMissingCovenant(o, request.MissingCovenants))
             .Where(o => !request.ExcludeMixedBannedOperators || !_planner.IsExcludedByBans(o, request.BannedCovenants))
             .ToList();
         var cores = _planner.Covenants.Where(c => c.BondType == "SEASON" && !request.BannedCovenants.Contains(c.Name)).ToList();
@@ -63,9 +63,7 @@ public sealed class AutoPlanner
     {
         bool limited = false;
         var name = covenant.Name;
-        // 暴躁铁皮 carries a transformation anyway and 变形同构 hands out the 同构体: both plan one from the start.
-        var free = request.Strategy is PlannerStrategy.Mech or PlannerStrategy.Shapeshifter ? 1 : 0;
-        var transformOrder = PlannerStrategies.TransformOptions(request.Strategy).OrderBy(t => t == free ? 0 : 1).ThenBy(t => t).ToList();
+        var transformOrder = PlannerStrategies.TransformOptions(request.Strategy).Order().ToArray();
 
         // Ⅱ with as few transformations as possible, then Ⅰ.
         PlannedLineup? final = null;
@@ -81,6 +79,7 @@ public sealed class AutoPlanner
                 {
                     Goals = [levelGoal],
                     BannedCovenants = request.BannedCovenants,
+                    MissingCovenants = request.MissingCovenants,
                     BannedOperators = request.BannedOperators,
                     LockedOperators = request.LockedOperators,
                     TransformAllowed = request.TransformAllowed,
@@ -92,12 +91,11 @@ public sealed class AutoPlanner
                 }, cancellationToken, maxResultsPerVariant: FinalChoices);
                 limited |= result.Variants.Any(v => v.SearchLimited);
                 if (result.Error is not null) return (null, result.Error, limited);
-                final = result.AllLineups
+                final = result.AllLineups.Where(l => l.ForcedTransforms == 0)
                     .OrderBy(l => l.MissingHealer).ThenBy(l => l.FreeSlots)
                     .ThenByDescending(l => l.AdditionalScore)
                     // Same 小盟约: the higher-tier lineup is the stronger boss lineup.
                     .ThenByDescending(l => l.Operators.Sum(o => _byName.TryGetValue(o.Name, out var op) ? op.Tier : 0))
-                    .ThenBy(l => l.ForcedTransforms)
                     .FirstOrDefault();
                 if (final is not null) break;
             }
@@ -134,7 +132,7 @@ public sealed class AutoPlanner
         if (final.FreeSlots > 0) notes.Add($"可用干员不够，空 {final.FreeSlots} 个位置");
 
         var score = (goal.Level == 2 ? 40 : 0) + 10 * final.AdditionalScore + lateLayers + 0.5 * earlyLayers
-                    - 6 * Math.Max(0, final.Transforms - free) - (final.MissingHealer ? 25 : 0) - 10 * final.FreeSlots;
+                    - 6 * final.Transforms - (final.MissingHealer ? 25 : 0) - 10 * final.FreeSlots;
         return (new AutoPlanCandidate
         {
             MainCovenant = name, Final = final, MainGoal = goal, SmallGoals = smalls, Goals = [goal, .. smalls],

@@ -2,6 +2,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:converters="clr-namespace:ASPAssistant.App.Converters"
+                    xmlns:vm="clr-namespace:ASPAssistant.Core.ViewModels;assembly=HongxueCompanion.Core"
                     xmlns:controls="clr-namespace:ASPAssistant.App.Controls">
 
     <!-- Clickable-control baseline: only interactive controls get hand cursor -->
@@ -1028,9 +1029,17 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
+    <Style x:Key="CompactSingleLineTextBox" TargetType="TextBox" BasedOn="{StaticResource DialogTextBox}">
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Padding" Value="9,0"/>
+        <Setter Property="FontSize" Value="12"/>
+    </Style>
+
     <!-- ── Filter card (operators / equipment) ───────────────────────────── -->
     <!-- Covenant / trait / category chip: DataContext = FilterChip; dot = 本局可用, count in the number font -->
     <Style x:Key="FilterChipToggle" TargetType="ToggleButton" BasedOn="{StaticResource ClickableToggleButtonBase}">
+        <Setter Property="controls:PanelToolTip.Covenant" Value="{Binding CovenantName}"/>
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
         <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=TwoWay}" />
         <Setter Property="IsEnabled" Value="{Binding IsBlocked, Converter={StaticResource FilterNotConverter}}" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
@@ -1172,7 +1181,7 @@
         <Border Height="24" Margin="0,0,5,5" Padding="8,0,3,0" CornerRadius="{DynamicResource PillCornerRadius}" BorderThickness="1"
                 Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource AccentBorderBrush}">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{Binding TagText}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
+                <TextBlock controls:PanelToolTip.Covenant="{Binding CovenantName}" Text="{Binding TagText}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
                 <Button Width="18" Height="18" Margin="3,0,0,0" Tag="{StaticResource IconClose}" Style="{StaticResource RowIconButton}"
                         Foreground="{DynamicResource AccentBrush}" ToolTip="去掉这个条件"
                         Command="{Binding DataContext.RemoveChipCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -1231,6 +1240,165 @@
         </StackPanel>
     </DataTemplate>
 
+
+    <DataTemplate x:Key="CovenantDetailsTemplate" DataType="{x:Type vm:PlannerCovenantItem}">
+        <Border Background="{DynamicResource PanelBackgroundBrush}" CornerRadius="{DynamicResource CardCornerRadius}" Padding="12"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Width="300">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,8">
+                    <Border DockPanel.Dock="Right" CornerRadius="{DynamicResource RowCornerRadius}" Padding="7,1" VerticalAlignment="Center"
+                            Background="{DynamicResource NeutralTintBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                        <TextBlock Text="{Binding TypeText}" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </Border>
+                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                </DockPanel>
+                <TextBlock Text="{Binding Tag, RelativeSource={RelativeSource AncestorType=ToolTip}}" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,0,0,6"/>
+                        <Style.Triggers>
+                            <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger>
+                        </Style.Triggers>
+                    </Style></TextBlock.Style>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,8">
+                    <TextBlock Text="本局状态待确认" FontSize="10" VerticalAlignment="Center" Margin="0,0,5,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Visibility="{Binding IsRunStatusUnknown, Converter={StaticResource DetailsBoolToVis}}" />
+                    <Border CornerRadius="{DynamicResource RowCornerRadius}" Padding="7,1" Margin="0,0,5,0" BorderThickness="1"
+                            Background="{DynamicResource AvailableTintBrush}" BorderBrush="{DynamicResource AvailableBrush}"
+                            Visibility="{Binding ShowAvailableBadge, Converter={StaticResource DetailsBoolToVis}}">
+                        <TextBlock Text="本局可用" FontSize="10" Foreground="{DynamicResource AvailableBrush}" />
+                    </Border>
+                    <Border CornerRadius="{DynamicResource RowCornerRadius}" Padding="7,1" Margin="0,0,5,0" BorderThickness="1"
+                            Background="{DynamicResource DangerTintBrush}" BorderBrush="{DynamicResource DangerBrush}"
+                            Visibility="{Binding ShowBannedBadge, Converter={StaticResource DetailsBoolToVis}}">
+                        <TextBlock Text="本局被 Ban" FontSize="10" Foreground="{DynamicResource DangerBrush}" />
+                    </Border>
+                    <Border CornerRadius="{DynamicResource RowCornerRadius}" Padding="7,1" BorderThickness="1"
+                            Background="{DynamicResource EliteTintBrush}" BorderBrush="{DynamicResource EliteBrush}"
+                            Visibility="{Binding CanTransformThisRun, Converter={StaticResource DetailsBoolToVis}}">
+                        <TextBlock FontSize="10" Foreground="{DynamicResource EliteBrush}">
+                            <TextBlock.Style><Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="可作为转职目标"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding IsRunStatusUnknown}" Value="True">
+                                    <Setter Property="Text" Value="支持转职"/>
+                                </DataTrigger></Style.Triggers>
+                            </Style></TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+                </WrapPanel>
+                <Grid Margin="0,0,0,6" Visibility="{Binding UsesNativeMembers, Converter={StaticResource DetailsBoolToVis}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Width="24" Height="20" CornerRadius="{DynamicResource RowCornerRadius}" Margin="0,0,8,4" Background="{DynamicResource AccentBrush}" VerticalAlignment="Top">
+                        <TextBlock Text="Ⅰ" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource OnAccentBrush}" />
+                    </Border>
+                    <TextBlock Grid.Column="1" Text="{Binding FirstRequirement}" FontSize="12" Margin="0,1,0,4"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <Border Grid.Row="1" Width="24" Height="20" CornerRadius="{DynamicResource RowCornerRadius}" Margin="0,0,8,0" Background="{DynamicResource EliteBrush}" VerticalAlignment="Top">
+                        <TextBlock Text="Ⅱ" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource OnAccentBrush}" />
+                    </Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SecondRequirement}" FontSize="12" Margin="0,1,0,0"
+                               TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}" />
+                </Grid>
+                <!-- In-game effects: base effect first, then <condition> rows -->
+                <ItemsControl ItemsSource="{Binding Effects}" Focusable="False" Margin="0,4,0,2"
+                              Visibility="{Binding HasEffects, Converter={StaticResource DetailsBoolToVis}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,7">
+                                <Border HorizontalAlignment="Left" CornerRadius="{DynamicResource RowCornerRadius}" Padding="6,1" Margin="0,0,0,3"
+                                        Background="{DynamicResource EliteTintBrush}" BorderBrush="{DynamicResource EliteBrush}" BorderThickness="1"
+                                        Visibility="{Binding HasCondition, Converter={StaticResource DetailsBoolToVis}}">
+                                    <TextBlock Text="{Binding Condition}" FontSize="10" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource EliteBrush}" />
+                                </Border>
+                                <TextBlock Text="{Binding Text}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding BanNote}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,6"
+                           Foreground="{DynamicResource DangerBrush}"
+                           Visibility="{Binding HasBanNote, Converter={StaticResource DetailsBoolToVis}}" />
+                <Rectangle Height="1" Visibility="{Binding UsesNativeMembers, Converter={StaticResource DetailsBoolToVis}}" Margin="0,4,0,8" Fill="{DynamicResource BorderBrush}" />
+                <TextBlock Text="{Binding MemberSummary}" Visibility="{Binding UsesNativeMembers, Converter={StaticResource DetailsBoolToVis}}" FontSize="10" Margin="0,0,0,6" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <ItemsControl ItemsSource="{Binding Members}" Visibility="{Binding UsesNativeMembers, Converter={StaticResource DetailsBoolToVis}}" Focusable="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:PlannerCovenantMember}">
+                            <StackPanel x:Name="member" Width="48" Margin="0,0,0,6">
+                                <controls:Avatar Width="32" Height="32" Text="{Binding Name}" Source="{Binding IconPath}" />
+                                <TextBlock x:Name="memberName" Text="{Binding Name}" FontSize="9" TextAlignment="Center" Margin="1,2,1,0"
+                                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsUnavailable}" Value="True">
+                                    <Setter TargetName="member" Property="Opacity" Value="0.35" />
+                                    <Setter TargetName="memberName" Property="TextDecorations" Value="Strikethrough" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ScrollableCovenantDetails">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CovenantDetailsTemplate}"/>
+        </ScrollViewer>
+    </DataTemplate>
+    <DataTemplate x:Key="CovenantNameOnly">
+        <Border Background="{DynamicResource CardBackgroundBrush}" Padding="8,5" CornerRadius="{DynamicResource RowCornerRadius}">
+            <TextBlock Text="{Binding}" Foreground="{DynamicResource TextPrimaryBrush}"/>
+        </Border>
+    </DataTemplate>
+    <ToolTip x:Key="PanelCovenantTip" Placement="Left" MaxHeight="700" Background="Transparent"
+             BorderThickness="0" Padding="0" HasDropShadow="False"/>
+    <Style x:Key="StrategyDetailsFrame" TargetType="Border">
+        <Setter Property="Width" Value="235"/><Setter Property="Padding" Value="13"/>
+        <Setter Property="CornerRadius" Value="{DynamicResource CardCornerRadius}"/>
+        <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}"/><Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style x:Key="StrategyDetailsHeading" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="16"/><Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/><Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <DataTemplate x:Key="StrategyDetailsBody">
+        <StackPanel>
+            <DockPanel Margin="0,6,0,8">
+                <TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}">初始生命 <Run Text="{Binding InitialHp, Mode=OneWay}" FontWeight="Bold"/></TextBlock>
+                <TextBlock Text="{Binding Initiator, StringFormat=发起人 · {0}}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+            </DockPanel>
+            <Border Height="1" Background="{DynamicResource LineBrush}"/>
+            <ScrollViewer x:Name="StrategyScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="285">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="{Binding Description}" FontSize="12" LineHeight="18" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap"/>
+                    <StackPanel Margin="0,8,0,0">
+                        <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers>
+                            <DataTrigger Binding="{Binding UnlockRequirement}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                        </Style.Triggers></Style></StackPanel.Style>
+                        <TextBlock Text="解锁条件" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        <TextBlock Text="{Binding UnlockRequirement}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </StackPanel>
+    </DataTemplate>
 
     <!-- ── Stock controls in theme colors ─────────────────────────────────── -->
     <Style TargetType="ToolTip">

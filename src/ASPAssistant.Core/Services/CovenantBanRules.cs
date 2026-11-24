@@ -16,6 +16,9 @@ public static class CovenantBanRules
     public static bool IsExcluded(Operator op, IReadOnlySet<string> bannedCovenants)
         => IsExcluded(op.CoreCovenants, op.AdditionalCovenants, bannedCovenants);
 
+    public static bool HasMissingCovenant(Operator op, IReadOnlySet<string> missing)
+        => missing.Overlaps(op.CoreCovenants) || missing.Overlaps(op.AdditionalCovenants);
+
     public static bool IsExcluded(IEnumerable<string> core, IEnumerable<string> additional, IReadOnlySet<string> bannedCovenants)
     {
         if (bannedCovenants.Count == 0) return false;

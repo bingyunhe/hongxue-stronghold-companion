@@ -17,7 +17,41 @@ public partial class DeployView
     private LiveUnit? _editUnit;
     private FieldSlot? _editSlot;
     private string? _editName;
+    private FieldObservation? _choicesFrame;
+    private (FieldObservation Frame, string[] Names, string Method)? _pickedChoice;
+    private string[] DisplayedCorrectionChoices() => CorrectionChoices.Children.OfType<Button>().Select(b => (string)b.Content).ToArray();
     private int? _returnMode;
+    private BanScreenResult? _runCovenants;
+    private IReadOnlySet<string>? _runExcluded;
+    private OperatorPickerWindow? _openRunPicker;
+
+    internal void SetRunCovenants(BanScreenResult? result, IEnumerable<string> excluded)
+    {
+        if (result is not null && ReferenceEquals(result, _runCovenants)) return;
+        _runCovenants = result;
+        _runExcluded = result is null ? null : excluded.ToHashSet(StringComparer.Ordinal);
+        _liveScanner?.SetReviewExclusions(_runExcluded);
+        _openRunPicker?.Close();
+        HideCorrection();
+        if (_ready) RefreshAll();
+    }
+
+    private bool CanChooseOperator(string name) => _operators.TryGetValue(name, out var op)
+        && op.IsAvailableForSelection && _runExcluded?.Contains(name) != true;
+
+    private string? PickRunOperator(IEnumerable<Operator> operators, string current, string[]? ranked = null)
+    {
+        var choices = operators.Where(op => CanChooseOperator(op.Name)).ToList();
+        var strategies = choices.Select(o => o.RequiredStrategyId).Where(s => s.Length > 0).ToHashSet();
+        var picker = new OperatorPickerWindow(choices, current, strategies,
+            reviewCandidates: ranked?.Where(CanChooseOperator).ToArray(), pickerRun: _runCovenants)
+            { Owner = Window.GetWindow(this) };
+        picker.ClearSlotButton.Visibility = Visibility.Collapsed;
+        _openRunPicker = picker;
+        try { picker.ShowDialog(); }
+        finally { _openRunPicker = null; }
+        return picker.Result;
+    }
 
     internal void ConnectMapPlanner(LineupPlannerViewModel planner, LineupViewModel library)
     {
@@ -38,6 +72,8 @@ public partial class DeployView
         _editSlot = null;
         _editUnit = null;
         _editName = null;
+        _choicesFrame = null;
+        _pickedChoice = null;
         CorrectionPanel.Visibility = Visibility.Collapsed;
     }
 
@@ -66,7 +102,9 @@ public partial class DeployView
         _editRoster = _roster;
         _editSlot = slot;
         _editUnit = unit;
-        _editName = unit?.Name;
+        _choicesFrame = observed;
+        _pickedChoice = null;
+        _editName = unit?.Name is { } current && CanChooseOperator(current) ? current : null;
         var displayed = _editRoster;
         DrawBoard();
         var names = unit == null ? _roster.Unlocated.Select(m => m.Name).Concat(_state.Owned
@@ -75,9 +113,14 @@ public partial class DeployView
         ShowCorrection(names);
         if (unit != null && _liveScanner is { } scanner)
         {
-            var ranked = await Task.Run(() => scanner.GetLiveReviewCandidates(unit));
-            if (!ReferenceEquals(_editRoster, displayed) || _editSlot != slot) return;
-            ShowCorrection(names.Concat(ranked).Distinct().ToArray());
+            var result = await Task.Run(() =>
+            {
+                var ranked = scanner.GetLiveReviewCandidates(unit, out var frame);
+                return (ranked, frame);
+            });
+            if (!ReferenceEquals(_editRoster, displayed) || _editSlot != slot || result.frame == null) return;
+            _choicesFrame = result.frame;
+            ShowCorrection(names.Concat(result.ranked).Distinct().ToArray());
         }
     }
 
@@ -86,13 +129,18 @@ public partial class DeployView
         CorrectionPanel.Visibility = Visibility.Visible;
         CorrectionTitle.Text = _editUnit != null ? $"复核 {_editSlot}" : _editSlot != null ? $"补录 {_editSlot}" : "补记持有";
         CorrectionChoices.Children.Clear();
-        var candidates = names.Where(_operators.ContainsKey).Take(4).ToArray();
+        var candidates = names.Where(CanChooseOperator).Take(4).ToArray();
         _editName ??= candidates.FirstOrDefault();
         foreach (string n in candidates)
         {
             var button = new Button { Content = n, Margin = new Thickness(0, 3, 4, 2) };
             button.SetResourceReference(StyleProperty, "SmallActionButton");
-            button.Click += (_, _) => { _editName = n; UpdateCorrectionActions(); };
+            button.Click += (_, _) =>
+            {
+                _pickedChoice = (_choicesFrame!, DisplayedCorrectionChoices(), "快捷确认");
+                _editName = n;
+                UpdateCorrectionActions();
+            };
             CorrectionChoices.Children.Add(button);
         }
         UpdateCorrectionActions();
@@ -128,18 +176,20 @@ public partial class DeployView
 
     private bool ChooseCorrection()
     {
-        var picker = new OperatorPickerWindow(_operators.Values, _editName ?? "",
-            _operators.Values.Select(o => o.RequiredStrategyId).Where(s => s.Length > 0).ToHashSet()) { Owner = Window.GetWindow(this) };
-        picker.ClearSlotButton.Visibility = Visibility.Collapsed;
-        picker.ShowDialog();
-        if (picker.Result is not { Length: > 0 } n || _editRoster == null) return false;
+        if (PickRunOperator(_operators.Values, _editName ?? "") is not { Length: > 0 } n || _editRoster == null) return false;
         _editName = n;
         return true;
     }
 
     private void OnPickCorrection(object sender, RoutedEventArgs e)
     {
-        if (ChooseCorrection()) UpdateCorrectionActions();
+        var frame = _choicesFrame;
+        var displayed = DisplayedCorrectionChoices();
+        if (ChooseCorrection())
+        {
+            if (frame != null) _pickedChoice = (frame, displayed, "选其他干员");
+            UpdateCorrectionActions();
+        }
     }
 
     private void OnCountOnly(object sender, RoutedEventArgs e)
@@ -152,9 +202,11 @@ public partial class DeployView
         FinishCorrection($"已补记{name} · 持有 {_state.CountOf(name)} 名");
     }
 
-    private void OnConfirmCorrection(object sender, RoutedEventArgs e)
+    private async void OnConfirmCorrection(object sender, RoutedEventArgs e)
     {
         if (_editName is not { } name || _editSlot is not { } slot || _editRoster == null || _liveScanner is not { } scanner) return;
+        var (observation, candidates, method) = _pickedChoice ?? (_choicesFrame!, DisplayedCorrectionChoices(), "快捷确认");
+        var entry = (_editUnit == null ? "空格补记·" : "地图复核·") + method;
         if (!(_editUnit is { } unit ? scanner.ConfirmMapUnit(_editRoster, unit, name) : scanner.PlaceMissedUnit(_editRoster, slot, name)))
         {
             HideCorrection();
@@ -165,6 +217,7 @@ public partial class DeployView
         ShowLiveRoster(scanner.LiveRoster);
         if (_roster.Units.FirstOrDefault(u => u.Name == null) is { } next) OpenSlot(next.Mark.Slot);
         else FinishCorrection($"已确认 {slot} · {name}");
+        await scanner.SavePlayerCorrectionAsync(observation, slot, entry, candidates, name);
 
     }
 

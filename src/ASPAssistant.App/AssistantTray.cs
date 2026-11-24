@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using ASPAssistant.App.Windows;
 using ASPAssistant.Core;
 
@@ -41,7 +42,11 @@ internal sealed class AssistantTray : IDisposable
         var open = new MenuItem { Header = "打开助手" };
         open.Click += (_, _) => Restore();
         var exit = new MenuItem { Header = "退出程序" };
-        exit.Click += (_, _) => Application.Current.Shutdown();
+        exit.Click += (_, _) =>
+        {
+            RemoveIcon();
+            _panel.Dispatcher.BeginInvoke(new Action(Application.Current.Shutdown), DispatcherPriority.ApplicationIdle);
+        };
         _menu.Items.Add(open);
         _menu.Items.Add(exit);
         var icons = new IntPtr[1];

@@ -347,6 +347,7 @@ public partial class App : Application
             operators, equipment, strategies, _settingsManager, gameTheme, sidePanelPosition,
             new LineupPlanner(operators, covenantInfos), covenantInfos, appearance: appearance,
             closeBehavior: await _settingsManager.LoadMainWindowCloseBehaviorAsync());
+        sidePanel.SklandView.RestoreAccountOnFirstVisit = true;
         sidePanel.SetCodexBosses(bossDataService.Bosses);
         sidePanel.InitGameStartSettings(await _settingsManager.LoadGameStartSettingsAsync());
         if (configurationImport is not null) sidePanel.ShowConfigurationImportResult(configurationImport);
@@ -565,6 +566,7 @@ public partial class App : Application
             if (captureRevision != captureService.Connection.CaptureRevision || runRevision != _ocrScanner.RunRevision) return;
             deploy.ApplyRecognizedPurchases(names, _ocrScanner.LastPurchase.OfferedAt, _ocrScanner.LastPurchase.Round);
         });
+        _ocrScanner.ShowPlacementOverlay = deploy.ShowInGame;
         void ApplyBoard(BoardMatch? match)
         {
             sidePanel.SetBoardStatus(match?.Map.Name, match?.Camera == Core.Models.BoardCamera.Expanded);
@@ -572,11 +574,12 @@ public partial class App : Application
             // 站位页的“游戏内显示”是总开关；设置里的“游戏内显示部署格”只管要不要同时画格子和路线。
             bool draw = deploy.ShowInGame;
             overlay.UpdateBoard(draw ? match?.Map : null,
-                draw && match is not null ? boardData?.Cameras[match.Camera] : null, showCells: false);   // no grid, only the plan
+                draw && match is not null ? match.OverlayProjection ?? boardData?.Cameras[match.Camera] : null, showCells: showBoard);
         }
         deploy.PlanChanged += plan => overlay.UpdatePlacements(plan);
         deploy.ShowInGameChanged += enabled =>
         {
+            _ocrScanner.ShowPlacementOverlay = enabled;
             deployState.ShowInGame = enabled;
             _ = _settingsManager.SaveDeployPoolAsync(deployState);
             ApplyBoard(_ocrScanner.CurrentBoard);
@@ -633,9 +636,10 @@ public partial class App : Application
             _ocrScanner.MarkInformationRecorded();
             Dispatcher.Invoke(() =>
             {
-                banVm.SetCovenantBans(result.CoreCovenants.Concat(result.AdditionalCovenants).Where(c => c.IsBanned).Select(c => c.Name));
+                banVm.SetCovenantBans(result.CoreCovenants.Concat(result.AdditionalCovenants).Where(c => c.IsBanned).Select(c => c.Name), result.MissingCovenants);
                 operatorVm.SetAvailableCovenants(result.CoreCovenants.Concat(result.AdditionalCovenants)
-                    .Where(c => !c.IsBanned).Select(c => c.Name));
+                    .Where(c => !c.IsBanned).Select(c => c.Name), result.MissingCovenants);
+                deploy.SetRunCovenants(result, banVm.BannedNames);
                 sidePanel.ApplyAutomaticCurrentRunFilters();
                 if (result.EnemyFaction is null)
                     enemyVm.RecognitionFailed("盟约已录入，本次敌人信息未完整读出，可点击“截屏录入”重试。");

@@ -43,6 +43,7 @@ public static class AutoPlanStyles
 
 public sealed class AutoPlanRequest
 {
+    public IReadOnlySet<string> MissingCovenants { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> BannedCovenants { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> BannedOperators { get; init; } = new HashSet<string>();
     /// <summary>Operators every plan has to contain (already on the board).</summary>

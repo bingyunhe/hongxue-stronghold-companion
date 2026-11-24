@@ -1,10 +1,179 @@
 using ASPAssistant.Core.Data;
+using ASPAssistant.Core.Models;
 using ASPAssistant.Core.Services;
 
 namespace ASPAssistant.Tests.Services;
 
 public class FieldShapeReplayTests
 {
+    [Fact, Trait("Category", "LocalScreenshot")]
+    public async Task ReviewOrderOnRecordedBoards()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_REVIEW_EXCLUSIONS") is not { } exclusions) return;
+        string desert = Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY")!;
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        var store = new JsonDataStore(data);
+        var operators = (await store.LoadOperatorsAsync()).ToDictionary(op => op.Name);
+        var custom = await store.LoadCustomOperatorsAsync();
+        var selected = await new SettingsManager(Path.GetDirectoryName(exclusions)!).LoadCustomOperatorSelectionAsync();
+        foreach (var op in custom)
+        {
+            op.IsSelectedCustom = selected.Contains(op.Name);
+            operators.Add(op.Name, op);
+        }
+        using var ocr = new MaaOcrEngine(data);
+        using var connection = new GameConnectionService(new() { Source = GameCaptureSource.Adb });
+        var rows = new List<string>();
+        foreach (var scenario in new[] { "本局", "short-field-r10", "short-field-r6", "cactus-field-r4", "cactus-field-r6", "city-round9-four-marks" })
+        {
+            byte[] image = [];
+            using var scanner = new OcrScannerService(() => image, new ASPAssistant.Core.GameModes.GarrisonProtocol.GarrisonOcrStrategy(),
+                new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+            {
+                EconomyReader = new(ocr), BoardRecognizer = new(maps), LiveReader = new(data, maps),
+                FieldTiers = operators.ToDictionary(p => p.Key, p => p.Value.Tier)
+            };
+            var banned = scenario == "本局" ? File.ReadAllLines(exclusions).ToHashSet() : new HashSet<string>();
+            scanner.SetReviewExclusions(banned);
+            foreach (var file in scenario == "本局" ? new[] { "091641", "092149", "092304", "093453" } : new[] { scenario })
+            {
+                image = File.ReadAllBytes(scenario == "本局" ? Path.Combine(desert, $"board-{file}.png") :
+                    Path.Combine(AppContext.BaseDirectory, "TestData", "Board", file + ".png"));
+                await scanner.ReadLiveFieldAsync(ownBoard: true);
+                var roster = scanner.LiveRoster;
+                Assert.NotEmpty(roster.Units);
+                var state = (LiveFieldState)typeof(OcrScannerService).GetField("_liveState",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(scanner)!;
+                var known = state.KnownReviewNames();
+                var observation = roster.Observations[^1];
+                var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(image))!;
+                if (scenario == "本局")
+                {
+                    var counter = await ocr.RecognizeRegionAsync(image, pixels.Width*82/100, pixels.Height*53/100,
+                        pixels.Width*18/100, pixels.Height*13/100);
+                    var digit = await ocr.RecognizeLineAsync(image, pixels.Width*983/1000, pixels.Height*574/1000,
+                        pixels.Width*12/1000, pixels.Height*30/1000);
+                    rows.Add($"{file} HUD={string.Join(" ", counter.Select(w => w.Text))} digit={string.Join(" ",digit.Select(w=>w.Text))}");
+                }
+                foreach (var unit in roster.Units.Where(u => u.Name == null))
+                {
+                    var mark = unit.Mark;
+                    var slot = mark.Slot;
+                    var board = scanner.BoardRecognizer.Recognize(pixels)!;
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    var ranked = scanner.GetLiveReviewCandidates(unit);
+                    var reviewMs = watch.Elapsed.TotalMilliseconds;
+                    var parts = scanner.LiveReader.ReviewVisibleParts(pixels, mark, known);
+                    var heads = scanner.LiveReader.RankReviewCandidates(pixels, board, slot, banned);
+                    var body = scanner.LiveReader.ReviewVisibleBody(pixels, mark, observation.Readings[slot].BadgeTier, roster.Units.Select(u=>u.Mark.Slot));
+                    var shape = state.ReviewShapeCandidates(mark, banned);
+                    var panel = (unit.Suggestion is {} hint ? new[]{hint.Name} : Array.Empty<string>()).Concat(ranked)
+                        .Distinct().Where(n=>!banned.Contains(n) && operators.TryGetValue(n,out var op) && op.IsAvailableForSelection).Take(4);
+                    rows.Add($"{file} {slot} review={reviewMs:F1}ms top={string.Join("、",ranked)} panel={string.Join("、",panel)} head={string.Join("、",heads)} body={body} parts={string.Join("、",parts)} shape={string.Join("、",shape)} raw={string.Join("、",mark.ShapeCandidates.Select(c=>c.Name))}");
+                }
+                if (file == "091641")
+                    foreach (var (slot,name) in new[] { ("A5","烈夏"),("A6","摆渡人") })
+                        Assert.True(scanner.SetLiveIdentity(roster.Units.Single(u=>u.Mark.Slot.ToString()==slot),name));
+                if (file == "092149") state.RecordConfirmedPurchases(["摆渡人"]);
+                if (file == "092304")
+                    foreach (var (slot,name) in new[] { ("A4","折桠"),("A7","青枳") })
+                        Assert.True(scanner.SetLiveIdentity(roster.Units.Single(u=>u.Mark.Slot.ToString()==slot),name));
+            }
+        }
+        File.WriteAllLines(Path.Combine(TestOutput.Directory,"review-order.txt"), rows);
+    }
+
+    [Fact, Trait("Category", "LocalScreenshot")]
+    public async Task DesertA4ReadsTierAndNameOnEachIndependentFrame()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } directory) return;
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        foreach (var (time, name) in new[] { ("091641", "烈夏"), ("092149", "折桠"), ("092304", "折桠") })
+        {
+            var reader = new LiveFieldReader(data, maps);
+            var image = File.ReadAllBytes(Path.Combine(directory, $"board-{time}.png"));
+            var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(image))!;
+            var board = new BoardRecognizer(maps).Recognize(pixels)!;
+            var readings = new Dictionary<FieldSlot, SlotReading>();
+            var a4 = reader.ReadWithTrace(pixels, board, true, true, CancellationToken.None, readings)
+                .Single(m => m.Slot.ToString() == "A4");
+            Assert.Equal(1, readings[a4.Slot].BadgeTier);
+            Assert.Equal(1, a4.Tier);
+            Assert.Equal(name, a4.StandaloneName);
+        }
+    }
+
+    [Fact, Trait("Category", "LocalScreenshot")]
+    public async Task TopRowAcceptsTheGoldNumeralFromTheRecordedBossRound()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } directory) return;
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        using var boardImage = new System.Drawing.Bitmap(Path.Combine(directory, "board-092304.png"));
+        using var bossImage = new System.Drawing.Bitmap(Path.Combine(directory, "enemy-2-0.png"));
+        // The recording has a genuine gold V lower on the board. Put just that badge
+        // at the contested top-row location to exercise the same recognition branch.
+        using (var graphics = System.Drawing.Graphics.FromImage(boardImage))
+            graphics.DrawImage(bossImage, new System.Drawing.Rectangle(628, 125, 30, 30),
+                new System.Drawing.Rectangle(664, 189, 33, 33), System.Drawing.GraphicsUnit.Pixel);
+        var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(ImageBytes.Encode(boardImage)))!;
+        var board = new BoardRecognizer(maps).Recognize(pixels)!;
+        var readings = new Dictionary<FieldSlot, SlotReading>();
+        new LiveFieldReader(data,maps).ReadWithTrace(pixels,board,true,true,CancellationToken.None,readings);
+        Assert.Equal(5, readings.Single(r=>r.Key.ToString()=="A4").Value.BadgeTier);
+    }
+
+    [Fact]
+    public async Task DesertCopiesRetainNamesAcrossObservedMove()
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } dir) return;
+        var data=Path.Combine(AppContext.BaseDirectory,"data");
+        var maps=(await GarrisonBoardStore.LoadAsync(data))!;
+        var reader=new LiveFieldReader(data,maps);
+        var state=new LiveFieldState((await new JsonDataStore(data).LoadOperatorsAsync())
+            .GroupBy(o=>o.Name).ToDictionary(g=>g.Key,g=>g.First().Tier));
+        void Observe(string time,int round)
+        {
+            var px=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(Path.Combine(dir,$"board-{time}.png"))))!;
+            var match=new BoardRecognizer(maps).Recognize(px)!;
+            state.Observe(match.Map.Id,round,reader.Read(px,match,true,true),round*60000);
+        }
+        Observe("091641",2);
+        foreach (var (slot,name) in new[] { ("A4","烈夏"),("A5","烈夏"),("A6","摆渡人") })
+        {
+            var u=state.Roster.Units.Single(u=>u.Mark.Slot.ToString()==slot);
+            Assert.True(state.Confirm(u.Id,u.Mark.Slot,name,true));
+        }
+        Observe("092149",3);
+        Assert.Equal("折桠",state.Roster.Units.Single(u=>u.Mark.Slot.ToString()=="A4").Name);
+        Assert.Equal("烈夏",state.Roster.Units.Single(u=>u.Mark.Slot.ToString()=="A5").Name);
+        Assert.Equal("烈夏",state.Roster.Units.Single(u=>u.Mark.Slot.ToString()=="B7").Name);
+        Assert.Equal("摆渡人",state.Roster.Units.Single(u=>u.Mark.Slot.ToString()=="A6").Name);
+    }
+
+    [Theory]
+    [InlineData("092304",7)]
+    [InlineData("093453",8)]
+    public async Task DesertTopRowKeepsBothAdjacentOperators(string time,int deployed)
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } directory) return;
+        var data=Path.Combine(AppContext.BaseDirectory,"data");
+        var maps=(await GarrisonBoardStore.LoadAsync(data))!;
+        var reader=new LiveFieldReader(data,maps);
+        var pixels=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(Path.Combine(directory,$"board-{time}.png"))))!;
+        var board=new BoardRecognizer(maps).Recognize(pixels)!;
+        var readings=new Dictionary<FieldSlot,SlotReading>();
+        var watch=System.Diagnostics.Stopwatch.StartNew();
+        var marks=reader.ReadWithTrace(pixels,board,true,true,CancellationToken.None,readings);
+        File.WriteAllText(Path.Combine(TestOutput.Directory,$"desert-field-{time}.txt"),
+            $"{watch.ElapsedMilliseconds}ms "+string.Join("; ",marks.Select(m=>$"{m.Slot}: {m.StandaloneName}")));
+        Assert.Contains(marks,m=>m.Slot.ToString()=="A5" && m.StandaloneName=="摆渡人");
+        Assert.Contains(marks,m=>m.Slot.ToString()=="A6" && m.StandaloneName=="摆渡人");
+        Assert.Equal(deployed,marks.Count(m=>!m.Slot.Bench));
+    }
+
     [Trait("Category","LocalScreenshot")]
     [Theory]
     [InlineData("cactus-field-r4","A5","灰喉")]

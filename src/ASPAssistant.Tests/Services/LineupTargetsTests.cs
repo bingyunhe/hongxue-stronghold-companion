@@ -62,6 +62,10 @@ public class LineupTargetsTests
         repair.StatusText.Should().Be("被禁 2 人 · 需替补");
         repair.Note.Should().Be("塔露拉、冻河被禁，奥术 Ⅰ 差 1 人");
 
+        var missingExtra = LineupTargets.Recommend(Ursus(), calc, _ => false, new HashSet<string> { "奥术" }, new HashSet<string> { "奥术" });
+        missingExtra.Kind.Should().Be(RecommendationKind.Broken);
+        missingExtra.Targets.Single(t => t.Name == "奥术").Count.Should().Be(0);
+
         var broken = LineupTargets.Recommend(Ursus(), calc, _ => false, new HashSet<string> { "乌萨斯" });
         broken.Kind.Should().Be(RecommendationKind.Broken);
         broken.Note.Should().Be("本局乌萨斯不完整，原目标凑不齐");

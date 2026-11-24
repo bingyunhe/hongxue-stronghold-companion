@@ -210,6 +210,113 @@ internal static class EditorRedesignViewTests
         clear.Picked.Should().BeEmpty("explicitly clearing strategies also clears unrecognised saved strategies");
     }
 
+    public static void VerifyStrategyOrder()
+    {
+        var data = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data"));
+        var strategies = data.LoadStrategiesAsync().GetAwaiter().GetResult().Take(9).ToList();
+        List<LineupStrategySlot> saved =
+        [
+            new() { StrategyId = strategies[6].Id },
+            new() { StrategyId = strategies[3].Id, Tags = [StrategyTag.次选] },
+            new() { StrategyId = strategies[5].Id, Tags = [StrategyTag.次选, StrategyTag.阵容核心] },
+            new() { StrategyId = strategies[4].Id, Tags = [StrategyTag.优选] },
+            new() { StrategyId = strategies[1].Id, Tags = [StrategyTag.阵容核心] },
+            new() { StrategyId = strategies[2].Id }
+        ];
+        var dialog = new StrategyPickerWindow(strategies, saved);
+        var expected = new[] { 1, 5, 4, 3, 2, 6, 0, 7, 8 }.Select(i => strategies[i].Id).ToArray();
+        Run(dialog, true, () =>
+        {
+            var rows = dialog.ItemsList.Items.Cast<StrategyPickRow>().ToList();
+            rows.Select(r => r.Id).Should().Equal(expected);
+            dialog.ChosenList.Items.Cast<StrategyPickRow>().Select(r => r.Id).Should().Equal(expected.Take(6));
+            rows[1].IsCore.Should().BeTrue();
+            dialog.KindList.SelectedIndex = 2;
+            dialog.ItemsList.Items.Cast<StrategyPickRow>().Should().Equal(rows.Where(r => r.IsActive));
+            dialog.KindList.SelectedIndex = 0;
+            dialog.SearchBox.Text = rows[0].Name;
+            dialog.ItemsList.Items.Cast<StrategyPickRow>().First().Should().BeSameAs(rows[0]);
+            dialog.SearchBox.Clear(); Pump();
+            var item = (ListBoxItem)dialog.ItemsList.ItemContainerGenerator.ContainerFromItem(rows[0]);
+            var second = Descendants<ToggleButton>(item).Single(b => Equals(b.Content, "次选"));
+            ((System.Windows.Automation.Provider.IToggleProvider)new System.Windows.Automation.Peers.ToggleButtonAutomationPeer(second)).Toggle();
+            rows[0].TagText.Should().Be("次选");
+            Pump();
+            Descendants<TextBlock>(dialog.ChosenList).Should().Contain(b => b.DataContext == rows[0] && b.Text == "次选");
+            dialog.ItemsList.Items.Cast<StrategyPickRow>().Select(r => r.Id).Should().Equal(expected);
+            Descendants<Button>(dialog).Single(b => Equals(b.Content, "完成")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        });
+        dialog.Picked.Select(s => s.StrategyId).Should().Equal(saved.Select(s => s.StrategyId));
+        var reopened = new StrategyPickerWindow(strategies, dialog.Picked);
+        Run(reopened, true, () =>
+        {
+            var rows = reopened.ItemsList.Items.Cast<StrategyPickRow>().ToList();
+            rows.Take(4).Select(r => r.Id).Should().Equal(new[] { 5, 4, 1, 3 }.Select(i => strategies[i].Id));
+            rows[2].IsSecond.Should().BeTrue();
+            rows[0].Tag = StrategyTag.次选;
+            MouseClick((ListBoxItem)reopened.ItemsList.ItemContainerGenerator.ContainerFromItem(rows[2]));
+            reopened.Close();
+        });
+        dialog.Picked.Single(s => s.StrategyId == strategies[5].Id).Tags.Should().Equal(StrategyTag.次选, StrategyTag.阵容核心);
+        dialog.Picked.Single(s => s.StrategyId == strategies[1].Id).Tags.Should().Equal(StrategyTag.次选);
+        var plain = new StrategyPickerWindow(strategies, saved.Where(s => s.Tags.Count == 0));
+        plain.ItemsList.Items.Cast<StrategyPickRow>().Take(2).Select(r => r.Id).Should().Equal(strategies[2].Id, strategies[6].Id);
+        plain.Close();
+    }
+
+    public static void VerifyStrategyViewport(bool night)
+    {
+        var data = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data"));
+        var strategies = data.LoadStrategiesAsync().GetAwaiter().GetResult();
+        ThemeManager.Apply(GameShopTheme.Closure, night);
+        WindowUiScale.Initialize(new SidebarAppearance { UiScale = 1.2 });
+        foreach (var wide in new[] { true, false })
+        {
+            var dialog = new StrategyPickerWindow(strategies, []);
+            Run(dialog, wide, () =>
+            {
+                var list = dialog.ItemsList;
+                var row = list.Items.Cast<StrategyPickRow>().Single(r => r.Name == "众志合一");
+                var item = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(row);
+                var viewport = Descendants<ScrollContentPresenter>(list).Single();
+                MouseClick(Descendants<TextBlock>(item).Single(t => t.Text == row.Name));
+                Pump();
+                row.IsChosen.Should().BeTrue();
+                double CheckButtons()
+                {
+                    var current = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(row);
+                    var buttons = Descendants<ToggleButton>(current).ToArray();
+                    buttons.Select(b => b.Content).Should().Equal("核心", "优选", "次选");
+                    foreach (var button in buttons)
+                    {
+                        button.IsVisible.Should().BeTrue();
+                        var left = button.TranslatePoint(new Point(), viewport).X;
+                        left.Should().BeGreaterThanOrEqualTo(0);
+                        (left + button.ActualWidth).Should().BeLessThanOrEqualTo(viewport.ActualWidth + 0.5,
+                            $"{button.Content} must fit before the scrollbar at width {dialog.ActualWidth}");
+                        var middle = button.TranslatePoint(new Point(button.ActualWidth / 2, button.ActualHeight / 2), viewport);
+                        var hit = viewport.InputHitTest(middle) as DependencyObject;
+                        (hit == button || hit != null && button.IsAncestorOf(hit)).Should().BeTrue();
+                    }
+                    return buttons[2].TranslatePoint(new Point(), viewport).X;
+                }
+                Save(dialog, $"strategy-first-{night}-{dialog.Width}");
+                var first = CheckButtons();
+                var second = Descendants<ToggleButton>(item).Single(b => Equals(b.Content, "次选"));
+                MouseClick(second);
+                ((System.Windows.Automation.Provider.IToggleProvider)new System.Windows.Automation.Peers.ToggleButtonAutomationPeer(second)).Toggle();
+                row.IsChosen.Should().BeTrue();
+                row.Tag.Should().Be(StrategyTag.次选);
+                list.ScrollIntoView(list.Items[list.Items.Count - 1]); Pump();
+                list.ScrollIntoView(row); Pump();
+                CheckButtons().Should().BeApproximately(first, 1);
+                dialog.KindList.SelectedIndex = 1; Pump();
+                CheckButtons().Should().BeApproximately(first, 1);
+                dialog.Close();
+            });
+        }
+    }
+
     private static void Run(Window dialog, bool wide, Action action)
     {
         dialog.ShowActivated = false; dialog.ShowInTaskbar = false; dialog.Opacity = 0;

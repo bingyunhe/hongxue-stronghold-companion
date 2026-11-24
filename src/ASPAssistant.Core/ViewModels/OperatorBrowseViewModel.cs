@@ -151,7 +151,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private static string TierToRoman(int tier) =>
         tier >= 1 && tier <= 6 ? _romanNumerals[tier] : tier.ToString();
 
-    public void LoadOperators(List<Operator> operators)
+    public void LoadOperators(List<Operator> operators, BanScreenResult? pickerRun = null)
     {
         _allOperators = operators;
         operators = operators.Where(MatchesSource).ToList();
@@ -163,11 +163,13 @@ public partial class OperatorBrowseViewModel : ObservableObject
             .SelectMany(o => o.CoreCovenants)
             .Where(c => !string.IsNullOrEmpty(c))
             .ToHashSet();
-        AvailableCoreCovenants = ["", .. coreSet.Order()];
-        AvailableOtherCovenants = ["", .. operators
-            .SelectMany(o => o.AdditionalCovenants)
-            .Where(c => !string.IsNullOrEmpty(c) && !coreSet.Contains(c))
-            .Distinct().Order()];
+        var coreChoices = pickerRun is null ? coreSet.Where(c => !OnlyCurrentRun || HighlightedCovenants.Contains(c))
+            : pickerRun.CoreCovenants.Where(c => !c.IsBanned).Select(c => c.Name);
+        var extraChoices = pickerRun is null ? operators.SelectMany(o => o.AdditionalCovenants)
+            .Where(c => !string.IsNullOrEmpty(c) && !coreSet.Contains(c) && (!OnlyCurrentRun || !_missingCovenants.Contains(c)))
+            : pickerRun.AdditionalCovenants.Select(c => c.Name);
+        AvailableCoreCovenants = ["", .. coreChoices.Order()];
+        AvailableOtherCovenants = ["", .. extraChoices.Distinct().Order()];
 
         AvailableTraitTypes = [null, .. operators
             .SelectMany(o => o.Normal.Traits.Select(t => t.TraitType)
@@ -317,11 +319,16 @@ public partial class OperatorBrowseViewModel : ObservableObject
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     public void RemoveChip(FilterChip chip) => chip.IsSelected = false;
 
-    public void SetAvailableCovenants(IEnumerable<string> names)
-        => HighlightedCovenants = names.ToHashSet(StringComparer.Ordinal);
+    private IReadOnlySet<string> _missingCovenants = new HashSet<string>();
+
+    public void SetAvailableCovenants(IEnumerable<string> names, IReadOnlySet<string>? missing = null)
+    {
+        _missingCovenants = missing ?? new HashSet<string>();
+        HighlightedCovenants = names.ToHashSet(StringComparer.Ordinal);
+    }
 
     public void ClearCovenantHighlights()
-        => HighlightedCovenants = new HashSet<string>();
+        => SetAvailableCovenants([]);
 
     partial void OnHighlightedCovenantsChanged(IReadOnlySet<string> value)
     {
@@ -338,7 +345,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
         var core = _allOperators.Where(MatchesSource).SelectMany(o => o.CoreCovenants).Where(c => c.Length > 0).ToHashSet();
         var other = _allOperators.Where(MatchesSource).SelectMany(o => o.AdditionalCovenants).Where(c => c.Length > 0 && !core.Contains(c));
         UpdateChoices(AvailableCoreCovenants, ["", .. core.Where(c => !OnlyCurrentRun || HighlightedCovenants.Contains(c)).Order()]);
-        UpdateChoices(AvailableOtherCovenants, ["", .. other.Distinct().Order()]);
+        UpdateChoices(AvailableOtherCovenants, ["", .. other.Where(c => !OnlyCurrentRun || !_missingCovenants.Contains(c)).Distinct().Order()]);
         _selectedCoreCovenantFilters.RemoveWhere(c => !AvailableCoreCovenants.Contains(c));
         _selectedOtherCovenantFilters.RemoveWhere(c => !AvailableOtherCovenants.Contains(c));
         // 只看本局: the covenant chips follow the choices, keeping existing chips (and their state) in place
@@ -404,6 +411,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private void ApplyFilters()
     {
         var filtered = _allOperators.Where(MatchesSource);
+        if (OnlyCurrentRun && _missingCovenants.Count > 0)
+            filtered = filtered.Where(o => !CovenantBanRules.HasMissingCovenant(o, _missingCovenants));
 
         if (SelectedAvailabilityFilter != AvailabilityFilter.All && _isBannedCheck != null)
         {

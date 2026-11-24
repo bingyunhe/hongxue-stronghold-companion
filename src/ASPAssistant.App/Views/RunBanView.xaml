@@ -53,7 +53,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border CornerRadius="{DynamicResource PillCornerRadius}" Padding="6,1" Margin="0,0,4,2" BorderThickness="1"
+                            <Border controls:PanelToolTip.Covenant="{Binding}" controls:PanelToolTip.Note="本局此盟约干员不完整" CornerRadius="{DynamicResource PillCornerRadius}" Padding="6,1" Margin="0,0,4,2" BorderThickness="1"
                                     Background="{DynamicResource DangerTintBrush}" BorderBrush="{DynamicResource DangerBorderBrush}">
                                 <TextBlock Text="{Binding}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource DangerBrush}" />
                             </Border>

@@ -1,6 +1,7 @@
 using ASPAssistant.Core.Data;
 using ASPAssistant.Core.Models;
 using ASPAssistant.Core.Services;
+using ASPAssistant.Core.ViewModels;
 using FluentAssertions;
 
 namespace ASPAssistant.Tests.Services;
@@ -360,7 +361,12 @@ public class AutoPlannerTests
         route.Route.Stages.Should().HaveCount(5);
         route.Route.Stages[^1].Covenants.Single(c => c.Name == candidate.MainCovenant).Count.Should().BeGreaterThanOrEqualTo(candidate.MainGoal.Count);
         route.Route.Stages.Where(s => !s.IsFinal).Should().OnlyContain(s => s.Operators.Count <= s.Definition.People);
-        if (strategy == PlannerStrategy.Mech) candidate.Final.MechCovenants.Should().NotBeEmpty();
+        if (strategy == PlannerStrategy.Mech)
+        {
+            candidate.Final.Transforms.Should().Be(0, "this pool can reach the same main target natively");
+            PlannerLineupItem.StrategyPieceSlots(candidate.Final, EquipmentTestData.Rules).Should()
+                .ContainSingle(s => s.OperatorName == LineupEquipmentService.MechName);
+        }
         if (strategy == PlannerStrategy.Pith) candidate.Final.HasPith.Should().BeTrue();
     }
 }

@@ -10,6 +10,27 @@ namespace ASPAssistant.Tests.Services;
 /// </summary>
 public class BoardRecognizerTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PannedDesertOverlayUsesOwnShopAndRejectsEnemyAndTransition(int attempt)
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } dir) return;
+        var maps=await LoadAsync();
+        var reader=new BoardRecognizer(maps);
+        foreach (int step in Enumerable.Range(0,7))
+        {
+            var pixels=BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(Path.Combine(dir,$"enemy-{attempt}-{step}.png"))))!;
+            var match=reader.RecognizePannedDesertOverlay(pixels);
+            if (step!=0) { Assert.Null(match); continue; }
+            Assert.Equal("desert_crates",match!.Map.Id);
+            var (x,y)=maps.Cameras[BoardCamera.Expanded].Project(2.5,.5);
+            var aligned=match.OverlayProjection!.Project(2.5,.5);
+            Assert.InRange((aligned.X-x)*pixels.Width,40,53);
+            Assert.InRange(Math.Abs(aligned.Y-y)*pixels.Height,0,1);
+        }
+    }
+
     private static readonly string DataDir = Path.Combine(AppContext.BaseDirectory, "TestData", "Regulation");
     private static readonly string FrameDir = Path.Combine(AppContext.BaseDirectory, "TestData", "Board");
 

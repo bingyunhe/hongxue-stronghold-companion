@@ -108,7 +108,7 @@
                                 <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border x:Name="pill" Style="{StaticResource CovPill}" Margin="4,0,0,0" Background="{DynamicResource SuccessTintBrush}"
+                                        <Border x:Name="pill" controls:PanelToolTip.Covenant="{Binding Name}" Style="{StaticResource CovPill}" Margin="4,0,0,0" Background="{DynamicResource SuccessTintBrush}"
                                                 BorderBrush="{DynamicResource SuccessBorderBrush}">
                                             <StackPanel Orientation="Horizontal">
                                                 <controls:CovenantIcon Covenant="{Binding Name}" Width="12" Height="12" Margin="0,0,4,0" Opacity="0.85" />
@@ -191,12 +191,14 @@
                                                     </TextBlock>
                                                 </StackPanel>
                                             </DockPanel>
-                                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0" ClipToBounds="True">
+                                            <TextBlock x:Name="unavailableReason" Visibility="Collapsed" FontSize="10" Margin="0,3,0,0" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}" Text="{Binding ToolTip, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
+                                            <StackPanel x:Name="rowCovenants" Orientation="Horizontal" Margin="0,4,0,0" ClipToBounds="True">
                                                 <ItemsControl ItemsSource="{Binding CoreCovenants}" Focusable="False">
                                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
-                                                            <Border Style="{StaticResource CovPill}" Background="{DynamicResource AccentSoftBrush}">
+                                                            <Border controls:PanelToolTip.Covenant="{Binding}" Style="{StaticResource CovPill}" Background="{DynamicResource AccentSoftBrush}">
                                                                 <TextBlock Text="{Binding}" FontSize="10" LineHeight="16" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
                                                             </Border>
                                                         </DataTemplate>
@@ -206,7 +208,7 @@
                                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
-                                                            <Border Style="{StaticResource CovPill}" Background="{DynamicResource SectionBackgroundBrush}">
+                                                            <Border controls:PanelToolTip.Covenant="{Binding}" Style="{StaticResource CovPill}" Background="{DynamicResource SectionBackgroundBrush}">
                                                                 <TextBlock Text="{Binding}" FontSize="10" LineHeight="16" Foreground="{DynamicResource TextSecondaryBrush}" />
                                                             </Border>
                                                         </DataTemplate>
@@ -216,6 +218,10 @@
                                         </StackPanel>
                                     </DockPanel>
                                     <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="False">
+                                            <Setter TargetName="rowCovenants" Property="Visibility" Value="Collapsed"/>
+                                            <Setter TargetName="unavailableReason" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
                                         <DataTrigger Binding="{Binding Tier}" Value="4"><Setter TargetName="bar" Property="Background" Value="{DynamicResource AccentSolidBrush}" /></DataTrigger>
                                         <DataTrigger Binding="{Binding Tier}" Value="5"><Setter TargetName="bar" Property="Background" Value="{DynamicResource EliteBrush}" /></DataTrigger>
                                         <DataTrigger Binding="{Binding Tier}" Value="6"><Setter TargetName="bar" Property="Background" Value="{DynamicResource DangerBrush}" /></DataTrigger>

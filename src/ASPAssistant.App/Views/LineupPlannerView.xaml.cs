@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ASPAssistant.Core.ViewModels;
+using ASPAssistant.Core.Services;
 
 namespace ASPAssistant.App.Views;
 
@@ -47,7 +48,10 @@ public partial class LineupPlannerView : UserControl
             case Key.Enter:
                 var query = ((TextBox)sender).Text;
                 if (!string.IsNullOrWhiteSpace(query))
-                    vm.AddLocked(vm.LockCovenants.Active ? vm.LockSuggestions.FirstOrDefault()?.Name : query);
+                {
+                    var match = SearchMatch.ExactOrOnlyOperator(vm.LockSuggestions, query);
+                    if (match != null) vm.AddLocked(match.Name);
+                }
                 e.Handled = true;
                 break;
             case Key.Escape:

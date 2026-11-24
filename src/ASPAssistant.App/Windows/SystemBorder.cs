@@ -18,6 +18,13 @@ public static class SystemBorder
     private const int DwmwcpDoNotRound = 1;
     private const int DwmwaColorNone = unchecked((int)0xFFFFFFFE);
 
+    internal static void SetCloaked(IntPtr hwnd, bool cloaked)
+    {
+        const int DwmwaCloak = 13;
+        int value = cloaked ? 1 : 0;
+        Marshal.ThrowExceptionForHR(DwmSetWindowAttribute(hwnd, DwmwaCloak, ref value, sizeof(int)));
+    }
+
     /// <summary>Applies to every window as soon as it has a handle.</summary>
     public static void RegisterForAllWindows() =>
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,

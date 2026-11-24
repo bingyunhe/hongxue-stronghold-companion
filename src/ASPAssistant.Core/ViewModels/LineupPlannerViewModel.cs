@@ -23,6 +23,7 @@ public partial class PlannerCovenantItem : ObservableObject
 
     public CovenantInfo Info { get; }
     public string Name => Info.Name;
+    public bool UsesNativeMembers => Name != "绝技";
     public bool IsCore => Info.BondType == "SEASON";
     public bool HasSecond { get; }
     public bool SecondManual { get; }
@@ -33,36 +34,36 @@ public partial class PlannerCovenantItem : ObservableObject
         : SecondManual ? "规划不提供 Ⅱ 级效果"
         : $"{LineupPlanner.CreateGoal(Info, 2).Count} 人";
     public bool CanPlanSecond => HasSecond && !SecondManual && !SecondUnreachable;
-    /// <summary>
-    /// A banned covenant cannot be a transformation target, so only its native holders that are still available
-    /// count. Ⅱ is out of reach when fewer of them remain than Ⅱ needs.
-    /// </summary>
-    public bool SecondUnreachable => IsBanned && !IsCore && HasSecond && !SecondManual
-        && AvailableMembers < LineupPlanner.CreateGoal(Info, 2).Count;
-    /// <summary>Banned additional covenant with fewer available holders than Ⅰ needs.</summary>
-    public bool FirstUnreachable => IsBanned && !IsCore && AvailableMembers < LineupPlanner.CreateGoal(Info, 1).Count;
+    public bool SecondUnreachable => IsMissing || IsBanned && !IsCore && HasSecond && !SecondManual
+        && AvailableMembers + ExtraCarriers < LineupPlanner.CreateGoal(Info, 2).Count;
+    public bool FirstUnreachable => IsBanned && !IsCore && AvailableMembers + ExtraCarriers < LineupPlanner.CreateGoal(Info, 1).Count;
     public int AvailableMembers => Members.Count(m => !m.IsUnavailable);
     public bool CanTransformInto { get; }
-    /// <summary>In-game effect texts (data/covenant_effects.json).</summary>
+    public bool CanTransformThisRun => ExtraCarriers > 0;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TileSubText), nameof(IsBlocked), nameof(IsEnabled), nameof(BanNote), nameof(CanPlanSecond), nameof(ToolTip), nameof(SecondLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowAvailableBadge), nameof(ShowBannedBadge), nameof(IsRunStatusUnknown), nameof(HasBanNote))]
+    private bool _isMissing;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TileSubText), nameof(IsBlocked), nameof(IsEnabled), nameof(BanNote), nameof(CanPlanSecond), nameof(ToolTip), nameof(SecondLabel))]
+    [NotifyPropertyChangedFor(nameof(CanTransformThisRun))]
+    private int _extraCarriers;
     public IReadOnlyList<CovenantEffect> Effects => Info.Effects;
     public bool HasEffects => Info.Effects.Count > 0;
-
-    /// <summary>Explains the ban state in the hover details; empty when not banned.</summary>
-    public string BanNote => !IsBanned ? ""
-        : IsCore ? "本局已被 Ban，不能作为目标。"
-        : FirstUnreachable ? $"本局已被 Ban，剩余可用持有者只有 {AvailableMembers} 人，凑不齐 Ⅰ，不能作为目标。"
-        : SecondUnreachable ? $"本局已被 Ban：剩余可用持有者 {AvailableMembers} 人，只能规划 Ⅰ。"
-        : $"本局已被 Ban：剩余 {AvailableMembers} 名可用持有者仍可凑人数（不能转职进这个盟约）。";
-    public bool HasBanNote => IsBanned;
-
-    /// <summary>Second line of a goal tile: how many holders are left this run.</summary>
-    public string TileSubText => IsBanned && (IsCore || FirstUnreachable) ? "本局 Ban"
-        : IsBanned ? $"Ban · 剩 {AvailableMembers} 人"
-        : $"可用 {AvailableMembers} 人";
+    private int FirstGap => Math.Max(0, LineupPlanner.CreateGoal(Info, 1).Count - AvailableMembers);
+    public string BanNote => IsMissing ? "本局未出现" : IsBanned && IsCore ? "本局禁用核心盟约"
+        : FirstUnreachable ? $"天然持有者 {AvailableMembers} 人，凑不齐 Ⅰ"
+        : $"天然持有者 {AvailableMembers} 人" + (FirstGap > 0 && ExtraCarriers >= FirstGap ? $"，Ⅰ 至少需 {FirstGap} 名转职" : "");
+    public bool HasBanNote => IsMissing || IsBanned || UsesNativeMembers && FirstGap > 0;
+    public bool ShowBannedBadge => IsBanned && !IsMissing;
+    public bool ShowAvailableBadge => IsAvailable && !IsBanned && !IsMissing;
+    public bool IsRunStatusUnknown => !IsAvailable && !IsBanned && !IsMissing;
+    public string TileSubText => IsBlocked ? BanNote : !IsCore && FirstGap > 0 && ExtraCarriers >= FirstGap
+        ? $"天然 {AvailableMembers} · 缺 {FirstGap}" : $"可用 {AvailableMembers} 人";
 
     /// <summary>Operators who hold this covenant natively (tier order); unavailable ones are dimmed.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(MemberSummary), nameof(AvailableMembers), nameof(FirstUnreachable), nameof(SecondUnreachable),
+    [NotifyPropertyChangedFor(nameof(HasBanNote), nameof(MemberSummary), nameof(AvailableMembers), nameof(FirstUnreachable), nameof(SecondUnreachable),
         nameof(CanPlanSecond), nameof(SecondLabel), nameof(IsBlocked), nameof(IsEnabled), nameof(BanNote), nameof(ToolTip), nameof(TileSubText))]
     private IReadOnlyList<PlannerCovenantMember> _members = [];
 
@@ -98,9 +99,11 @@ public partial class PlannerCovenantItem : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ToolTip), nameof(IsEnabled), nameof(IsBlocked), nameof(BanNote), nameof(HasBanNote),
         nameof(FirstUnreachable), nameof(SecondUnreachable), nameof(CanPlanSecond), nameof(SecondLabel), nameof(TileSubText))]
+    [NotifyPropertyChangedFor(nameof(ShowAvailableBadge), nameof(ShowBannedBadge), nameof(IsRunStatusUnknown))]
     private bool _isBanned;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowAvailableBadge), nameof(ShowBannedBadge), nameof(IsRunStatusUnknown))]
     private bool _isAvailable;
 
     [ObservableProperty]
@@ -113,7 +116,7 @@ public partial class PlannerCovenantItem : ObservableObject
     /// A banned core covenant cannot be targeted. A banned additional covenant removes coreless operators only
     /// when all their additional covenants are banned, so remaining holders can still reach it.
     /// </summary>
-    public bool IsBlocked => IsBanned && (IsCore || FirstUnreachable);
+    public bool IsBlocked => IsMissing || IsBanned && (IsCore || FirstUnreachable);
     public bool IsEnabled => !IsBlocked;
 
     [RelayCommand]
@@ -177,7 +180,7 @@ public sealed record PlannerCovenantMember(string Name, string IconPath, int Tie
 }
 
 /// <summary>Activated covenant on a result card; <see cref="IsGoal"/> marks the covenants the user planned for.</summary>
-public sealed record PlannerGoalPill(string Text, bool IsManual, bool IsGoal = false);
+public sealed record PlannerGoalPill(string Name, string Text, bool IsManual, bool IsGoal = false);
 
 public sealed partial class PlannerLineupItem : ObservableObject
 {
@@ -191,6 +194,9 @@ public sealed partial class PlannerLineupItem : ObservableObject
     [RelayCommand] private void ToggleExpanded() => IsExpanded = !IsExpanded;
     public string Title { get; init; } = "";
     public string Subtitle { get; init; } = "";
+    public string TransferSummary { get; init; } = "";
+    public string EquipmentText { get; init; } = "";
+    public bool HasEquipment => EquipmentText.Length > 0;
     public string? Note { get; init; }
     public bool HasNote => !string.IsNullOrEmpty(Note);
     [ObservableProperty]
@@ -291,7 +297,7 @@ public sealed class RouteOperatorItem
     public bool HasRoleMarks => RoleMarks.Length > 0;
 }
 
-public sealed record RouteCovenantPill(string Text, bool IsGoal, bool IsActive);
+public sealed record RouteCovenantPill(string Name, string Text, bool IsGoal, bool IsActive);
 
 /// <summary>A small chip on a route stage: a condition (≤ Ⅲ 阶 · 8 人) or a role check (盾 1, red when missing).</summary>
 public sealed record RouteChip(string Text, bool IsRole, bool IsMissing, string ToolTip = "");
@@ -401,6 +407,7 @@ public partial class LineupPlannerViewModel : ObservableObject
     partial void OnStrategyChanged(PlannerStrategy value)
     {
         if (value != PlannerStrategy.Mech) MechElite = false;
+        ApplyBans();
         OnLockSearchTextChanged(LockSearchText);
         RequestRecompute();
     }
@@ -443,9 +450,10 @@ public partial class LineupPlannerViewModel : ObservableObject
         _autoCatalogStamp = AutoRouteArchive.CatalogStamp(operators, planner.Covenants);
         _operatorByName = _operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         _allOperatorIcons = operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First().IconPath, StringComparer.Ordinal);
-        foreach (var c in planner.Covenants.Where(c => c.Name != "绝技"))
-            (c.BondType == "SEASON" ? CoreCovenants : ExtraCovenants).Add(new PlannerCovenantItem(c, OnToggleLevel,
-                _equipmentRules.CanTransformInto(c.Name) && !LineupPlanner.NoTransform.Contains(c.Name)));
+        CovenantDetails = planner.Covenants.Select(c => new PlannerCovenantItem(c, OnToggleLevel,
+            _equipmentRules.CanTransformInto(c.Name) && !LineupPlanner.NoTransform.Contains(c.Name))).ToList();
+        foreach (var item in CovenantDetails.Where(c => c.UsesNativeMembers))
+            (item.IsCore ? CoreCovenants : ExtraCovenants).Add(item);
         foreach (var p in PeopleOptions)
             foreach (var t in TransformOptions)
                 VariantCells.Add(new PlannerVariantCell { People = p, Transforms = t });
@@ -477,8 +485,9 @@ public partial class LineupPlannerViewModel : ObservableObject
     public ObservableCollection<Operator> LockSuggestions { get; } = [];
     public ObservableCollection<PlannerVariantCell> VariantCells { get; } = [];
     public ObservableCollection<PlannerLineupItem> VisibleLineups { get; } = [];
-    public ObservableCollection<string> GoalChips { get; } = [];
+    public ObservableCollection<PlannerGoalPill> GoalChips { get; } = [];
 
+    public IReadOnlyList<PlannerCovenantItem> CovenantDetails { get; }
     public IEnumerable<PlannerCovenantItem> AllCovenants => CoreCovenants.Concat(ExtraCovenants);
 
     /// <summary>Raised when the player saves a candidate as a lineup.</summary>
@@ -735,7 +744,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         if (cell is not null) SelectedVariant = cell;
     }
 
-    /// <summary>Locks the exact match, or the first suggestion, of <paramref name="name"/>.</summary>
+    /// <summary>Locks the exact name or a unique search suggestion.</summary>
     [RelayCommand]
     private void LockOperator(string? name) => AddLocked(name);
 
@@ -744,7 +753,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         name = name?.Trim();
         if (string.IsNullOrEmpty(name)) return false;
         var op = _operatorByName.GetValueOrDefault(name) ?? _strategyOperators.FirstOrDefault(o => o.Name == name)
-            ?? LockSuggestions.FirstOrDefault();
+            ?? (LockSuggestions.Count == 1 ? LockSuggestions[0] : null);
         if (op is null || op.RequiredStrategyId.Length > 0) return false;
         if (LockedOperators.Any(l => l.Name == op.Name)) { LockSearchText = ""; return false; }
         if (LockedOperators.Count >= LineupPlanner.MaxLockedOperators) return false;
@@ -811,7 +820,7 @@ public partial class LineupPlannerViewModel : ObservableObject
     {
         _availableCovenants = names.ToHashSet(StringComparer.Ordinal);
         if (_availableCovenants.Count == 0) OnlyCurrentRun = false;
-        foreach (var c in AllCovenants) c.IsAvailable = _availableCovenants.Contains(c.Name);
+        foreach (var c in CovenantDetails) c.IsAvailable = _availableCovenants.Contains(c.Name);
         ApplyVisibility();
         UpdateRunInfo();
     }
@@ -837,23 +846,23 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     private void ApplyBans()
     {
-        var goalDropped = false;
-        foreach (var c in AllCovenants)
+        foreach (var c in CovenantDetails)
             c.IsBanned = _banVm.IsCovenantBanned(c.Name);
         // Availability of the holders decides whether a banned additional covenant can still be reached.
         RefreshMembers();
         foreach (var c in AllCovenants)
         {
-            if (c.IsBlocked && c.Level > 0) { c.Level = 0; goalDropped = true; }
-            else if (c.Level == 2 && !c.CanPlanSecond) { c.Level = 1; goalDropped = true; }
+            if (c.IsBlocked && c.Level > 0) c.Level = 0;
+            else if (c.Level == 2 && !c.CanPlanSecond) c.Level = 1;
         }
-        if (goalDropped) RefreshGoalChips();
+        RefreshGoalChips();
+        ApplyVisibility();
         RefreshLockedOperators();
         UpdateRunInfo();
     }
 
     private bool IsUnavailable(Operator op) =>
-        _banVm.IsBanned(op.Name) || _planner.IsExcludedByBans(op, _banVm.BannedCovenants);
+        _banVm.IsBanned(op.Name) || CovenantBanRules.HasMissingCovenant(op, _banVm.MissingCovenants) || _planner.IsExcludedByBans(op, _banVm.BannedCovenants);
 
     private void RefreshLockedOperators()
     {
@@ -864,14 +873,18 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     private void RefreshMembers()
     {
-        foreach (var c in AllCovenants)
+        var carriers = _operators.Count(o => o.IsAvailableForSelection && !IsUnavailable(o)) + (Strategy == PlannerStrategy.Mech ? 1 : 0);
+        foreach (var c in CovenantDetails)
         {
+            c.IsMissing = _banVm.MissingCovenants.Contains(c.Name);
             c.Members = _operators
                 .Where(o => o.IsAvailableForSelection && (o.CoreCovenants.Contains(c.Name) || o.AdditionalCovenants.Contains(c.Name)))
                 .OrderBy(o => o.Tier).ThenBy(o => o.Name, StringComparer.Ordinal)
                 .Select(o => new PlannerCovenantMember(o.Name, o.IconPath, o.Tier,
                     IsUnavailable(o), o))
                 .ToList();
+            c.ExtraCarriers = c.CanTransformInto && !c.IsMissing && !(c.IsCore && c.IsBanned)
+                ? Math.Min(TransformOptions[^1], carriers - c.AvailableMembers) : 0;
         }
     }
 
@@ -905,12 +918,24 @@ public partial class LineupPlannerViewModel : ObservableObject
         RequestRecompute();
     }
 
+    [ObservableProperty] private IReadOnlyList<PlannerCovenantMember> _transferGoalHolders = [];
+    [ObservableProperty] private string _transferGoalDetail = "";
+    public bool HasTransferGoalDetail => TransferGoalDetail.Length > 0;
+    partial void OnTransferGoalDetailChanged(string value) => OnPropertyChanged(nameof(HasTransferGoalDetail));
+
     private void RefreshGoalChips()
     {
         GoalChips.Clear();
         foreach (var c in AllCovenants.Where(c => c.IsSelected))
-            GoalChips.Add($"{c.Name} {LineupPlanner.CreateGoal(c.Info, c.Level).Count}"); // as people, e.g. "乌萨斯 6"
+            GoalChips.Add(new(c.Name, $"{c.Name} {LineupPlanner.CreateGoal(c.Info, c.Level).Count}", false, true)); // as people, e.g. "乌萨斯 6"
         SelectedGoalCount = GoalChips.Count;
+        var shortages = AllCovenants.Where(c => c.IsSelected && !c.IsCore && c.CanTransformInto)
+            .Select(c => (Item: c, Need: LineupPlanner.CreateGoal(c.Info, c.Level).Count))
+            .Where(x => x.Item.AvailableMembers < x.Need).ToArray();
+        TransferGoalHolders = shortages.SelectMany(x => x.Item.Members.Where(m => !m.IsUnavailable)).DistinctBy(m => m.Name).ToArray();
+        TransferGoalDetail = string.Join("\n", shortages.Select(x => $"{x.Item.Name}{(x.Item.Level == 1 ? "Ⅰ" : "Ⅱ")} 需 {x.Need} 人 · 天然持有者："
+                + (x.Item.AvailableMembers == 0 ? "无" : string.Join("、", x.Item.Members.Where(m => !m.IsUnavailable).Select(m => m.Name)))
+                + $" · 还需 {x.Need - x.Item.AvailableMembers} 名转职"));
     }
 
     // ── Search pipeline ─────────────────────────────────────────────────────
@@ -1087,7 +1112,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         // Covenants as people (“伊比利亚 4”); target covenants are outlined
         var pills = stage.Covenants.Where(c => c.IsGoal || c.Level > 0)
             .OrderByDescending(c => c.IsGoal).ThenByDescending(c => c.Level)
-            .Select(c => new RouteCovenantPill($"{c.Name} {c.Count}", c.IsGoal, c.Level > 0)).ToList();
+            .Select(c => new RouteCovenantPill(c.Name, $"{c.Name} {c.Count}", c.IsGoal, c.Level > 0)).ToList();
         var conditions = new List<RouteChip>();
         if (!stage.IsFinal && !def.Stacking) conditions.Add(new RouteChip($"≤ {RomanOf(def.MaxTier)} 阶", false, false, $"终端 {def.TerminalLevel} 只出 {RomanOf(def.MaxTier)} 阶及以下"));
         conditions.Add(new RouteChip($"{def.People} 人", false, false));
@@ -1129,7 +1154,8 @@ public partial class LineupPlannerViewModel : ObservableObject
             BannedCovenants = bannedCovenants,
             BannedOperators = new HashSet<string>(_banVm.BannedNames, StringComparer.Ordinal),
             LockedOperators = LockedOperators.Where(l => !l.IsUnavailable).Select(l => l.Name).ToHashSet(StringComparer.Ordinal),
-            TransformAllowed = _planner.DefaultTransformAllowed(bannedCovenants).Where(_equipmentRules.CanTransformInto).ToHashSet(),
+            MissingCovenants = _banVm.MissingCovenants.ToHashSet(),
+            TransformAllowed = _planner.DefaultTransformAllowed(bannedCovenants, _banVm.MissingCovenants).Where(_equipmentRules.CanTransformInto).ToHashSet(),
             PeopleOptions = PeopleOptions,
             TransformOptions = TransformOptions,
             Strategy = Strategy,
@@ -1183,6 +1209,7 @@ public partial class LineupPlannerViewModel : ObservableObject
                 bool MeetsTargets(PlannedLineup plan)
                 {
                     var slots = RepairSlots(source, PlannerLineupItem.Slots(plan.Operators, _equipmentRules).Concat(PlannerLineupItem.StrategyPieceSlots(plan, _equipmentRules)));
+                    if (slots.SelectMany(_equipmentRules.Transformations).Any(t => !request.TransformAllowed.Contains(t.Covenant))) return false;
                     var counts = _repairCalculator.Compute(new Lineup { Slots = slots, Strategies = source.Strategies }).ToDictionary(s => s.Name, s => s.Count);
                     return request.Goals.All(g => counts.GetValueOrDefault(g.Name) >= g.Count);
                 }
@@ -1214,27 +1241,25 @@ public partial class LineupPlannerViewModel : ObservableObject
     private void ApplyResult(PlannerResult? result, TimeSpan elapsed)
     {
         CloseRoute();
-        var previous = SelectedVariant;
+
         VariantCells.Clear();
         foreach (var p in PeopleOptions)
             foreach (var t in TransformOptions)
             {
-                var v = result?.Variants.FirstOrDefault(x => x.People == p && x.Transforms == t);
+                var variants = result?.Variants.Where(x => x.People == p && x.Transforms <= t).ToList() ?? [];
+                var choices = variants.SelectMany(x => x.Lineups).Where(x => x.ForcedTransforms == 0).ToList();
                 VariantCells.Add(new PlannerVariantCell
                 {
-                    People = p, Transforms = t, Count = v?.Lineups.Count ?? 0,
-                    BestScore = v?.Lineups.FirstOrDefault()?.AdditionalScore ?? 0,
-                    IsLimited = v?.SearchLimited ?? false
+                    People = p, Transforms = t, Count = choices.Count,
+                    BestScore = choices.FirstOrDefault()?.AdditionalScore ?? 0,
+                    IsLimited = variants.Any(x => x.SearchLimited)
                 });
             }
-        TotalResults = VariantCells.Sum(c => c.Count);
-
-        SelectedVariant =
-            VariantCells.FirstOrDefault(c => previous is not null && c.People == previous.People && c.Transforms == previous.Transforms && c.HasResults)
-            ?? VariantCells.Where(c => c.HasResults)
-                .OrderByDescending(c => c.BestScore)
+        TotalResults = result?.AllLineups.Count(l => l.ForcedTransforms == 0) ?? 0;
+        SelectedVariant = VariantCells.Where(c => c.HasResults)
+                .OrderBy(c => c.Transforms)
+                .ThenByDescending(c => c.BestScore)
                 .ThenByDescending(c => c.People)
-                .ThenBy(c => c.Transforms)
                 .FirstOrDefault()
             ?? VariantCells.FirstOrDefault();
         UpdateStatus(result, elapsed);
@@ -1260,7 +1285,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         if (result is null) return;
 
         var solved = VariantCells.Count(c => c.HasResults);
-        StatusText = solved == 0 ? "没有找到可行组合" : $"✓ {VariantCells.Count} 组中 {solved} 组有解";
+        StatusText = solved == 0 ? "没有找到可行组合" : $"已找到的最低转职数：{VariantCells.Where(c => c.HasResults).Min(c => c.Transforms)}";
         var detail = $"{elapsed.TotalSeconds:0.0} 秒 · 改动后自动重算";
         if (VariantCells.Any(c => c.IsLimited)) detail += " · 部分组达到搜索上限";
         StatusDetail = detail;
@@ -1273,11 +1298,12 @@ public partial class LineupPlannerViewModel : ObservableObject
     {
         VisibleLineups.Clear();
         var cell = SelectedVariant;
-        var variant = _lastResult?.Variants.FirstOrDefault(v => cell is not null && v.People == cell.People && v.Transforms == cell.Transforms);
-        if (variant is not null)
+        if (_lastResult is not null && cell is not null)
         {
             var index = 0;
-            foreach (var lineup in variant.Lineups)
+            foreach (var lineup in _lastResult.Variants.Where(v => v.People == cell.People && v.Transforms <= cell.Transforms)
+                .SelectMany(v => v.Lineups).Where(l => l.ForcedTransforms == 0)
+                .OrderBy(l => l.Transforms).ThenByDescending(l => l.AdditionalScore))
             {
                 var item = BuildItem(lineup, index++);
                 item.SubstitutionAdvice = LineupSubstitutionAdvice.Describe(lineup, _operatorByName, _autoRunState);
@@ -1320,6 +1346,10 @@ public partial class LineupPlannerViewModel : ObservableObject
 
         var goals = BuildActivatedCovenantPills(lineup);
 
+        var requirements = PlannerLineupItem.Slots(lineup.Operators, _equipmentRules)
+            .Concat(PlannerLineupItem.StrategyPieceSlots(lineup, _equipmentRules))
+            .Where(s => s.Equipments.Contains(LineupEquipmentService.Shapeshifter))
+            .Select(s => $"{s.OperatorName}所需装备：{string.Join(" + ", s.Equipments.Select(e => e + " ×1"))}");
         var subtitle = $"{lineup.People} 人 · {lineup.Transforms} 转 · 附加盟约 {lineup.AdditionalScore} 分";
         if (lineup.FreeSlots > 0) subtitle += $" · 空 {lineup.FreeSlots}";
         var goalText = string.Join(" ", lineup.Goals.Select(g => g.Name + (g.Level == 2 ? "Ⅱ" : "Ⅰ")));
@@ -1330,6 +1360,8 @@ public partial class LineupPlannerViewModel : ObservableObject
             IsExpanded = index == 0,
             Title = $"方案 {index + 1}",
             Subtitle = subtitle,
+            TransferSummary = $"{lineup.Transforms} 转可达 {goalText}",
+            EquipmentText = string.Join("\n", requirements),
             Note = string.Join("；", new[]
             {
                 lineup.MissingHealer ? "没有奶位：这些目标下凑不出带医疗 / 治疗干员的阵容" : null,
@@ -1376,7 +1408,7 @@ public partial class LineupPlannerViewModel : ObservableObject
 
             // Shown as people, e.g. "乌萨斯 6"
             var text = $"{covenant.Name} {count}";
-            pills.Add(new PlannerGoalPill(text, false, goalNames.Contains(covenant.Name)));
+            pills.Add(new PlannerGoalPill(covenant.Name, text, false, goalNames.Contains(covenant.Name)));
         }
         // Planned-for covenants first, then the rest in their usual order
         return pills.OrderByDescending(p => p.IsGoal).ToList();

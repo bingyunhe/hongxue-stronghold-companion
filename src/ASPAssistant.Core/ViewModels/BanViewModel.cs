@@ -6,13 +6,16 @@ public class BanViewModel
     private readonly HashSet<string> _automaticNames = [];
     private readonly HashSet<string> _bannedCovenants = [];
 
+    public IReadOnlySet<string> MissingCovenants { get; private set; } = new HashSet<string>();
     public IReadOnlySet<string> BannedNames => _bannedNames;
     public IReadOnlySet<string> BannedCovenants => _bannedCovenants;
     public bool IsCovenantBanned(string name) => _bannedCovenants.Contains(name);
 
-    public void SetCovenantBans(IEnumerable<string> names)
+    public void SetCovenantBans(IEnumerable<string> names, IReadOnlySet<string>? missing = null)
     {
+        MissingCovenants = missing ?? new HashSet<string>();
         _bannedCovenants.Clear();
+        _bannedCovenants.UnionWith(MissingCovenants);
         foreach (var name in names)
             if (!string.IsNullOrWhiteSpace(name)) _bannedCovenants.Add(name);
         BansChanged?.Invoke();
@@ -52,15 +55,13 @@ public class BanViewModel
     {
         _bannedNames.Clear();
         _automaticNames.Clear();
-        _bannedCovenants.Clear();
-        BansChanged?.Invoke();
+        SetCovenantBans([]);
     }
 
     public void ClearRunBans()
     {
         _bannedNames.ExceptWith(_automaticNames);
         _automaticNames.Clear();
-        _bannedCovenants.Clear();
-        BansChanged?.Invoke();
+        SetCovenantBans([]);
     }
 }

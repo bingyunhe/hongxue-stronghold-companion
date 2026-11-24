@@ -31,6 +31,72 @@ public sealed class RoundEnemyTests
         Assert.Equal(singlePage, read.StartsAtTop);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task DesertRoundFourteenKeepsTheEnemySectionAcrossSmallScroll(int attempt)
+    {
+        if (Environment.GetEnvironmentVariable("ASPASSISTANT_DESERT_REPLAY") is not { } directory) return;
+        using var ocr = new MaaOcrEngine(Path.Combine(AppContext.BaseDirectory, "data"));
+        var routes = await ASPAssistant.Core.Data.GarrisonRoundRouteStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory);
+        var reader = new RoundEnemyReader(ocr, routes);
+        RoundEnemyReadResult? previous = null;
+        var pages = new List<RoundEnemyReadResult>();
+        foreach (int step in new[] { 3, 4 })
+        {
+            var bytes = File.ReadAllBytes(Path.Combine(directory, $"enemy-{attempt}-{step}.png"));
+            using var stream = new MemoryStream(bytes);
+            using var frame = new Bitmap(stream);
+            var layout = RoundEnemyReader.Inspect(frame, true);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var read = await reader.ReadAsync(bytes, frame, layout, previous, "规程等级4", 14);
+            Assert.NotNull(read);
+            File.AppendAllText(Path.Combine(TestOutput.Directory, $"desert-enemy-{attempt}.txt"),
+                $"{step}: {layout}, names={string.Join(",",read.Names)}, leaders={string.Join(",",read.Leaders)}, bottom={read.EndsAtBottom}, time={watch.ElapsedMilliseconds}ms\n");
+            pages.Add(read);
+            previous = read;
+        }
+        Assert.All(pages, page =>
+        {
+            Assert.Contains("萨卡兹枯朽辟路前锋", page.Names);
+            Assert.False(page.EndsAtBottom);
+        });
+        Assert.Contains(pages[0].Leaders,n=>n.Contains("萨米的意志"));
+        Assert.Contains("冰爆源石虫",pages[1].Names);
+
+        var board = File.ReadAllBytes(Path.Combine(directory, $"enemy-{attempt}-0.png"));
+        var top = File.ReadAllBytes(Path.Combine(directory, $"enemy-{attempt}-3.png"));
+        var scrolled = File.ReadAllBytes(Path.Combine(directory, $"enemy-{attempt}-4.png"));
+        var live = board;
+        int clicks = 0, scrolls = 0;
+        using var connection = new GameConnectionService();
+        using var scanner = new OcrScannerService(() => live, new GarrisonOcrStrategy(), new ShopReader(ocr, []),
+            ocr, new(), [], getConnection: () => connection)
+        {
+            RoundEnemyReader = reader, EconomyReader = new(ocr),
+            SendCapturedClick = (_, _, _, _) => { live = ++clicks == 1 ? top : board; return ClickResult.Sent; },
+            RoundEnemyScroll = (_, _, _, _) =>
+            {
+                // The recording ends on this page. Further wheel input has no recorded frame.
+                live = scrolled;
+                return ++scrolls == 1;
+            }
+        };
+        var hud = new ShopEconomy(14, 0, 0, false, "规程等级4", true);
+        var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+        tracker.Observe(hud);
+        tracker.Observe(hud);
+        Assert.Null(scanner.RequestRoundEnemyRead());
+        Task Observe(byte[] frame) => scanner.ObserveRoundEnemiesAsync(frame, hud, true, connection,
+            scanner.RunRevision, connection.CaptureRevision, Environment.TickCount64);
+        await Observe(board);
+        Assert.Equal(1, clicks);
+        await Observe(top);
+        Assert.Equal(2, scrolls);
+        Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
+        Assert.Contains("冰爆源石虫", scanner.CurrentRoundEnemies.Names);
+    }
+
     [Fact]
     public async Task FifthRoundCapturedOrdinaryListReturnsWithoutScrolling()
     {
@@ -135,8 +201,9 @@ public sealed class RoundEnemyTests
         Task Observe(byte[] frame) => scanner.ObserveRoundEnemiesAsync(frame, hud, true, connection, scanner.RunRevision,
             connection.CaptureRevision, Environment.TickCount64);
         await Observe(board);
+        Assert.True(clicks == 1, $"board clicks={clicks}, state={scanner.CurrentRoundEnemies}");
         await Observe(Load("open"));
-        Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
+        Assert.True(scanner.CurrentRoundEnemies!.IsPartial, $"opening frame: clicks={clicks}, state={scanner.CurrentRoundEnemies}");
         live = top;
         await Observe(top);
         Assert.Same(bottom, live);

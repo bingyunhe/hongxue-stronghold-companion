@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ASPAssistant.Core.Services;
 
 namespace ASPAssistant.Core.Models;
 
@@ -61,6 +62,9 @@ public sealed record PoolLimit(int Count, DateTimeOffset ChangedAt);
 public sealed record DeployPoolItem(string Name, Operator? Operator, string Sub, bool Owned, bool Elite, bool Removable, int Count = 0)
 {
     public int Tier => Operator?.Tier ?? 0;
+    public bool MatchesSearch(string query) => SearchMatch.Matches(query, Name, Sub)
+        || Operator?.CoreCovenants.Any(name => SearchMatch.Matches(query, name)) == true
+        || Operator?.AdditionalCovenants.Any(name => SearchMatch.Matches(query, name)) == true;
 }
 
 public sealed record DeployPoolGroup(DeployPoolGroupKind Kind, string Title, string Sub, IReadOnlyList<DeployPoolItem> Items);

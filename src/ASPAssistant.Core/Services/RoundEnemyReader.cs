@@ -76,6 +76,7 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
         var (headingVisible, bounty, darkEdge, edge) = InspectHeading(frame, frame.Size, Point.Empty);
         var title = Area(frame.Size, 1154, 94, 124, 66);
         var names = Area(frame.Size, 1250, 163, 416, 690);
+        int searchBottom = names.Bottom;
         var (thumbTop, thumbBottom) = (0, 0);
         bool compactPanel = false;
         if (darkEdge)
@@ -102,19 +103,20 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
                 break;
             }
             var scrollbar = Area(frame.Size, 1668, 96, 22, 755);
-            scrollbar.Height = names.Bottom - scrollbar.Top;
+            scrollbar.Height = searchBottom - scrollbar.Top;
             (thumbTop, thumbBottom) = FindScrollThumb(frame, scrollbar, scale);
             if (thumbBottom == 0)
             {
                 scrollbar = Area(frame.Size, 1748, 96, 13, 755);
-                scrollbar.Height = names.Bottom - scrollbar.Top;
+                scrollbar.Height = searchBottom - scrollbar.Top;
                 (thumbTop, thumbBottom) = FindScrollThumb(frame, scrollbar, scale);
             }
             if (thumbBottom > 0)
             {
                 // A thin horizontal border survives even over a dark battlefield, where the left edge
                 // alone can continue well below the panel. Verify it across the text column.
-                for (int y = thumbBottom + 1; y < names.Bottom; y++)
+                bool borderFound = false;
+                for (int y = thumbBottom + 1; y < searchBottom; y++)
                 {
                     int min = 255, max = 0;
                     for (int n = 0; n < 9; n++)
@@ -125,7 +127,14 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
                     }
                     if (min < 67 || max - min > 24 || frame.GetPixel(scrollbar.Left - 2, y - 2).G > min - 15) continue;
                     names.Height = y - names.Top;
+                    borderFound = true;
                     break;
+                }
+                // Beyond the apparent panel edge, grey scenery can resemble a scrollbar.
+                if (!borderFound && thumbBottom > names.Bottom)
+                {
+                    scrollbar.Height = Math.Max(0, names.Bottom - scrollbar.Top);
+                    (thumbTop, thumbBottom) = FindScrollThumb(frame, scrollbar, scale);
                 }
             }
         }
@@ -295,8 +304,26 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
             singlePage || !layout.MoreBelow && !layout.BottomUnknown, true, null, 0);
 
         if (stillRequested?.Invoke() == false) return null;
-        var words = await ocr.RecognizeRegionAsync(ImageBytes.Encode(names), 0, 0, names.Width, names.Height);
         var candidates = routes?.PossibleEnemies(mode, round);
+        // Leader descriptions and the fade at the bottom of the panel lose strokes in the white mask.
+        // Read the original name column once; the mask still distinguishes titles from description lines.
+        var mixedLeaderPage = sections.Any(s => s.Name == "领袖") && sections.Any(s => s.Name == "敌人") && candidates is { Count: > 0 };
+        var words = mixedLeaderPage
+            ? (await ocr.RecognizeRegionAsync(screenshot, area.X, area.Y, area.Width, area.Height))
+                .Select(w => new OcrTextResult(w.Text, (w.Box.X - area.X, w.Box.Y - area.Y, w.Box.W, w.Box.H))).ToArray()
+            : await ocr.RecognizeRegionAsync(ImageBytes.Encode(names), 0, 0, names.Width, names.Height);
+        if (mixedLeaderPage)
+        {
+            var enemyHeading = sections.First(s => s.Name == "敌人").Box;
+            foreach (var word in words.Where(w => candidates!.Contains(Normalize(w.Text)) &&
+                w.Box.Y + area.Y >= enemyHeading.Y + enemyHeading.H && w.Box.H >= 14 * scale))
+            {
+                int middle = word.Box.Y + word.Box.H / 2;
+                if (!bands.Any(b => middle >= b.Top && middle <= b.Bottom))
+                    bands.Add((word.Box.Y, Math.Min(names.Height - 1, word.Box.Y + word.Box.H - 1)));
+            }
+            bands.Sort();
+        }
         var enemies = new List<string>();
         var leaders = new List<string>();
         var bounties = new List<string>();

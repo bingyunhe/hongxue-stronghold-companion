@@ -39,6 +39,9 @@ public sealed partial class FilterChip : ObservableObject
 
     public string Label { get; }
 
+    public string? CovenantName => Kind is FilterChipKind.CoreCovenant or FilterChipKind.OtherCovenant
+        && Value is not (MissingCovenantFilters.NoCore or MissingCovenantFilters.NoAdditional) ? Value : null;
+
     /// <summary>Tag text when the filter card is collapsed, e.g. "Ⅴ 阶", "核心 · 莱塔尼亚".</summary>
     public string TagText => Kind switch
     {

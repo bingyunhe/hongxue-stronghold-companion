@@ -307,6 +307,12 @@ public partial class OcrScannerService
         }
 
         RoundEnemyReadResult? previousPage;
+        if (!buffered && BoardRecognizer is not null)
+        {
+            bool visible = _board.Current is not null;
+            _board.Reset();
+            if (visible) BoardChanged?.Invoke(null);
+        }
         var stamp = RoundEnemyReader.PageStamp(frame, layout);
         lock (_runLock)
         {

@@ -39,26 +39,26 @@ public partial class OperatorPickerWindow : Window
     private readonly OperatorBrowseViewModel _filters = new();
     private readonly IReadOnlySet<string> _strategies;
     private readonly OperatorPickerContext? _context;
-    private readonly bool _hasReviewCandidates;
+    private readonly bool _isReviewPicker;
     private bool _onlyTargets;
     private Operator? _pressedOperator;
     private Point _pressPosition;
     public string? Result { get; private set; }
 
     public OperatorPickerWindow(IEnumerable<Operator> operators, string current, IReadOnlySet<string> strategies,
-        OperatorPickerContext? context = null, IReadOnlyList<string>? reviewCandidates = null)
+        OperatorPickerContext? context = null, IReadOnlyList<string>? reviewCandidates = null, BanScreenResult? pickerRun = null)
     {
         _strategies = strategies;
         _context = context;
         var list = operators.OrderBy(op => op.Tier).ThenBy(op => op.Name, StringComparer.CurrentCulture).ToList();
         _effects = context is null ? new() : list.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => EffectFor(g.First(), context));
         InitializeComponent();
+        _isReviewPicker = reviewCandidates is not null;
         if (reviewCandidates is { Count: > 0 })
         {
             var ranks = reviewCandidates.Select((name, index) => (name, index)).ToDictionary(p => p.name, p => p.index);
             list = list.OrderBy(o => ranks.GetValueOrDefault(o.Name, int.MaxValue)).ToList();
             TitleMeta.Text = $"外观候选　{string.Join("、", reviewCandidates)}";
-            _hasReviewCandidates = true;
         }
         WindowUiScale.PrepareCentered(this);
         var style = new Style(typeof(ListBoxItem), OperatorsList.ItemContainerStyle);
@@ -70,7 +70,12 @@ public partial class OperatorPickerWindow : Window
         disabled.Setters.Add(new Setter(ToolTipService.InitialShowDelayProperty, 0));
         style.Triggers.Add(disabled);
         OperatorsList.ItemContainerStyle = style;
-        _filters.LoadOperators(list);
+        if (pickerRun is not null)
+        {
+            var grey = pickerRun.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name).ToHashSet();
+            _filters.SetCovenantBanChecker(grey.Contains);
+        }
+        _filters.LoadOperators(list, pickerRun);
         DataContext = _filters;
         OperatorsList.SelectedItem = _filters.FilteredOperators.FirstOrDefault(op => op.Name == current);
 
@@ -189,9 +194,13 @@ public partial class OperatorPickerWindow : Window
     private void OnOperatorKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
-        if (_hasReviewCandidates && OperatorsList.SelectedItem == null && string.IsNullOrWhiteSpace(SearchBox.Text)) return;
-        var op = OperatorsList.SelectedItem as Operator
-                 ?? CollectionViewSource.GetDefaultView(OperatorsList.ItemsSource)?.Cast<Operator>().FirstOrDefault(o => Unavailable(o) is null);
+        if (_isReviewPicker && OperatorsList.SelectedItem == null && string.IsNullOrWhiteSpace(SearchBox.Text)) return;
+        Operator? op = OperatorsList.SelectedItem as Operator;
+        if ((sender == SearchBox && !string.IsNullOrWhiteSpace(SearchBox.Text)) || op == null)
+        {
+            var candidates = CollectionViewSource.GetDefaultView(OperatorsList.ItemsSource).Cast<Operator>().Where(o => Unavailable(o) is null);
+            op = SearchMatch.ExactOrOnlyOperator(candidates, SearchBox.Text);
+        }
         if (op is null) return;
         Pick(op);
         e.Handled = true;

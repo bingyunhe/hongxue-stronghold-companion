@@ -46,7 +46,7 @@
                 <TextBlock x:Name="NameText" Text="{Binding Name}" Foreground="{DynamicResource TextPrimaryBrush}"
                            FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
                 <!-- Covenant pills: core filled in the accent tint, additional neutral -->
-                <ItemsControl x:Name="CovenantChips" Margin="0,4,0,0" ClipToBounds="True" Focusable="False" IsHitTestVisible="False">
+                <ItemsControl x:Name="CovenantChips" Margin="0,4,0,0" ClipToBounds="True" Focusable="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" />
@@ -54,7 +54,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border x:Name="chip" CornerRadius="{DynamicResource PillCornerRadius}" Padding="6,0" Margin="0,0,4,0"
+                            <Border x:Name="chip" controls:PanelToolTip.Covenant="{Binding Name}" CornerRadius="{DynamicResource PillCornerRadius}" Padding="6,0" Margin="0,0,4,0"
                                     Background="{DynamicResource NeutralTintBrush}">
                                 <TextBlock x:Name="chipText" Text="{Binding Name}" FontSize="10" LineHeight="17" Foreground="{DynamicResource TextSecondaryBrush}" />
                             </Border>

@@ -2,7 +2,10 @@ using ASPAssistant.Core.Models;
 
 namespace ASPAssistant.Core.Services;
 
-public sealed record BoardMatch(GarrisonMap Map, BoardCamera Camera, double Score, double Margin);
+public sealed record BoardMatch(GarrisonMap Map, BoardCamera Camera, double Score, double Margin)
+{
+    public BoardProjection? OverlayProjection { get; init; }
+}
 
 /// <summary>
 /// Recognises which Garrison Protocol map is on screen, and whether the shop is folded or open, by
@@ -89,6 +92,29 @@ public sealed class BoardRecognizer
         return new BoardMatch(best.Map, best.Camera, best.Trimmed, margin);
     }
 
+    private BoardProjection? _pannedShop;
+
+    // The desert boss staging camera pans the board horizontally while leaving the shop fixed.
+    // Only use this calibration for overlay drawing; operator and badge crops use their own camera model.
+    internal BoardMatch? RecognizePannedDesertOverlay(BmpPixels pixels)
+    {
+        const BoardCamera camera = BoardCamera.Expanded;
+        const string mapId = "desert_crates";
+        if (!_data.Fingerprints.TryGetValue(mapId,out var target) || !target.TryGetValue(camera,out var reference)) return null;
+        _pannedShop ??= new BoardProjection(new[] { (0d,0d),(6d,0d),(0d,4d),(6d,4d) }.Select(grid =>
+        {
+            var (x,y) = _data.Cameras[camera].Project(grid.Item1,grid.Item2);
+            return (grid,(x + .023 + .0165*y,y));
+        }).ToArray());
+        var samples = Sample(pixels,_pannedShop);
+        // The boss covers several whole tiles. Require half the samples to agree AND a margin over every rival.
+        var (full,trimmed) = Distance(samples,reference,.5);
+        if (trimmed > MaxScore) return null;
+        double rival = _data.Fingerprints.Where(kv => kv.Key != mapId && kv.Value.ContainsKey(camera))
+            .Select(kv => Distance(samples,kv.Value[camera]).Full).DefaultIfEmpty(0).Min();
+        return rival-full < MinMargin ? null : new BoardMatch(_data.Find(mapId)!,camera,trimmed,rival-full) { OverlayProjection = _pannedShop };
+    }
+
     private static byte[][] Sample(BmpPixels px, BoardProjection projection)
     {
         var result = new List<byte[]>();
@@ -109,7 +135,7 @@ public sealed class BoardRecognizer
     /// cells and their badges and effects extend into adjacent samples, so the worst samples are dropped instead of letting
     /// them push a correct match over <see cref="MaxScore"/>; a wrong map still differs on most cells.
     /// </summary>
-    private static (double Full, double Trimmed) Distance(byte[][] a, byte[][] b)
+    private static (double Full, double Trimmed) Distance(byte[][] a, byte[][] b, double keptShare = KeptShare)
     {
         int n = Math.Min(a.Length, b.Length);
         if (n == 0) return (double.MaxValue, double.MaxValue);
@@ -120,7 +146,7 @@ public sealed class BoardRecognizer
         }
         double total = d.Sum();
         Array.Sort(d);
-        int keep = Math.Max(1, (int)(n * KeptShare));
+        int keep = Math.Max(1, (int)(n * keptShare));
         double sum = 0;
         for (int i = 0; i < keep; i++) sum += d[i];
         return (total / n, sum / keep);
@@ -178,7 +204,7 @@ public sealed class BoardMatchStabilizer
     }
 
     private static bool Same(BoardMatch? a, BoardMatch? b) =>
-        a is not null && b is not null && a.Map.Id == b.Map.Id && a.Camera == b.Camera;
+        a is not null && b is not null && a.Map.Id == b.Map.Id && a.Camera == b.Camera && a.OverlayProjection == b.OverlayProjection;
 }
 
 /// <summary>Direct pixel access to the uncompressed 24/32-bit BMP frames produced by ScreenCaptureService.</summary>
@@ -217,6 +243,22 @@ public sealed class BmpPixels
     {
         int i = _offset + (_bottomUp ? Height - 1 - y : y) * _stride + x * _bytesPerPixel;
         return _data[i+2] << 16 | _data[i+1] << 8 | _data[i];
+    }
+
+    internal bool SameRegion(BmpPixels other, int left, int top, int right, int bottom)
+    {
+        if (Width != other.Width || Height != other.Height || _bytesPerPixel != other._bytesPerPixel) return false;
+        left = Math.Clamp(left, 0, Width);
+        int bytes = (Math.Clamp(right, left, Width) - left) * _bytesPerPixel;
+        int end = Math.Min(bottom, Height);
+        if (bytes == 0 || end <= Math.Max(0, top)) return false;
+        for (int y = Math.Max(top, 0); y < end; y++)
+        {
+            int offset = _offset + (_bottomUp ? Height - 1 - y : y) * _stride + left * _bytesPerPixel;
+            int otherOffset = other._offset + (other._bottomUp ? Height - 1 - y : y) * other._stride + left * _bytesPerPixel;
+            if (!_data.AsSpan(offset, bytes).SequenceEqual(other._data.AsSpan(otherOffset, bytes))) return false;
+        }
+        return true;
     }
 
     internal byte[] RegionDigest(int left,int top,int right,int bottom)

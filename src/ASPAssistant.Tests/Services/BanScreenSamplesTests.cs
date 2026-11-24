@@ -141,6 +141,7 @@ public sealed class BanScreenSamplesTests : IDisposable
             .Should().BeEquivalentTo(expected.BannedCore);
         result.AdditionalCovenants.Where(c => c.IsBanned).Select(c => c.Name)
             .Should().BeEquivalentTo(expected.BannedAdditional);
+        result.MissingCovenants.Should().BeEmpty();
         enemy.Should().NotBeNull();
         enemy!.BossName.Should().Be(expected.Boss);
         enemy.EnemyTypes.Should().Equal(expected.Types);

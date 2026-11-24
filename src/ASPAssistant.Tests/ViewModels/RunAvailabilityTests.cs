@@ -47,6 +47,27 @@ public class RunAvailabilityTests
     }
 
     [Fact]
+    public void ReducedRunHidesMixedCovenantOperatorsAndMissingFilterChoices()
+    {
+        var vm = new OperatorBrowseViewModel();
+        vm.LoadOperators([
+            new() { Name = "锏", CoreCovenants = ["卡西米尔", "谢拉格"] },
+            new() { Name = "遥", AdditionalCovenants = ["聚合", "奇迹"] },
+            new() { Name = "角峰", CoreCovenants = ["谢拉格"], AdditionalCovenants = ["坚守"] }
+        ]);
+        vm.SetAvailableCovenants(["谢拉格", "聚合"], new HashSet<string> { "卡西米尔", "奇迹" });
+        vm.OnlyCurrentRun = true;
+        vm.FilteredOperators.Select(o => o.Name).Should().Equal("角峰");
+        vm.AvailableOtherCovenants.Should().Contain("坚守").And.NotContain("奇迹");
+        vm.SelectedOperatorSource = OperatorSourceFilter.Default;
+        vm.OtherChips.Should().NotContain(c => c.Value == "奇迹");
+        vm.CoreChips.Should().NotContain(c => c.Value == "卡西米尔");
+        vm.ClearCovenantHighlights();
+        vm.FilteredOperators.Should().HaveCount(3);
+        vm.AvailableOtherCovenants.Should().Contain("奇迹");
+    }
+
+    [Fact]
     public void ClearingRunLimitsPreservesManualGoalsLocksAndOperatorBans()
     {
         Operator[] operators = [new() { Name = "固定干员", CoreCovenants = ["维多利亚"] }, new() { Name = "手动禁用", CoreCovenants = ["炎"] }];

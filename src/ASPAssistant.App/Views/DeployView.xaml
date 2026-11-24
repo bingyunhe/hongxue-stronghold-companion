@@ -66,7 +66,7 @@
                           Checked="OnInGameToggled" Unchecked="OnInGameToggled" />
                 <TextBlock Text="游戏内显示" FontSize="11" FontWeight="Bold" Margin="7,0,0,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource TextPrimaryBrush}" />
-                <TextBlock Text="格子 · 名字 · 朝向" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center"
+                <TextBlock x:Name="InGameHint" Text="格子 · 名字 · 朝向" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
             </DockPanel>
             </StackPanel>

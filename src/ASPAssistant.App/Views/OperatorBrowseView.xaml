@@ -36,7 +36,7 @@
             <CheckBox x:Name="OnlyCurrentRunToggle" DockPanel.Dock="Right" Content="只看本局" FontSize="11"
                       VerticalAlignment="Center" VerticalContentAlignment="Center"
                       Foreground="{DynamicResource TextPrimaryBrush}" IsChecked="{Binding OnlyCurrentRun}"
-                      IsEnabled="{Binding HasRunInfo}" ToolTip="只限制本局录入的主要盟约，附加盟约全部保留" />
+                      IsEnabled="{Binding HasRunInfo}" ToolTip="核心盟约按本局可用范围筛选；已出现但被禁的附加盟约仍可筛选" />
             <ListBox x:Name="OperatorSourceList" HorizontalAlignment="Left" Style="{StaticResource SegmentedListBox}"
                      SelectedValuePath="Tag" SelectedValue="{Binding SelectedOperatorSource}">
                 <ListBoxItem Content="默认干员" Tag="{x:Static viewModels:OperatorSourceFilter.Default}" />

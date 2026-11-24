@@ -20,6 +20,7 @@ public sealed class WpfTestHost : IAsyncLifetime
             try
             {
                 var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+                ASPAssistant.App.Controls.PanelToolTip.RegisterForAllElements();
                 foreach (var resource in new[] { "Themes/Terminal.Dark.xaml", "Styles.xaml", "Logo.xaml" })
                     application.Resources.MergedDictionaries.Add(new ResourceDictionary
                     {

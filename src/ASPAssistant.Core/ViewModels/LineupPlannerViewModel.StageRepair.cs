@@ -35,7 +35,7 @@ public partial class LineupPlannerViewModel
         var repairer = new LineupStageRepairer([.. _operators, .. _strategyOperators], _repairCalculator);
         try
         {
-            var preview = await Task.Run(() => repairer.Repair(original, repaired, request.BannedOperators, request.BannedCovenants, token), token);
+            var preview = await Task.Run(() => repairer.Repair(original, repaired, request.BannedOperators, request.BannedCovenants, token, request.TransformAllowed), token);
             if (!token.IsCancellationRequested && ReferenceEquals(RepairSource, source) && VisibleLineups.Contains(item)) item.StageRepair = preview;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }

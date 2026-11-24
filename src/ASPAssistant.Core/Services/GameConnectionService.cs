@@ -279,7 +279,7 @@ public sealed class GameConnectionService : IDisposable
             || Math.Abs(bounds.Width * (double)frame.Height / frame.Width - bounds.Height) > 2) return false;
         var client = new System.Drawing.Point(point.X * bounds.Width / frame.Width, point.Y * bounds.Height / frame.Height);
         return User32.CheckClickTarget(window, bounds.Left + client.X, bounds.Top + client.Y) == ClickResult.Sent
-            && new MaaScrollService().TryScrollAtPoint(window, -120, client);
+            && new MaaScrollService().TryScrollAtPoint(window, -480, client);
     }
 
     internal bool CanRetryCapturedPoint(System.Drawing.Point point, int width, int height)
