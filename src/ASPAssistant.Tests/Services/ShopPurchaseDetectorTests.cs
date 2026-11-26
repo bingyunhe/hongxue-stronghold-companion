@@ -11,6 +11,32 @@ public class ShopPurchaseDetectorTests
     private static ShopItem Card(string name, double x) => new() { Name = name, Id = name + "@0", OcrRegion = (x, .94, .06, .025) };
     private static ShopEconomy Funds(int money, int round = 1) => new(round, money, 5, false, "规程等级7", true);
 
+    [Theory]
+    [InlineData(3, true)]
+    [InlineData(2, false)]
+    [InlineData(0, false)]
+    public void FirstRefreshPurchaseNeedsMatchingPriceAndTwoEmptyFrames(int readPrice, bool confirmed)
+    {
+        var detector = new ShopPurchaseDetector();
+        ShopItem[] refresh = [Card("承曦格雷伊", .33), Card("波登可", .46), Card("伺夜", .59)];
+        var targets = refresh.Select(c => c.Name).ToHashSet();
+        detector.Observe(Frame(), [Card("灰喉", .33)], true, Funds(9, 6), targets);
+        var offer = Frame();
+        detector.Observe(offer, refresh, true, Funds(8, 6), targets);
+        var remaining = refresh[1..];
+        var probe = detector.PriceToVerify(remaining, Funds(5, 6));
+        Assert.NotNull(probe);
+        Assert.Same(offer, probe.Value.Frame);
+        Assert.Equal("承曦格雷伊", probe.Value.Card.Name);
+        probe.Value.Card.Price = readPrice;
+        detector.Observe(Frame(false), remaining, true, Funds(5, 6), targets).Should().BeEmpty();
+        Assert.Equal(confirmed, detector.NeedsConfirmation);
+        var first = detector.Observe(Frame(false), remaining, true, Funds(5, 6), targets);
+        if (confirmed) first.Should().Equal("承曦格雷伊"); else first.Should().BeEmpty();
+        detector.Observe(Frame(false, false), remaining[1..], true, Funds(2, 6), targets).Should().BeEmpty();
+        detector.Observe(Frame(false, false), remaining[1..], true, Funds(2, 6), targets).Should().Equal("波登可");
+    }
+
     private static byte[] Frame(bool first = true, bool second = true)
     {
         using var bitmap = new Bitmap(960, 540);

@@ -16,7 +16,7 @@ public partial class SklandBrowseView : UserControl
     private readonly List<SklandBrowseGuide> guides = [];
     private SklandGuideCatalogue catalogue = null!;
     private Func<int> currentRound = null!;
-    private Func<SklandBrowseStage, string> runFit = null!;
+    private Func<SklandBrowseGuide, SklandBrowseStage, string> runFit = null!;
     private Func<SklandBrowseGuide, Task> import = null!;
     private bool loaded;
     private bool loading;
@@ -223,7 +223,7 @@ public partial class SklandBrowseView : UserControl
             if (DetailsTip.IsOpen) return;
             DetailsTip.Content = DetailsTip.DataContext = null;
         };
-        IsVisibleChanged += (_, _) => { if (!IsVisible) CloseDetails(); };
+        IsVisibleChanged += (_, _) => { if (IsVisible) RefreshRunFit(); else CloseDetails(); };
         PreviewMouseDown += (_, _) => CloseDetails();
         AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
         {
@@ -267,7 +267,7 @@ public partial class SklandBrowseView : UserControl
         return true;
     }
 
-    internal void Configure(SklandGuideCatalogue source, Func<int> round, Func<SklandBrowseStage, string> fit,
+    internal void Configure(SklandGuideCatalogue source, Func<int> round, Func<SklandBrowseGuide, SklandBrowseStage, string> fit,
         Func<SklandBrowseGuide, Task> openEditor, Func<string, string, object?> lookup)
     {
         catalogue = source;
@@ -300,7 +300,7 @@ public partial class SklandBrowseView : UserControl
         await EnsureAccountRestoredAsync();
         if (accountBusy) return;
         if (!loaded || section == "collected") await LoadAsync(false);
-        else if (Detail.IsVisible && Stages.SelectedItem is SklandBrowseStage stage) Fit.Text = runFit(stage);
+        else RefreshRunFit();
     }
 
     private async Task LoadAsync(bool append)
@@ -525,12 +525,18 @@ public partial class SklandBrowseView : UserControl
         ScopeToggle.Content = expand ? "收起" : "展开";
     }
 
+    internal void RefreshRunFit()
+    {
+        if (Detail.IsVisible && Detail.DataContext is SklandBrowseGuide guide && Stages.SelectedItem is SklandBrowseStage stage)
+            Fit.Text = runFit(guide, stage);
+    }
+
     private void OnStage(object sender, SelectionChangedEventArgs e)
     {
         CloseDetails();
         StagePanel.DataContext = Stages.SelectedItem;
         if (Stages.SelectedItem is not SklandBrowseStage stage) return;
-        Fit.Text = runFit(stage);
+        RefreshRunFit();
         GearStatus.Text = stage.Equipment.Length == 0 ? "此阶段未列出装备" : "";
         BondStatus.Text = stage.Bonds.Any() ? "" : "此阶段未列出盟约";
         StageScroll.ScrollToTop();

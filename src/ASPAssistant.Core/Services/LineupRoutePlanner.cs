@@ -125,19 +125,22 @@ public sealed class LineupRoutePlanner
         double StageWeight(int s) => 0.7 + 0.15 * (stageCount - s);
         // A 先小后大 stage builds its own 小盟约; every other stage (and 后期 叠层) builds the route's goals.
         IReadOnlyList<PlannerGoal> StageGoals(RouteStageDefinition def) => def.Stacking || def.SmallGoals is null ? goals : def.SmallGoals;
-        var pool = _operators.Where(o => o.IsAvailableForSelection)
+        var pool = _operators.Where(o => o.IsAvailableForPlanning)
             .Where(o => !request.BannedOperators.Contains(o.Name))
             .Where(o => !request.ExcludeMixedBannedOperators || !_planner.IsExcludedByBans(o, request.BannedCovenants))
             .ToList();
 
         // Backwards: 成型阵容 → 后期 → 中期 → 前期 → 开局.
         var teams = new List<string>[request.Stages.Count];
+        HashSet<string> OtherCustoms(int stage) => teams.Where((team, index) => index != stage && team != null)
+            .SelectMany(team => team).Concat(finalNames).Where(n => _byName.TryGetValue(n, out var op) && op.IsCustom)
+            .ToHashSet(StringComparer.Ordinal);
         IReadOnlySet<string> next = finalNames;
         for (var s = request.Stages.Count - 1; s >= 0; s--)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var team = SolveStage(request.Stages[s], pool, StageGoals(request.Stages[s]), next, finalNames, previous: null, teams[s], finalActive, StageWeight(s),
-                request.Stages[s].Stacking ? finalTransforms : NoTransforms);
+                request.Stages[s].Stacking ? finalTransforms : NoTransforms, OtherCustoms(s));
             teams[s] = team;
             // A stacking stage is a detour before the boss: earlier stages still head for the boss lineup.
             if (!request.Stages[s].Stacking) next = team.ToHashSet(StringComparer.Ordinal);
@@ -152,7 +155,7 @@ public sealed class LineupRoutePlanner
                 ? teams[s + 1].ToHashSet(StringComparer.Ordinal) : finalNames;
             var before = s > 0 ? teams[s - 1] : null;
             teams[s] = SolveStage(request.Stages[s], pool, StageGoals(request.Stages[s]), after, finalNames, before, teams[s], finalActive, StageWeight(s),
-                request.Stages[s].Stacking ? finalTransforms : NoTransforms);
+                request.Stages[s].Stacking ? finalTransforms : NoTransforms, OtherCustoms(s));
         }
 
         // Forwards: annotate roles, new arrivals and replacements.
@@ -220,14 +223,14 @@ public sealed class LineupRoutePlanner
 
     private List<string> SolveStage(RouteStageDefinition def, List<Operator> allPool, IReadOnlyList<PlannerGoal> goals,
         IReadOnlySet<string> next, IReadOnlySet<string> finalNames, IReadOnlyList<string>? previous, IReadOnlyList<string>? current,
-        IReadOnlySet<string> finalActive, double stageWeight, IReadOnlyDictionary<string, string> transforms)
+        IReadOnlySet<string> finalActive, double stageWeight, IReadOnlyDictionary<string, string> transforms, HashSet<string> reserved)
     {
         var pool = allPool.Where(o => o.Tier <= def.MaxTier || (def.TripleSlots > 0 && o.Tier == def.MaxTier + 1))
             .OrderBy(o => o.Name, StringComparer.Ordinal).ToList();
         var size = Math.Min(def.People, pool.Count);
         var prevSet = previous?.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
         var prevCounts = previous is null ? null : Count(previous, NoTransforms);
-        var ctx = new StageContext(this, def, goals, next, finalNames, prevSet, prevCounts, finalActive, stageWeight, transforms);
+        var ctx = new StageContext(this, def, goals, next, finalNames, prevSet, prevCounts, finalActive, stageWeight, transforms, reserved);
 
         var seeds = new List<List<Operator>>
         {
@@ -593,7 +596,7 @@ public sealed class LineupRoutePlanner
     private sealed class StageContext(LineupRoutePlanner owner, RouteStageDefinition def, IReadOnlyList<PlannerGoal> goals,
         IReadOnlySet<string> next, IReadOnlySet<string> finalNames, IReadOnlySet<string> previous,
         IReadOnlyDictionary<string, int>? previousCounts, IReadOnlySet<string> finalActive, double stageWeight,
-        IReadOnlyDictionary<string, string> transforms)
+        IReadOnlyDictionary<string, string> transforms, HashSet<string> reserved)
     {
         private readonly HashSet<string> _goalNames = goals.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
         /// <summary>先小后大 stage: only 小盟约 score, so the stage does not wander into another core covenant.</summary>
@@ -621,10 +624,14 @@ public sealed class LineupRoutePlanner
             return score;
         }
 
+        private readonly int[] booked = [reserved.Count(n => owner._byName[n].Tier == 5), reserved.Count(n => owner._byName[n].Tier == 6)];
+        private bool FitsCustom(List<Operator> team, int tier) =>
+            booked[tier - 5] + team.Count(o => o.IsCustom && o.Tier == tier && !reserved.Contains(o.Name)) <= 2;
         public bool CanAdd(List<Operator> team, Operator o)
-            => o.Tier <= def.MaxTier || TripleCount(team) < def.TripleSlots;
+            => (o.Tier <= def.MaxTier || TripleCount(team) < def.TripleSlots) && (!o.IsCustom || reserved.Contains(o.Name)
+                || booked[o.Tier - 5] + team.Count(p => p.IsCustom && p.Tier == o.Tier && !reserved.Contains(p.Name)) < 2);
 
-        public bool IsValid(List<Operator> team) => TripleCount(team) <= def.TripleSlots;
+        public bool IsValid(List<Operator> team) => TripleCount(team) <= def.TripleSlots && (!team.Exists(o => o.IsCustom) || FitsCustom(team, 5) && FitsCustom(team, 6));
 
         public double Score(List<Operator> team)
         {

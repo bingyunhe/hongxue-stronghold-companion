@@ -26,6 +26,13 @@ public partial class OperatorBrowseView : UserControl
     public Func<string, bool>? IsCovenantBannedCheck { get; set; }
     public event Action? ManageCustomOperatorsRequested;
 
+    public event Action? RecognizeCustomRequested;
+    public event Action<Operator, FrameworkElement>? CarryRequested;
+    public event Action? CarryAdviceRequested;
+    private void OnCarryAdvice(object sender, RoutedEventArgs e) => CarryAdviceRequested?.Invoke();
+    private void OnRecognizeCustom(object sender, RoutedEventArgs e) => RecognizeCustomRequested?.Invoke();
+    internal void ToggleCarry(Operator op, FrameworkElement anchor) => CarryRequested?.Invoke(op, anchor);
+
     private void OnManageCustomOperators(object sender, RoutedEventArgs e) => ManageCustomOperatorsRequested?.Invoke();
 
     public OperatorBrowseView()

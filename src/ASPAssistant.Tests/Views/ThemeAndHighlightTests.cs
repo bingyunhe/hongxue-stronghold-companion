@@ -57,6 +57,10 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     public Task DesertOverlayRestoresPlanAndCells(bool night)
         => ui.RunAsync(() => RoundRoutesViewTests.VerifyDesertOverlay(night), $"DesertOverlay-{night}");
 
+    [Fact]
+    public Task PalaceOverlayShowsOnlyPlannedNamesAndFacingByDefault()
+        => ui.RunAsync(RoundRoutesViewTests.VerifyPalaceOverlay, nameof(PalaceOverlayShowsOnlyPlannedNamesAndFacingByDefault));
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -615,6 +619,15 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     }, $"{nameof(TransientHints_HaveReadableContrast)}-{theme}-{night}");
 
     [Fact]
+    public Task CustomRoster_TierMouseClick() => ui.RunAsync(LineupFeatureTests.VerifyTierMouse, nameof(CustomRoster_TierMouseClick));
+
+    [Fact]
+    public Task CustomRoster_FilterAndPinSelection() => ui.RunAsync(LineupFeatureTests.VerifyCustomFilterOrder, nameof(CustomRoster_FilterAndPinSelection));
+
+    [Fact]
+    public Task CustomCarry_RecognizesCorrectsAndRendersAllThemes() => ui.RunAsync(LineupFeatureTests.VerifyCustomCarry, nameof(CustomCarry_RecognizesCorrectsAndRendersAllThemes));
+
+    [Fact]
     public Task LineupEditor_FiltersAndEditsLineups() => ui.RunAsync(LineupFeatureTests.Verify, nameof(LineupEditor_FiltersAndEditsLineups));
 
     [Fact]
@@ -630,10 +643,12 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
         => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyPrecisionTransfer(night), $"PrecisionTransfer-{night}");
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public Task ManualSubstitution_ExpandsAndUpdatesAfterPurchase(bool night)
-        => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyManualSubstitution(night), $"ManualSubstitution-{night}");
+    [InlineData(GameShopTheme.Terminal, false)]
+    [InlineData(GameShopTheme.Ursus, false)]
+    [InlineData(GameShopTheme.Closure, false)]
+    [InlineData(GameShopTheme.Closure, true)]
+    public Task ManualSubstitution_ExpandsAndUpdatesAfterPurchase(GameShopTheme theme, bool night)
+        => ui.RunAsync(() => PlannerLockedBanViewTests.VerifyManualSubstitution(theme, night), $"ManualSubstitution-{theme}-{night}");
 
     [Theory]
     [InlineData(GameShopTheme.Terminal, false)]
@@ -690,6 +705,9 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
     [InlineData(GameShopTheme.Terminal, false)]
     [InlineData(GameShopTheme.Closure, false)]
     [InlineData(GameShopTheme.Closure, true)]
+    [InlineData(GameShopTheme.Terminal, true)]
+    [InlineData(GameShopTheme.Ursus, true)]
+    [InlineData(GameShopTheme.Ursus, false)]
     public Task Tracking_StageSelection(GameShopTheme theme, bool night)
         => ui.RunAsync(() => TrackingStageViewTests.Verify(theme, night), $"{nameof(Tracking_StageSelection)}-{theme}-{night}");
 
@@ -824,6 +842,19 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
         percent.Text.Should().Be("42%");
         hint.Text.Should().StartWith("正在下载安装包");
 
+        dialog.ReportTransfer(new(740_000, 1_360_000, 2_300_000));
+        hint.Text.Should().Be("已下载 0.74 / 1.36 MB  ·  2.3 MB/s");
+        bar.Value.Should().Be(54);
+        dialog.ReportTransfer(new(740_000, 0, 840_000));
+        hint.Text.Should().Be("已下载 0.74 MB  ·  840 KB/s");
+        bar.IsIndeterminate.Should().BeTrue();
+        percent.Visibility.Should().Be(Visibility.Collapsed);
+        dialog.ReportProgress(0.87);
+        bar.IsIndeterminate.Should().BeFalse();
+        hint.Text.Should().Be("正在校验安装包…");
+        dialog.ReportProgress(0.92);
+        hint.Text.Should().Be("正在解压安装包…");
+
         dialog.ReportProgress(1.0, "MirrorChyan CDK 已过期");
         bar.Value.Should().Be(100);
         percent.Text.Should().Be("100%");
@@ -835,6 +866,12 @@ public partial class ThemeAndHighlightTests(WpfTestHost ui) : IClassFixture<WpfT
         foreach (var night in new[] { false, true })
         {
             ThemeManager.Apply(GameShopTheme.Closure, night);
+            dialog.ReportTransfer(new(740_000, 1_360_000, 2_300_000));
+            surface.Measure(new Size(320, double.PositiveInfinity));
+            surface.Arrange(new Rect(surface.DesiredSize));
+            surface.UpdateLayout();
+            Save(surface, Path.Combine(TestOutput.Directory, $"update-speed-Closure-{night}.png"));
+            dialog.ReportProgress(1.0, "MirrorChyan CDK 已过期");
             surface.Measure(new Size(320, double.PositiveInfinity));
             surface.Arrange(new Rect(surface.DesiredSize));
             surface.UpdateLayout();

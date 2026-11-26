@@ -50,6 +50,33 @@ public class AutoPlannerTests
         return new AutoPlanner(new LineupPlanner(operators, Covenants), new LineupRoutePlanner(operators, Covenants), operators);
     }
 
+    [Fact]
+    public void CustomMembersShareEachTierAllowanceAcrossTheWholeRoute()
+    {
+        var ops = Operators();
+        var customs = ops.Where(o => o.Name is "炎4" or "炎5" or "炎6" or "炎7" or "炎8").ToList();
+        foreach (var (op,i) in customs.Select((o,i) => (o,i)))
+        {
+            op.IsCustom = true;
+            op.SetRosterEntry(new(op.Name, i < 3 ? 5 : 6));
+        }
+        var planner = Planner(ops);
+        var request = new AutoPlanRequest();
+        var fire = planner.Plan(request).Candidates.Single(c => c.MainCovenant == "炎");
+        foreach (var style in Enum.GetValues<AutoPlanStyle>())
+        {
+            var route = planner.PlanRoute(fire, style, request);
+            var used = route.Route.Stages.SelectMany(s => s.Operators).Select(o => o.Name)
+                .Concat(fire.Final.Operators.Select(o => o.Name)).ToHashSet();
+            var brought = customs.Where(o => used.Contains(o.Name)).ToList();
+            brought.Should().NotBeEmpty();
+            foreach (var tier in brought.GroupBy(o => o.Tier)) tier.Count().Should().BeLessThanOrEqualTo(2);
+        }
+        foreach (var op in customs) op.SetRunEntry(false);
+        planner.Plan(request).Candidates.SelectMany(c => c.Final.Operators).Select(o => o.Name)
+            .Intersect(customs.Select(o => o.Name)).Should().BeEmpty();
+    }
+
     private static int Count(RouteStage stage, string covenant) => stage.Covenants.FirstOrDefault(c => c.Name == covenant)?.Count ?? 0;
     private static RouteStage Stage(AutoPlanRoute plan, string name) => plan.Route.Stages.Single(s => !s.IsFinal && s.Definition.Name == name);
 

@@ -522,6 +522,24 @@ internal static class SklandImportViewTests
                 stages.SelectedIndex = 0;
                 hovering.IsOpen.Should().BeFalse();
                 stages.SelectedIndex = 2;
+                var stageNames = ((SklandBrowseStage)stages.SelectedItem).Operators.Distinct().Take(2).ToArray();
+                panel.BanVm.SetBans([stageNames[0]]);
+                view.Fit.Text.Should().Contain("干员被禁　" + stageNames[0]);
+                var activeRun = new DeployPoolState { CarriedCustom = [], Owned = [stageNames[1]] };
+                panel.InitCustomRun(activeRun);
+                view.Fit.Text.Should().Contain("已持有　" + stageNames[1]);
+                view.Fit.BringIntoView();
+                panel.UpdateLayout();
+                var sidebarSurface = (FrameworkElement)VisualTreeHelper.GetParent((DependencyObject)panel.Content);
+                foreach (var theme in Enum.GetValues<GameShopTheme>())
+                {
+                    ThemeManager.Apply(theme, night);
+                    sidebarSurface.UpdateLayout();
+                    SaveVisual(sidebarSurface, $"catalogue-fit-{theme}-{night}");
+                }
+                ThemeManager.Apply(GameShopTheme.Closure, night);
+                panel.BanVm.SetBans([]);
+                view.Fit.Text.Should().NotContain("干员被禁");
                 Save(panel, "catalogue-stage-" + night);
                 view.Back.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
@@ -559,7 +577,7 @@ internal static class SklandImportViewTests
         using var handler = new CatalogueHandler(json.ToJsonString(), options);
         using var client = new System.Net.Http.HttpClient(handler);
         var view = new App.Views.SklandBrowseView();
-        view.Configure(new SklandGuideCatalogue(client), () => 1, _ => "", _ => Task.CompletedTask, (_, _) => null);
+        view.Configure(new SklandGuideCatalogue(client), () => 1, (_, _) => "", _ => Task.CompletedTask, (_, _) => null);
         var surface = new Border { Child = view };
         surface.SetResourceReference(Border.BackgroundProperty, "PanelBackgroundBrush");
         var host = new Window { Content = surface, Width = 430, Height = 760, Left = -20000, Top = -20000, ShowActivated = false, ShowInTaskbar = false };

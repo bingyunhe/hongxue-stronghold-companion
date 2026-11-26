@@ -209,8 +209,8 @@ public partial class App : Application
         AppLogger.Info("App", "Loading operators...");
         var operators = await dataStore.LoadOperatorsAsync();
         var customOperators = await dataStore.LoadCustomOperatorsAsync();
-        var selectedCustom = (await _settingsManager.LoadCustomOperatorSelectionAsync()).ToHashSet(StringComparer.Ordinal);
-        foreach (var op in customOperators) op.IsSelectedCustom = selectedCustom.Contains(op.Name);
+        var selectedCustom = (await _settingsManager.LoadCustomRosterAsync()).ToDictionary(e => e.Name, StringComparer.Ordinal);
+        foreach (var op in customOperators) op.SetRosterEntry(selectedCustom.GetValueOrDefault(op.Name));
         operators.AddRange(customOperators);
         AppLogger.Info("App", $"Loaded {operators.Count} operators");
 
@@ -325,6 +325,7 @@ public partial class App : Application
             RoundEnemyReader = new RoundEnemyReader(ocrEngine, roundRoutes,
                 Views.CodexBounty.Load().Select(b => b.Title).ToHashSet(StringComparer.Ordinal)),
             CaptureEnemyPanelFrame = captureService.CaptureEnemyPanelFrame,
+            CaptureShopFrame = captureService.CaptureShopFrame,
             StartupInformationEnabled = await _settingsManager.LoadStartupInformationAsync(),
             AutomaticRoundEnemies = await _settingsManager.LoadAutomaticRoundEnemiesAsync(),
             AutomaticPurchaseTracking = await _settingsManager.LoadAutomaticPurchaseTrackingAsync(),
@@ -373,6 +374,18 @@ public partial class App : Application
         };
 
         var informationScroll = new MaaScrollService();
+        var customReader = new CustomRosterReader(ocrEngine, customOperators);
+        _ocrScanner.CustomRosterReader = customReader;
+        sidePanel.ReadCustomRoster = async () =>
+        {
+            var connection = captureService.Connection;
+            var revision = connection.CaptureRevision;
+            var image = await CaptureInformationScreenAsync(false);
+            if (image == null) return null;
+            var result = await Task.Run(async () => BmpPixels.TryRead(ImageBytes.ToBmp(image)) is { } pixels
+                ? await customReader.ReadAsync(image, pixels, false) : null);
+            return ReferenceEquals(connection,captureService.Connection) && revision == connection.CaptureRevision ? result : null;
+        };
         async Task<byte[]?> CaptureInformationScreenAsync(bool scrollDown)
         {
             var connection = captureService.Connection;
@@ -554,41 +567,51 @@ public partial class App : Application
 
         // Board recognition → deployment overlay + status under the settings toggle.
         var showBoard = await _settingsManager.LoadShowBoardOverlayAsync();
-        sidePanel.InitBoardOverlay(showBoard);
+        var showRoutes = await _settingsManager.LoadShowEnemyRoutesAsync();
         // 追踪 · 站位: placement planning for the recognised map; its plan is drawn on the same board overlay.
         var deployState = await _settingsManager.LoadDeployPoolAsync();
         var deploy = sidePanel.TrackingView.DeployPage;
         deploy.Initialize(operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First()), covenantInfos,
             boardData, trackingVm, _settingsManager, deployState, deployState.ShowInGame, roundRoutes);
+        sidePanel.InitBoardOverlay(showBoard, showRoutes, deployState);
+        sidePanel.InitCustomRun(deployState);
+        _ocrScanner.CustomOpeningRead += (reading, capture, run) => Dispatcher.Invoke(() =>
+        {
+            if (capture == captureService.Connection.CaptureRevision && run == _ocrScanner.RunRevision)
+                sidePanel.ApplyCustomOpening(reading);
+        });
         deploy.ConnectLiveField(_ocrScanner);
         _ocrScanner.PurchasesDetected += (names, captureRevision, runRevision) => Dispatcher.Invoke(() =>
         {
             if (captureRevision != captureService.Connection.CaptureRevision || runRevision != _ocrScanner.RunRevision) return;
             deploy.ApplyRecognizedPurchases(names, _ocrScanner.LastPurchase.OfferedAt, _ocrScanner.LastPurchase.Round);
         });
-        _ocrScanner.ShowPlacementOverlay = deploy.ShowInGame;
-        void ApplyBoard(BoardMatch? match)
+        void DrawGameOverlay(BoardMatch? match)
+        {
+            _ocrScanner.ShowPlacementOverlay = deploy.ShowInGame || showRoutes || showBoard;
+            bool draw = _ocrScanner.ShowPlacementOverlay && !_ocrScanner.PlacementOverlayPaused;
+            overlay.UpdateBoard(draw ? match?.Map : null,
+                draw && match is not null ? match.OverlayProjection ?? boardData?.Cameras[match.Camera] : null, showBoard, showRoutes);
+        }
+        deploy.PlanChanged += plan => overlay.UpdatePlacements(plan);
+        DrawGameOverlay(_ocrScanner.CurrentBoard);
+        deploy.ShowInGameChanged += _ => DrawGameOverlay(_ocrScanner.CurrentBoard);
+        _ocrScanner.BoardChanged += match => Dispatcher.Invoke(() =>
         {
             sidePanel.SetBoardStatus(match?.Map.Name, match?.Camera == Core.Models.BoardCamera.Expanded);
             deploy.SetRecognizedBoard(match);
-            // 站位页的“游戏内显示”是总开关；设置里的“游戏内显示部署格”只管要不要同时画格子和路线。
-            bool draw = deploy.ShowInGame;
-            overlay.UpdateBoard(draw ? match?.Map : null,
-                draw && match is not null ? match.OverlayProjection ?? boardData?.Cameras[match.Camera] : null, showCells: showBoard);
-        }
-        deploy.PlanChanged += plan => overlay.UpdatePlacements(plan);
-        deploy.ShowInGameChanged += enabled =>
+            DrawGameOverlay(match);
+        });
+        _ocrScanner.PlacementOverlayPauseChanged += () => Dispatcher.Invoke(() => DrawGameOverlay(_ocrScanner.CurrentBoard));
+        sidePanel.EnemyRouteOverlayToggled += enabled =>
         {
-            _ocrScanner.ShowPlacementOverlay = enabled;
-            deployState.ShowInGame = enabled;
-            _ = _settingsManager.SaveDeployPoolAsync(deployState);
-            ApplyBoard(_ocrScanner.CurrentBoard);
+            showRoutes = enabled;
+            DrawGameOverlay(_ocrScanner.CurrentBoard);
         };
-        _ocrScanner.BoardChanged += match => Dispatcher.Invoke(() => ApplyBoard(match));
         sidePanel.BoardOverlayToggled += enabled =>
         {
             showBoard = enabled;
-            ApplyBoard(_ocrScanner.CurrentBoard);
+            DrawGameOverlay(_ocrScanner.CurrentBoard);
         };
 
         // Enemy recognition result → update enemy tab (include boss + enemy-type data).
@@ -666,7 +689,11 @@ public partial class App : Application
             _ocrScanner.ResetTerminalLevel();
             _ocrScanner.ResetRegulationLevel();
             _ocrScanner.ResetEconomy();
-            await Dispatcher.InvokeAsync(deploy.StartNewRunAsync).Task.Unwrap();
+            await Dispatcher.InvokeAsync(async () =>
+            {
+                sidePanel.StartCustomRun();
+                await deploy.StartNewRunAsync();
+            }).Task.Unwrap();
             await Dispatcher.InvokeAsync(() =>
             {
                 enemyVm.Clear();
@@ -724,6 +751,7 @@ public partial class App : Application
         _ocrScanner.EconomyChanged += _ => Dispatcher.Invoke(() =>
         {
             var economy = _ocrScanner.CurrentEconomy;
+            if (economy?.Round > 0) sidePanel.ObserveCustomRunStarted();
             trackingVm.Economy = economy;
             deploy.SetRoundRouteContext(economy, _ocrScanner.CurrentRoundEnemies);
             if (economy is null) enemyVm.CurrentMode = null;

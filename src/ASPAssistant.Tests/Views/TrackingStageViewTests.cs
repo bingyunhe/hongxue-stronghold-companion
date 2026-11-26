@@ -35,7 +35,7 @@ internal static class TrackingStageViewTests
         try
         {
             host.Show(); Pump();
-            Assert.Equal(new[]{"Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","Ⅴ/Ⅵ"},
+            Assert.Equal(new[]{"Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","待定"},
                 Descendants<TextBlock>(panel).Select(text=>text.Text));
             Capture(host, $"tier-badges-Closure-{night}");
         }
@@ -121,7 +121,11 @@ internal static class TrackingStageViewTests
                 host.Width = width; Pump();
                 ((FrameworkElement)view.FindName("TrackingStatusCard")).ActualHeight.Should().BeApproximately(positions[width].Card, .1);
                 Top("CompletionFilterList").Should().BeApproximately(positions[width].Filter, .1);
-                Top("StageSelector").Should().BeApproximately(positions[width].Stage, .1);
+                var title = (FrameworkElement)view.FindName("TrackedCovenantTitle");
+                var chips = (FrameworkElement)view.FindName("TrackedCovenantChips");
+                var lastVisible = chips.IsVisible ? chips : title;
+                var gap = Top("StageSelector") - (Top(lastVisible.Name) + lastVisible.ActualHeight);
+                gap.Should().BeInRange(0, 18, "the list must follow the visible covenant rows");
                 Capture(host, $"{theme}-{night}-{width}-empty-stage");
             }
             var overview = (System.Windows.Controls.Primitives.ToggleButton)view.FindName("AllStagesToggle");

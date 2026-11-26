@@ -163,10 +163,17 @@ public partial class LineupPlannerViewModel
         if (plan.Candidate.Goals.Concat(plan.Candidate.SmallGoals).Append(plan.Candidate.MainGoal)
             .Concat(plan.Route.Stages.SelectMany(s => s.Definition.Required.Concat(s.Definition.SmallGoals ?? [])))
             .Any(g => _banVm.MissingCovenants.Contains(g.Name))) issues.Add("原路线含本局未出现的盟约");
+        var routeOperators = plan.Route.Stages.SelectMany(stage => stage.Operators).ToList();
+        if (routeOperators.Any(item => _operatorByName.TryGetValue(item.Name, out var op) && op.IsCustom && op.Tier != item.Tier))
+            issues.Add("自选干员等阶已变化");
+        if (routeOperators.Select(item => item.Name).Concat(plan.Candidate.Final.Operators.Select(item => item.Name)).Distinct()
+            .Select(name => _operatorByName.GetValueOrDefault(name)).OfType<Operator>()
+            .Where(op => op.IsCustom).GroupBy(op => op.Tier).Any(group => group.Count() > 2))
+            issues.Add("原路线超出同阶自选携带上限");
         var unavailable = plan.Route.Stages.SelectMany(s => s.Operators).Select(o => o.Name)
             .Concat(plan.Candidate.Final.Operators.Select(o => o.Name)).Distinct(StringComparer.Ordinal)
             .Where(name => _banVm.BannedNames.Contains(name) || _operatorByName.TryGetValue(name, out var op)
-                && (!op.IsAvailableForSelection || CovenantBanRules.HasMissingCovenant(op, _banVm.MissingCovenants) || archive.Conditions.ExcludeMixedBannedOperators && _planner.IsExcludedByBans(op, banned)))
+                && (!op.IsAvailableForPlanning || CovenantBanRules.HasMissingCovenant(op, _banVm.MissingCovenants) || archive.Conditions.ExcludeMixedBannedOperators && _planner.IsExcludedByBans(op, banned)))
             .ToList();
         if (banned.Contains(plan.Candidate.MainCovenant)) issues.Add($"本局禁用主盟约{plan.Candidate.MainCovenant}");
         if (unavailable.Count > 0) issues.Add($"本局不可用人选：{string.Join("、", unavailable)}");
@@ -188,7 +195,7 @@ public partial class LineupPlannerViewModel
         _autoRunState = state;
         if (poolChanged)
             foreach (var item in VisibleLineups)
-                item.SubstitutionAdvice = LineupSubstitutionAdvice.Describe(item.Source, _operatorByName, state);
+                item.RefreshSubstitutions(_operatorByName, state);
         _autoAdviceDirty = true;
         RefreshAutoAdvice();
     }
@@ -244,7 +251,7 @@ public partial class LineupPlannerViewModel
         _repairTargets = state.Targets;
         _repairBanned = state.Banned;
         LockedOperators.Clear();
-        foreach (var name in state.Locks.Where(name => _operatorByName[name].IsAvailableForSelection)) LockedOperators.Add(new(_operatorByName[name], RemoveLocked));
+        foreach (var name in state.Locks.Where(name => _operatorByName[name].IsAvailableForPlanning)) LockedOperators.Add(new(_operatorByName[name], RemoveLocked));
         RefreshLockedOperators();
         LockSearchText = "";
         OnPropertyChanged(nameof(HasLocked));
@@ -313,7 +320,7 @@ public partial class LineupPlannerViewModel
         string.Join(',', request.BannedOperators.Order(StringComparer.Ordinal)),
         string.Join(',', request.LockedOperators.Order(StringComparer.Ordinal)),
         request.People, request.Strategy, request.MechElite,
-        string.Join(',', _operators.Where(o => o.IsCustom && o.IsSelectedCustom).Select(o => o.Name).Order(StringComparer.Ordinal)));
+        string.Join(',', _operators.Where(o => o.IsCustom && o.IsAvailableForPlanning).Select(o => $"{o.Name}:{o.Tier}").Order(StringComparer.Ordinal)));
 
     public AutoPlanRequest BuildAutoRequest()
     {

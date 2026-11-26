@@ -22,29 +22,6 @@
         <Style x:Key="EditorPrimaryButton" TargetType="Button" BasedOn="{StaticResource DialogPrimaryButton}" />
         <Style x:Key="EditorSecondaryButton" TargetType="Button" BasedOn="{StaticResource DialogSecondaryButton}" />
 
-        <!-- Text-only footer action (清空本阶段 / 撤销修改) -->
-        <Style x:Key="EditorGhostButton" TargetType="Button" BasedOn="{StaticResource ClickableButtonBase}">
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Height" Value="30" />
-            <Setter Property="Padding" Value="10,0" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bg" Background="Transparent" CornerRadius="{DynamicResource RowCornerRadius}" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="{DynamicResource NeutralHoverBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <!-- Phase switch segment; Tag="active" marks the open one -->
         <Style x:Key="PhaseSegment" TargetType="Button" BasedOn="{StaticResource ClickableButtonBase}">
             <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />

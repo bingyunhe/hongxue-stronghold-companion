@@ -1,6 +1,7 @@
 // Modified for ASP Assistant Arknights on 2026-11-11; see NOTICE.
 using ASPAssistant.Core.Interop;
 using ASPAssistant.Core.Models;
+using System.Text.Json.Nodes;
 using MaaFramework.Binding;
 using MaaFramework.Binding.Buffers;
 
@@ -14,6 +15,8 @@ public sealed class GameConnectionService : IDisposable
     private static long _nextRevision;
     private long _captureRevision = Interlocked.Increment(ref _nextRevision);
     private MaaAdbController? _controller;
+    private MaaAdbController? _shopController;
+    private long _shopControllerRevision = -1;
     private DateTime _retryAfter;
     private IntPtr _window;
     private uint _windowProcessId;
@@ -257,8 +260,53 @@ public sealed class GameConnectionService : IDisposable
         lock (_captureLock)
         {
             _disposed = true;
+            _shopController?.Dispose();
+            _shopController = null;
             _controller?.Dispose();
             _controller = null;
+        }
+    }
+
+    internal byte[]? CaptureMuMuShopFrame(int maxWidth)
+    {
+        lock (_captureLock)
+        {
+            if (_disposed || !IsAdb || Settings.Emulator != EmulatorKind.MuMu) return null;
+            FindGameWindow();
+            // MAA can fall back to display zero when a package has no renderer.
+            // Other Android displays must keep using their explicit physical display capture.
+            if (!RefreshDisplay() || _display is not { DisplayId: 0, IsFocused: true } display) return null;
+            long revision = CaptureRevision;
+            if (_shopControllerRevision != revision)
+            {
+                _shopController?.Dispose();
+                _shopController = null;
+                _shopControllerRevision = revision;
+                using var devices = MaaToolkit.Shared.AdbDevice.Find();
+                foreach (var device in devices)
+                {
+                    if (device.AdbSerial != Settings.AdbSerial) continue;
+                    var config = JsonNode.Parse(device.Config);
+                    if (config?["extras"]?["mumu"] is not JsonObject mumu || mumu["enable"]?.GetValue<bool>() != true) continue;
+                    mumu["app_package"] = display.PackageName;
+                    var controller = new MaaAdbController(Settings.AdbPath, Settings.AdbSerial, AdbScreencapMethods.EmulatorExtras,
+                        AdbInputMethods.AdbShell, config.ToJsonString(), Path.Combine(AppContext.BaseDirectory, "MaaAgentBinary"), LinkOption.None);
+                    if (controller.LinkStart().Wait() == MaaJobStatus.Succeeded)
+                    {
+                        controller.SetOption_ScreenshotUseRawSize(true);
+                        _shopController = controller;
+                    }
+                    else controller.Dispose();
+                    break;
+                }
+            }
+            if (_shopController == null) return null;
+            using var image = new MaaImageBuffer();
+            if (_shopController.Screencap().Wait() != MaaJobStatus.Succeeded || !_shopController.GetCachedImage(image)
+                || image.Width != _screenWidth || image.Height != _screenHeight) return null;
+            if (image.Width > maxWidth && !image.TryResize(maxWidth, (int)Math.Round(image.Height * (double)maxWidth / image.Width))) return null;
+            FindGameWindow();
+            return revision == CaptureRevision && image.TryGetEncodedData(out byte[]? bytes) ? bytes : null;
         }
     }
 

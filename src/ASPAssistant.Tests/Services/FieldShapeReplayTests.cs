@@ -7,6 +7,38 @@ namespace ASPAssistant.Tests.Services;
 public class FieldShapeReplayTests
 {
     [Fact, Trait("Category", "LocalScreenshot")]
+    public async Task PalaceRosmontisAndBenchOnRecordedRounds()
+    {
+        var data = Path.Combine(AppContext.BaseDirectory, "data");
+        var maps = (await GarrisonBoardStore.LoadAsync(data))!;
+        var reader = new LiveFieldReader(data, maps);
+        var board = new BoardRecognizer(maps);
+        var state = new LiveFieldState((await new JsonDataStore(data).LoadOperatorsAsync())
+            .ToDictionary(op => op.Name, op => op.Tier));
+        long now = 0;
+        foreach (var (round, image, slot) in new[] { (9, "r9", new FieldSlot(3, -1)), (10, "r10", new FieldSlot(1, 1)),
+            (12, "r12", new FieldSlot(2, 0)), (12, "r12-overlay", new FieldSlot(2, 0)) })
+        {
+            var file = Path.Combine(AppContext.BaseDirectory, "TestData", "Board", $"palace-rosmontis-{image}.png");
+            var pixels = BmpPixels.TryRead(ImageBytes.ToBmp(File.ReadAllBytes(file)))!;
+            var match = board.Recognize(pixels)!;
+            for (int scan = 0; scan < 2; scan++)
+            {
+                var marks = reader.Read(pixels, match, true, force: scan == 0);
+                Assert.Equal(slot, Assert.Single(marks, m => m.StandaloneName == "迷迭香").Slot);
+                state.Observe(match.Map.Id, round, marks, now += 1000);
+                Assert.Equal(slot, Assert.Single(state.Roster.Units, u => u.Name == "迷迭香").Mark.Slot);
+                if (round == 12)
+                {
+                    Assert.Equal(new[] { 1, 4, 0, 4, 0, 6, 2, 3, 4, 1 }, Enumerable.Range(0, 10)
+                        .Select(col => marks.SingleOrDefault(m => m.Slot == new FieldSlot(col, -1))?.Tier ?? 0));
+                    Assert.Equal("余", state.Roster.Units.Single(u => u.Mark.Slot == new FieldSlot(1, -1)).Name);
+                }
+            }
+        }
+    }
+
+    [Fact, Trait("Category", "LocalScreenshot")]
     public async Task ReviewOrderOnRecordedBoards()
     {
         if (Environment.GetEnvironmentVariable("ASPASSISTANT_REVIEW_EXCLUSIONS") is not { } exclusions) return;

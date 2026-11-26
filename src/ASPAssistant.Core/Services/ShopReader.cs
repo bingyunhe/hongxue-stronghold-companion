@@ -96,6 +96,7 @@ public sealed class ShopReader(IOcrEngine engine, IReadOnlyList<string> catalogN
         // Repeated vertical card edges provide the pitch at the current UI size.
         // Portrait details vary by row; a card border persists across most rows.
         var edges = new List<double>();
+        var pixels = BmpPixels.TryRead(screenshot) ?? BmpPixels.TryRead(ImageBytes.Encode(source))!;
         int edgeStart = -1, edgeLast = -1;
         int edgeTop = (int)(source.Height * .77), edgeBottom = (int)(source.Height * .87);
         for (int x = (int)(source.Width * .15); x < source.Width * .90; x++)
@@ -103,9 +104,9 @@ public sealed class ShopReader(IOcrEngine engine, IReadOnlyList<string> catalogN
             int votes = 0;
             for (int y = edgeTop; y < edgeBottom; y++)
             {
-                var a = source.GetPixel(x - 1, y);
-                var b = source.GetPixel(x, y);
-                if (Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B) > 100)
+                int a = pixels.Color(x - 1, y), b = pixels.Color(x, y);
+                if (Math.Abs((a >> 16) - (b >> 16)) + Math.Abs((a >> 8 & 255) - (b >> 8 & 255))
+                    + Math.Abs((a & 255) - (b & 255)) > 100)
                     votes++;
             }
             if (votes <= (edgeBottom - edgeTop) * .45)
@@ -143,7 +144,7 @@ public sealed class ShopReader(IOcrEngine engine, IReadOnlyList<string> catalogN
             int count = items.Count(i => (i.OcrRegion.X + i.OcrRegion.Width / 2) * width >= left
                 && (i.OcrRegion.X + i.OcrRegion.Width / 2) * width < left + pitch);
             covered += count;
-            if (count > 1 || count == 0 && !ShopPurchaseDetector.IsEmpty(source,
+            if (count > 1 || count == 0 && !ShopPurchaseDetector.IsEmpty(pixels,
                 new ShopItem { OcrRegion = ((left + pitch * .14) / width, 0, 0, 0) }))
             {
                 complete = false;
@@ -226,6 +227,128 @@ public sealed class ShopReader(IOcrEngine engine, IReadOnlyList<string> catalogN
             }
         }
         return FinishItems(items, trackedNames);
+    }
+
+    // Locate every changed slot against a recently named shelf. A changed occupied
+    // portrait, a moving shop control or an ambiguous layout requires fresh OCR.
+    internal IReadOnlyList<ShopItem>? CompareOpenShelf(BmpPixels previous, BmpPixels current, IReadOnlyList<ShopItem> cards)
+    {
+        if (!IsShopOpen || previous.Width != current.Width || previous.Height != current.Height || cards.Count < 3)
+            return null;
+        int w = current.Width, h = current.Height;
+        if (_cardSlots.Length < cards.Count) return null;
+
+        // The control label must still be present in the same place.
+        if (_controlRegion.Width <= 0 || !Similar((int)(_controlRegion.X * w), (int)(_controlRegion.Y * h),
+            (int)(_controlRegion.Width * w), (int)(_controlRegion.Height * h), 2, .94)) return null;
+        var remaining = new List<ShopItem>(cards.Count);
+        foreach (var card in cards)
+        {
+            // Long names scroll within a fixed card. Locate its portrait from the card border.
+            var center = card.OcrRegion.X + card.OcrRegion.Width / 2;
+            var slot = _cardSlots.FirstOrDefault(s => center >= s.Left && center < s.Left + s.Width);
+            if (slot.Width == 0) return null;
+            if (ShopPurchaseDetector.IsEmpty(current, card)) continue;
+            if (!Similar((int)((slot.Left + .18 * slot.Width) * w), (int)(h * .77),
+                (int)(slot.Width * w * .58), (int)(h * .09), 4, .96) &&
+                !SameGlyphs(previous, current, card.OcrRegion, card.OcrRegion.Height * h)) return null;
+            remaining.Add(card);
+        }
+        return remaining.Count > 0 && UnnamedSlotsAreEmpty(current, remaining) ? remaining : null;
+
+        bool Similar(int left, int top, int width, int height, int step, double minimum)
+        {
+            double a = 0, b = 0, aa = 0, bb = 0, ab = 0;
+            int n = 0;
+            for (int y = top; y < Math.Min(h, top + height); y += step)
+                for (int x = left; x < Math.Min(w, left + width); x += step)
+                {
+                    int u = previous.Gray(x,y), v = current.Gray(x,y);
+                    a += u; b += v; aa += u*u; bb += v*v; ab += u*v; n++;
+                }
+            double av = aa*n - a*a, bv = bb*n - b*b;
+            return av > 36d*n*n && bv > 36d*n*n && ab*n - a*b >= minimum*Math.Sqrt(av*bv);
+        }
+    }
+
+    private bool UnnamedSlotsAreEmpty(BmpPixels frame, IReadOnlyList<ShopItem> cards)
+    {
+        foreach (var slot in _cardSlots)
+        {
+            if (cards.Any(c => c.OcrRegion.X + c.OcrRegion.Width / 2 >= slot.Left &&
+                c.OcrRegion.X + c.OcrRegion.Width / 2 < slot.Left + slot.Width)) continue;
+            var location = new ShopItem { OcrRegion = (slot.Left + slot.Width * .14, 0, 0, 0) };
+            if (!ShopPurchaseDetector.IsEmpty(frame, location)) return false;
+        }
+        return true;
+    }
+
+    // Compare glyphs locally so a dimmed price state can keep its name, while a
+    // replaced character or an appended suffix invalidates that slot.
+    internal async Task<bool> VerifyNamedShelfAsync(BmpPixels original, BmpPixels current, IReadOnlyList<ShopItem> remaining)
+    {
+        if (original.Width != current.Width || original.Height != current.Height || remaining.Count == 0) return false;
+        using var stream = new MemoryStream(current.EncodedFrame);
+        using var bitmap = new Bitmap(stream);
+        if (!UnnamedSlotsAreEmpty(current, remaining) || !await Verify(_controlRegion, "收起", true)) return false;
+        foreach (var card in remaining)
+            if (!await Verify(card.OcrRegion, card.Name, false)) return false;
+        return true;
+
+        async Task<bool> Verify((double X, double Y, double Width, double Height) region, string name, bool control)
+        {
+            var padding = control ? 0 : region.Height * current.Height;
+            if (SameGlyphs(original, current, region, padding)) return true;
+            var bounds = Rectangle.Intersect(new Rectangle(0, 0, current.Width, current.Height),
+                Rectangle.FromLTRB((int)(region.X * current.Width) - 2, (int)(region.Y * current.Height) - 2,
+                    (int)Math.Ceiling((region.X + region.Width) * current.Width + padding) + 2,
+                    (int)Math.Ceiling((region.Y + region.Height) * current.Height) + 2));
+            var texts = await ReadPatchLineAsync(bitmap, bounds, !control);
+            if (control) return texts.Any(t => t.Text.Contains("收起", StringComparison.Ordinal));
+            var matches = MatchNames(texts, bounds.Width * 2, bounds.Height * 2, 0, _names);
+            return matches.Count == 1 && matches[0].Name == name;
+        }
+    }
+
+    private static bool SameGlyphs(BmpPixels original, BmpPixels current,
+        (double X, double Y, double Width, double Height) region, double padding)
+    {
+        int left = Math.Max(0, (int)(region.X * current.Width - padding));
+        int right = Math.Min(current.Width, (int)Math.Ceiling((region.X + region.Width) * current.Width + padding));
+        int top = Math.Max(0, (int)(region.Y * current.Height) - 1);
+        int bottom = Math.Min(current.Height, (int)Math.Ceiling((region.Y + region.Height) * current.Height) + 1);
+        int block = Math.Max(4, (bottom - top) / 3);
+        bool hasInk = false;
+        for (int y = top; y < bottom; y += block)
+            for (int x = left; x < right; x += block)
+            {
+                int n = 0, a = 0, b = 0, aa = 0, bb = 0, ab = 0, maxDelta = 0;
+                for (int j = y; j < Math.Min(y + block, bottom); j++)
+                    for (int i = x; i < Math.Min(x + block, right); i++)
+                    {
+                        int u = original.Gray(i,j), v = current.Gray(i,j);
+                        a += u; b += v; aa += u*u; bb += v*v; ab += u*v; n++;
+                        maxDelta = Math.Max(maxDelta, Math.Abs(u-v));
+                    }
+                double av = (double)aa*n - (double)a*a, bv = (double)bb*n - (double)b*b;
+                hasInk |= av > 100d*n*n;
+                if (maxDelta <= 18 || av < 16d*n*n && bv < 16d*n*n) continue;
+                if (av <= 0 || bv <= 0 || (double)ab*n - (double)a*b < .96*Math.Sqrt(av*bv)) return false;
+            }
+        return hasInk;
+    }
+
+    internal async Task<int> ReadOfferPriceAsync(byte[] frame, ShopItem card, double pitchRatio)
+    {
+        var (width, height) = ImageBytes.GetDimensions(frame);
+        double pitch = width * pitchRatio;
+        // Price is printed in the coin above the portrait; position it relative to this card's name.
+        int x = (int)Math.Round(card.OcrRegion.X * width + pitch * .44);
+        int y = (int)Math.Round(card.OcrRegion.Y * height - pitch * .88);
+        int size = (int)Math.Round(pitch * .12);
+        if (size < 1 || x < 0 || y < 0 || x + size > width || y + size > height) return 0;
+        var line = await engine.RecognizeLineAsync(frame, x, y, size, size);
+        return line.Count == 1 && int.TryParse(line[0].Text.Trim(), out int price) && price > 0 ? price : 0;
     }
 
     private static IReadOnlyList<ShopItem> FinishItems(List<ShopItem> items, IReadOnlyList<string> trackedNames)

@@ -20,16 +20,59 @@
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="保存" Style="{StaticResource DialogPrimaryButton}" Click="OnSave" />
                     <Button DockPanel.Dock="Right" Content="取消" Style="{StaticResource DialogSecondaryButton}" Margin="0,0,8,0" Click="OnCancel" />
+                    <Button x:Name="ResetDraftButton" DockPanel.Dock="Right" Content="撤销修改" Style="{StaticResource EditorGhostButton}"
+                            Margin="0,0,10,0" IsEnabled="False" Click="OnResetDraft" ToolTip="恢复到本次打开窗口时的编队" />
                     <TextBlock x:Name="SelectionCount" VerticalAlignment="Center" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
                 </DockPanel>
             </Border>
             <StackPanel DockPanel.Dock="Top" Margin="12,10,12,8">
-                <TextBlock Text="最多选择 12 名干员，暂不区分五本、六本。" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+                <TextBlock x:Name="TierCount" Text="Ⅴ阶、Ⅵ阶各最多 6 名" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Content="清空选择" Style="{StaticResource DialogSecondaryButton}" Margin="8,0,0,0" Click="OnClear" />
-                    <TextBox x:Name="SearchBox" Style="{StaticResource DialogTextBox}" ToolTip="搜索候选干员名称" TextChanged="OnSearchChanged" />
+                    <Grid>
+                        <TextBox x:Name="SearchBox" Style="{StaticResource CompactSingleLineTextBox}" ToolTip="搜索候选干员名称" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="搜索候选干员名称" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                   IsHitTestVisible="False" Foreground="{DynamicResource TextSecondaryBrush}">
+                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers><DataTrigger Binding="{Binding Text,ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                            </Style></TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
                 </DockPanel>
-                <ItemsControl x:Name="CovenantFilters" Style="{StaticResource MissingCovenantChips}" Margin="0,6,0,0" />
+                <DockPanel Margin="0,6,0,0">
+                    <ToggleButton x:Name="FilterToggle" DockPanel.Dock="Right" Content="筛选" VerticalAlignment="Top"
+                                  Style="{StaticResource FilterTogglePill}" />
+                    <ScrollViewer MaxHeight="62" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer.Style>
+                            <Style TargetType="ScrollViewer">
+                                <Style.Triggers><DataTrigger Binding="{Binding IsChecked, ElementName=FilterToggle}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger></Style.Triggers>
+                            </Style>
+                        </ScrollViewer.Style>
+                        <ItemsControl x:Name="ActiveFilters" ItemsSource="{Binding ActiveChips}" Focusable="False"
+                                      ItemTemplate="{StaticResource FilterTagTemplate}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+                <Border Margin="0,5,0,0" Style="{StaticResource FilterCard}"
+                        Visibility="{Binding IsChecked, ElementName=FilterToggle, Converter={StaticResource DetailsBoolToVis}}">
+                    <ScrollViewer MaxHeight="156" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,5">
+                                <ToggleButton DockPanel.Dock="Right" Style="{StaticResource MatchModeToggle}" IsChecked="{Binding CoreCovenantMatchAll}" />
+                                <TextBlock Text="核心盟约" Style="{StaticResource FilterSectionTitle}" />
+                            </DockPanel>
+                            <ItemsControl Style="{StaticResource MissingCovenantChips}" ItemsSource="{Binding CoreChips}" />
+                            <DockPanel Margin="0,6,0,5">
+                                <ToggleButton DockPanel.Dock="Right" Style="{StaticResource MatchModeToggle}" IsChecked="{Binding OtherCovenantMatchAll}" />
+                                <TextBlock Text="附加盟约" Style="{StaticResource FilterSectionTitle}" />
+                            </DockPanel>
+                            <ItemsControl Style="{StaticResource MissingCovenantChips}" ItemsSource="{Binding OtherChips}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
             </StackPanel>
             <Grid Margin="12,0,4,8">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

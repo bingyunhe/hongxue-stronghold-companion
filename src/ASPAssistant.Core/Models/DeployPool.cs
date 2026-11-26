@@ -9,6 +9,11 @@ namespace ASPAssistant.Core.Models;
 /// </summary>
 public sealed class DeployPoolState
 {
+    // null = pre-game planning; an empty list = an active run with no custom operators.
+    public List<CustomRosterEntry>? CarriedCustom { get; set; }
+    public string? CustomOpeningResult { get; set; }
+    public bool CustomCarryEdited { get; set; }
+
     [JsonPropertyName("owned")] public List<string> Owned { get; set; } = [];
     [JsonPropertyName("elite")] public List<string> Elite { get; set; } = [];
     /// <summary>Owned copies beyond one (the same operator can be on the field more than once); absent = 1.</summary>

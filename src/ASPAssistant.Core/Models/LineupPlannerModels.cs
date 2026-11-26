@@ -77,7 +77,13 @@ public sealed record PlannedOperator(string Name, string? TransformedCovenant, I
     public string IconPath { get; init; } = "";
 }
 
-public sealed record LineupSubstitute(string Missing, string StandIn, int AdditionalScore);
+public sealed record CovenantCountChange(CovenantInfo Covenant, int Before, int After);
+
+public sealed record LineupSubstitute(string Missing, string StandIn, int AdditionalScore)
+{
+    public IReadOnlyList<CovenantCountChange> Changes { get; init; } = [];
+    public string Label => $"{Missing} → {StandIn}";
+}
 
 /// <summary>
 /// One complete candidate lineup.

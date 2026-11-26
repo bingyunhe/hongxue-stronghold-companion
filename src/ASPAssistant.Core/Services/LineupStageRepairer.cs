@@ -6,6 +6,7 @@ namespace ASPAssistant.Core.Services;
 public sealed record StageRepairChange(string Name, string BoundsText, string MembersText, string ChangeText, string WarningText, int Missing)
 {
     public bool HasUnavailableTransformation { get; init; }
+    public string CovenantComparison { get; init; } = "";
     public bool HasWarning => WarningText.Length > 0;
 }
 
@@ -30,10 +31,18 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
         {
             "early" => source.EarlySlots, "mid" => source.MidSlots, "support" => source.SupportSlots, _ => s.Slots
         };
-        bool Available(Operator op) => op.IsAvailableForSelection && !bannedOperators.Contains(op.Name)
+        bool Available(Operator op) => op.IsAvailableForPlanning && !bannedOperators.Contains(op.Name)
             && !CovenantBanRules.IsExcluded(op, bannedCovenants)
             && (op.RequiredStrategyId.Length == 0 || source.Strategies.Any(s => s.StrategyId == op.RequiredStrategyId));
         List<CovenantStat> Counts(IEnumerable<LineupSlot> slots) => [.. calculator.Compute(new() { Slots = [.. slots], Strategies = source.Strategies })];
+        string Compare(IReadOnlyList<CovenantStat> before, IReadOnlyList<CovenantStat> after)
+        {
+            var original = before.ToDictionary(c => c.Name, c => c.Count);
+            var current = after.ToDictionary(c => c.Name, c => c.Count);
+            return LineupSubstitutionAdvice.DescribeChanges(calculator.AllCovenants
+                .Where(c => original[c.Name] != current[c.Name])
+                .Select(c => new CovenantCountChange(c, original[c.Name], current[c.Name])));
+        }
         var indices = calculator.AllCovenants.Select((c, i) => (c.Name, Index: i)).ToDictionary(c => c.Name, c => c.Index, StringComparer.Ordinal);
         var cores = calculator.AllCovenants.Select((c, i) => (Covenant: c, Index: i))
             .Where(c => c.Covenant.BondType == "SEASON" && c.Covenant.Name != CovenantCalculator.HarmonyCovenant).Select(c => c.Index).ToList();
@@ -47,6 +56,9 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
         }
         var finalNames = copy.Slots.Select(s => s.OperatorName).ToHashSet(StringComparer.Ordinal);
         var finalCounts = Counts(copy.Slots).Where(c => c.Activated).ToList();
+        var reservedCustom = finalNames.Where(n => byName.TryGetValue(n,out var op) && op.IsCustom).ToHashSet(StringComparer.Ordinal);
+        bool HasRoom(Operator op) => !op.IsCustom || reservedCustom.Contains(op.Name) ||
+            reservedCustom.Count(n => byName[n].Tier == op.Tier) < 2;
         var next = finalNames;
         var changes = new Dictionary<string, StageRepairChange>(StringComparer.Ordinal);
         var resolved = new Dictionary<string, List<LineupSlot>>(StringComparer.Ordinal);
@@ -56,10 +68,17 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
             var original = Slots(stage);
             var unknown = original.Where(s => !byName.ContainsKey(s.OperatorName)).Select(s => s.OperatorName).ToList();
             var maximum = original.Where(s => byName.ContainsKey(s.OperatorName)).Select(s => byName[s.OperatorName].Tier).DefaultIfEmpty(0).Max();
-            var kept = original.Where(s => byName.TryGetValue(s.OperatorName, out var op) && Available(op)).ToList();
+            var kept = new List<LineupSlot>();
+            foreach (var slot in original)
+            {
+                if (!byName.TryGetValue(slot.OperatorName, out var op) || !Available(op) || !HasRoom(op)) continue;
+                kept.Add(slot);
+                if (op.IsCustom) reservedCustom.Add(op.Name);
+            }
             var keptNames = kept.Select(s => s.OperatorName).ToHashSet(StringComparer.Ordinal);
-            var goals = Counts(original).Where(c => c.Activated && !LineupPlanner.NoAdditionalScore.Contains(c.Name)).ToList();
-            var pool = operators.Where(o => o.RequiredStrategyId.Length == 0 && o.Tier <= maximum && Available(o) && !keptNames.Contains(o.Name))
+            var originalCounts = Counts(original);
+            var goals = originalCounts.Where(c => c.Activated && !LineupPlanner.NoAdditionalScore.Contains(c.Name)).ToList();
+            var pool = operators.Where(o => o.RequiredStrategyId.Length == 0 && o.Tier <= maximum && Available(o) && HasRoom(o) && !keptNames.Contains(o.Name))
                 .GroupBy(o => o.Name).Select(g => g.First()).OrderBy(o => o.Name, StringComparer.Ordinal).ToList();
             var needed = unknown.Count > 0 ? 0 : Math.Min(original.Count - kept.Count, pool.Count);
             List<List<int>> beam = [[]];
@@ -91,12 +110,17 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
                     for (int i = selected.Count == 0 ? 0 : selected[^1] + 1; i <= pool.Count - (needed - depth); i++)
                     {
                         token.ThrowIfCancellationRequested();
+                        var op = pool[i];
+                        if (op.IsCustom && !reservedCustom.Contains(op.Name) && reservedCustom.Count(n => byName[n].Tier == op.Tier)
+                            + selected.Count(j => pool[j].IsCustom && pool[j].Tier == op.Tier && !reservedCustom.Contains(pool[j].Name)) >= 2) continue;
                         List<int> selection = [.. selected, i];
                         candidates.Add((selection, Score(selection)));
                     }
+                if (candidates.Count == 0) break;
                 beam = candidates.OrderByDescending(c => c.Score).Take(24).Select(c => c.Selection).ToList();
             }
             var additions = beam[0].Select(i => new LineupSlot { OperatorName = pool[i].Name }).ToList();
+            foreach (var slot in additions.Where(s => byName[s.OperatorName].IsCustom)) reservedCustom.Add(slot.OperatorName);
             var remaining = new Queue<LineupSlot>(additions);
             var slots = new List<LineupSlot>();
             foreach (var slot in original)
@@ -115,7 +139,7 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
             changes.Add(stage.Id, new(stage.Name, $"原 {original.Count} 人 · 替补 ≤ {maximum} 阶",
                 slots.Count == 0 ? "空阶段" : string.Join("、", slots.Select(s => s.OperatorName)),
                 removed.Count == 0 ? "保留原名单" : $"换下 {string.Join("、", removed)} → {(additions.Count == 0 ? "暂无合适替补" : string.Join("、", additions.Select(s => s.OperatorName)))}",
-                string.Join("；", warnings), missing));
+                string.Join("；", warnings), missing) { CovenantComparison = removed.Count == 0 ? "" : Compare(originalCounts, after) });
             resolved.Add(stage.Id, slots);
             if (slots.Count > 0) next = slots.Select(s => s.OperatorName).ToHashSet(StringComparer.Ordinal);
         }
@@ -147,7 +171,7 @@ public sealed class LineupStageRepairer(IReadOnlyList<Operator> operators, Coven
             }
             var before = Slots(stage).Select(s => s.OperatorName).ToHashSet(StringComparer.Ordinal);
             changes.Add(stage.Id, new(stage.Name, $"成型 {slots.Count} 人", string.Join("、", slots.Select(s => s.OperatorName)),
-                $"换下 {string.Join("、", before.Except(finalNames))} → 补入 {string.Join("、", finalNames.Except(before))}", issue, 0) { HasUnavailableTransformation = invalid.Count > 0 });
+                $"换下 {string.Join("、", before.Except(finalNames))} → 补入 {string.Join("、", finalNames.Except(before))}", issue, 0) { HasUnavailableTransformation = invalid.Count > 0, CovenantComparison = Compare(Counts(Slots(stage)), Counts(slots)) });
         }
         // Keep retained loadouts independent from both the original lineup and the preview's temporary search values.
         copy = JsonSerializer.Deserialize<Lineup>(JsonSerializer.Serialize(copy))!;

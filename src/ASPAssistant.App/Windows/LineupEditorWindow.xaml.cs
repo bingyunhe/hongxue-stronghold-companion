@@ -352,7 +352,7 @@ public partial class LineupEditorWindow : Window
             var tier = new Border { Padding = new Thickness(4, 0, 4, 0), Margin = new Thickness(-3, 0, 0, -3), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom };
             tier.SetResourceReference(Border.BackgroundProperty, "TitleBackgroundBrush");
             tier.SetResourceReference(Border.CornerRadiusProperty, "DotCornerRadius");
-            var tierText = Text(op.IsCustom ? "自选" : Roman[op.Tier], 10, "TitleTextBrush", bold: true);
+            var tierText = Text(op.IsTierPending ? "待定" : Roman[op.Tier], 10, "TitleTextBrush", bold: true);
             tierText.SetResourceReference(TextBlock.FontFamilyProperty, "NumberFontFamily");
             tier.Child = tierText;
             avatarBox.Children.Add(tier);

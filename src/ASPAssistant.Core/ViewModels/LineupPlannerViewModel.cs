@@ -199,10 +199,18 @@ public sealed partial class PlannerLineupItem : ObservableObject
     public bool HasEquipment => EquipmentText.Length > 0;
     public string? Note { get; init; }
     public bool HasNote => !string.IsNullOrEmpty(Note);
+    [ObservableProperty] private IReadOnlyList<SubstitutionChoice> _substitutionOptions = [];
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSubstitutionAdvice))]
-    private string _substitutionAdvice = "";
-    public bool HasSubstitutionAdvice => SubstitutionAdvice.Length > 0;
+    private SubstitutionChoice? _selectedSubstitution;
+    public bool HasSubstitutionAdvice => SelectedSubstitution is not null;
+
+    public void RefreshSubstitutions(IReadOnlyDictionary<string, Operator> operators, AutoPlanRunState state)
+    {
+        var previous = SelectedSubstitution?.Swap;
+        SubstitutionOptions = LineupSubstitutionAdvice.Choices(Source, operators, state);
+        SelectedSubstitution = SubstitutionOptions.FirstOrDefault(c => c.Swap == previous) ?? SubstitutionOptions.FirstOrDefault();
+    }
     public IReadOnlyList<PlannerOperatorItem> Operators { get; init; } = [];
     public IReadOnlyList<PlannerGoalPill> Goals { get; init; } = [];
     public string LineupName { get; init; } = "";
@@ -704,7 +712,7 @@ public partial class LineupPlannerViewModel : ObservableObject
         LockSuggestions.Clear();
         var text = value.Trim();
         var candidates = _operators.Concat(_strategyOperators.Where(o => o.RequiredStrategyId == PlannerStrategies.StrategyId(Strategy)))
-            .Where(o => o.IsAvailableForSelection && SearchMatch.Matches(text, o.Name) && LockedOperators.All(l => l.Name != o.Name)).ToList();
+            .Where(o => o.IsAvailableForPlanning && SearchMatch.Matches(text, o.Name) && LockedOperators.All(l => l.Name != o.Name)).ToList();
         LockCovenants.UpdateCounts(candidates);
         if (text.Length == 0 && !LockCovenants.Active) { OnPropertyChanged(nameof(NoLockMatches)); return; }
         var suggestions = candidates.Where(LockCovenants.Matches)
@@ -754,7 +762,13 @@ public partial class LineupPlannerViewModel : ObservableObject
         if (string.IsNullOrEmpty(name)) return false;
         var op = _operatorByName.GetValueOrDefault(name) ?? _strategyOperators.FirstOrDefault(o => o.Name == name)
             ?? (LockSuggestions.Count == 1 ? LockSuggestions[0] : null);
-        if (op is null || op.RequiredStrategyId.Length > 0) return false;
+        if (op is null || !op.IsAvailableForPlanning || op.RequiredStrategyId.Length > 0) return false;
+        if (op.IsCustom && LockedOperators.Where(l => _operatorByName.GetValueOrDefault(l.Name) is { IsCustom: true } other && other.Tier == op.Tier)
+            .Select(l => l.Name).ToArray() is { Length: >= 2 } full)
+        {
+            StatusText = $"自选{op.Tier}阶已锁定 {string.Join("、", full)}，最多携带 2 名。";
+            return false;
+        }
         if (LockedOperators.Any(l => l.Name == op.Name)) { LockSearchText = ""; return false; }
         if (LockedOperators.Count >= LineupPlanner.MaxLockedOperators) return false;
         LockedOperators.Add(new PlannerLockedOperator(op, RemoveLocked));
@@ -772,7 +786,8 @@ public partial class LineupPlannerViewModel : ObservableObject
         foreach (var name in names)
         {
             if (LockedOperators.Count >= LineupPlanner.MaxLockedOperators) break;
-            if (!_operatorByName.TryGetValue(name, out var op) || LockedOperators.Any(l => l.Name == name)) continue;
+            if (!_operatorByName.TryGetValue(name, out var op) || !op.IsAvailableForPlanning || LockedOperators.Any(l => l.Name == name)) continue;
+            if (op.IsCustom && LockedOperators.Count(l => _operatorByName[l.Name] is { IsCustom: true } other && other.Tier == op.Tier) >= 2) continue;
             LockedOperators.Add(new PlannerLockedOperator(op, RemoveLocked));
             changed = true;
         }
@@ -838,8 +853,12 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     public void NotifyOperatorSelectionChanged()
     {
-        foreach (var item in LockedOperators.Where(item => !_operatorByName[item.Name].IsAvailableForSelection).ToList())
-            RemoveLocked(item);
+        foreach (var item in LockedOperators.Where(item => !item.Operator.IsAvailableForPlanning).ToList())
+            LockedOperators.Remove(item);
+        var excess = LockedOperators.Where(item => item.Operator.IsCustom).GroupBy(item => item.Operator.Tier)
+            .SelectMany(group => group.Skip(2)).ToList();
+        foreach (var item in excess) LockedOperators.Remove(item);
+        OnPropertyChanged(nameof(HasLocked));
         OnLockSearchTextChanged(LockSearchText);
         OnBansChanged();
     }
@@ -873,12 +892,12 @@ public partial class LineupPlannerViewModel : ObservableObject
 
     private void RefreshMembers()
     {
-        var carriers = _operators.Count(o => o.IsAvailableForSelection && !IsUnavailable(o)) + (Strategy == PlannerStrategy.Mech ? 1 : 0);
+        var carriers = _operators.Count(o => o.IsAvailableForPlanning && !IsUnavailable(o)) + (Strategy == PlannerStrategy.Mech ? 1 : 0);
         foreach (var c in CovenantDetails)
         {
             c.IsMissing = _banVm.MissingCovenants.Contains(c.Name);
             c.Members = _operators
-                .Where(o => o.IsAvailableForSelection && (o.CoreCovenants.Contains(c.Name) || o.AdditionalCovenants.Contains(c.Name)))
+                .Where(o => o.IsAvailableForPlanning && (o.CoreCovenants.Contains(c.Name) || o.AdditionalCovenants.Contains(c.Name)))
                 .OrderBy(o => o.Tier).ThenBy(o => o.Name, StringComparer.Ordinal)
                 .Select(o => new PlannerCovenantMember(o.Name, o.IconPath, o.Tier,
                     IsUnavailable(o), o))
@@ -1306,7 +1325,7 @@ public partial class LineupPlannerViewModel : ObservableObject
                 .OrderBy(l => l.Transforms).ThenByDescending(l => l.AdditionalScore))
             {
                 var item = BuildItem(lineup, index++);
-                item.SubstitutionAdvice = LineupSubstitutionAdvice.Describe(lineup, _operatorByName, _autoRunState);
+                item.RefreshSubstitutions(_operatorByName, _autoRunState);
                 VisibleLineups.Add(item);
             }
         }

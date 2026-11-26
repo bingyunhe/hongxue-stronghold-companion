@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Animation;
@@ -173,6 +174,7 @@ public partial class SidePanelWindow : Window
         {
             if (e.PropertyName is nameof(TrackingViewModel.TerminalLevel) or nameof(TrackingViewModel.IsTerminalLevelRestored))
                 UpdateStatusChip();
+            if (e.PropertyName == nameof(TrackingViewModel.OperatorProgress)) SklandView.RefreshRunFit();
         };
         UpdateStatusChip();
         MultiLineupTrackingToggle.IsChecked = trackingVm.TrackMultipleLineups;
@@ -249,13 +251,10 @@ public partial class SidePanelWindow : Window
             (CovenantBanRules.HasMissingCovenant(op, banVm.MissingCovenants) || CovenantBanRules.IsExcluded(op, banVm.BannedCovenants)));
         bool Unavailable(string name) => banVm.IsBanned(name) || CovenantBlocked(name);
         operatorVm.SetBanChecker(Unavailable);
-        SklandView.Configure(_lineupShareService.CreateGuideCatalogue(), () => GameStateVm.CurrentRound, stage =>
-        {
-            if (!LineupVm.HasRunInfo) return "本局适配：尚未取得本局禁用信息。";
-            var missing = stage.Operators.Intersect(LineupVm.RunBannedNames).ToArray();
-            return missing.Length == 0 ? "本阶段推荐干员与已知禁用名单无冲突。"
-                : "本阶段推荐干员中，本局禁用：" + string.Join("、", missing);
-        }, guide =>
+        var guideOperators = allOperators.GroupBy(op => op.Name).ToDictionary(group => group.Key, group => group.First());
+        SklandView.Configure(_lineupShareService.CreateGuideCatalogue(), () => GameStateVm.CurrentRound,
+            (guide, stage) => SklandGuideFit.Describe(guide, stage, guideOperators, BanVm,
+                PlannerVm.Strategy, LineupVm.HasRunInfo, _customRun), guide =>
         {
             var result = SklandGuideImporter.ParseLineup(guide.Item, guide.Resources, _allOperators, _allStrategies);
             return OpenEditorAsync(result.Lineup, result.Notice);
@@ -274,22 +273,19 @@ public partial class SidePanelWindow : Window
 
         OperatorView.IsBannedCheck = banVm.IsBanned;
         OperatorView.IsCovenantBannedCheck = CovenantBlocked;
-        OperatorView.ManageCustomOperatorsRequested += async () =>
+        OperatorView.ManageCustomOperatorsRequested += async () => await EditCustomRosterAsync();
+        OperatorView.RecognizeCustomRequested += async () => await RecognizeCustomRosterAsync();
+        OperatorView.CarryRequested += ToggleCustomCarry;
+        OperatorView.CarryAdviceRequested += ShowCarryAdvice;
+        TrackingVm.SourcesChanged += RefreshVisibleCarryAdvice;
+        BanVm.BansChanged += RefreshVisibleCarryAdvice;
+        PlannerVm.PropertyChanged += (_, change) =>
         {
-            var dialog = new CustomOperatorSelectionWindow(allOperators.Where(op => op.IsCustom)) { Owner = this };
-            await MinimizableDialog.ShowAsync(dialog, OperatorView);
-            if (dialog.Result is null) return;
-            try { await settingsManager.SaveCustomOperatorSelectionAsync(dialog.Result); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            if (change.PropertyName == nameof(PlannerVm.Strategy))
             {
-                ShowToast($"自选干员保存失败：{ex.Message}");
-                return;
+                RefreshVisibleCarryAdvice();
+                SklandView.RefreshRunFit();
             }
-            var names = dialog.Result.ToHashSet(StringComparer.Ordinal);
-            foreach (var op in allOperators.Where(op => op.IsCustom)) op.IsSelectedCustom = names.Contains(op.Name);
-            operatorVm.LoadOperators(allOperators.ToList());
-            PlannerVm.NotifyOperatorSelectionChanged();
-            ShowToast($"已保存 {names.Count} 名自选干员");
         };
 
         OperatorView.TrackingRequested += (name, type) => trackingVm.AddTracking(name, type);
@@ -307,6 +303,7 @@ public partial class SidePanelWindow : Window
         RunBanView.ClearBansRequested += () => banVm.ClearBans();
         RunBanView.ClearRunRequested += () =>
         {
+            ClearCustomRun();
             banVm.ClearRunBans();
             operatorVm.ClearCovenantHighlights();
             TrackingView.DeployPage.SetRunCovenants(null, []);
@@ -484,7 +481,7 @@ public partial class SidePanelWindow : Window
         UpdateStatusText.Text = "正在检查更新…";
         try
         {
-            var info = await _updateService.CheckForUpdateAsync();
+            var info = await _updateService.CheckForUpdateAsync(hasMirrorCdk: _mirrorChyanCdk.HasSavedCdk);
             if (info is null)
             {
                 UpdateStatusText.Text = _updateService.LastError is null
@@ -553,7 +550,7 @@ public partial class SidePanelWindow : Window
         {
             Dispatcher.Invoke(() =>
             {
-                if (_downloadError is not null) return;
+                if (_downloadError is not null || _isDownloadReady) return;
                 if (showingTransferStatus && _updateService.TransferStatus is null && !_isDownloadReady)
                 {
                     showingTransferStatus = false;
@@ -563,7 +560,8 @@ public partial class SidePanelWindow : Window
                 _lastUpdateProgress = value;
                 UpdateBannerProgress.Value = value * 100;
                 UpdateBannerPercent.Text = $"{(int)Math.Round(value * 100)}%";
-                _openUpdateDialog?.ReportProgress(value);
+                if (value >= 0.87 && _updateService.TransferProgress is null && _updateService.TransferStatus is null)
+                    _openUpdateDialog?.ReportProgress(value);
             });
         });
 
@@ -585,9 +583,16 @@ public partial class SidePanelWindow : Window
                 UpdateBannerText.Text = text;
                 _openUpdateDialog?.ShowTransferStatus(text);
             });
+            void ShowDownloadTransfer(UpdateTransferProgress transfer) =>
+                Dispatcher.Invoke(() => _openUpdateDialog?.ReportTransfer(transfer));
             _updateService.TransferStatusChanged += ShowTransferStatus;
+            _updateService.TransferProgressChanged += ShowDownloadTransfer;
             try { await _updateService.DownloadAndApplyUpdateAsync(info, progress, mirrorCdk: cdk); }
-            finally { _updateService.TransferStatusChanged -= ShowTransferStatus; }
+            finally
+            {
+                _updateService.TransferStatusChanged -= ShowTransferStatus;
+                _updateService.TransferProgressChanged -= ShowDownloadTransfer;
+            }
 
             _isDownloadReady = true;
             Dispatcher.Invoke(() =>
@@ -610,7 +615,7 @@ public partial class SidePanelWindow : Window
             if (info.Delta is not null && ex is InvalidDataException or System.Text.Json.JsonException or UpdateIntegrityException or FileNotFoundException)
             {
                 _pendingUpdate = info with { Delta = null };
-                reason += $"。重试将下载{_pendingUpdate.DownloadSizeText}";
+                reason += info.FullSize > 0 ? $"。重试将下载完整包（{info.FullSize / 1_000_000d:0.00} MB）" : "。重试将下载完整包";
             }
             _downloadError = reason;
             AppLogger.Warn("Update", $"Download or apply failed: {reason}");
@@ -676,8 +681,11 @@ public partial class SidePanelWindow : Window
         if (_downloadError is not null) dialog.ReportFailure(_downloadError, _updateService.HasSavedDownload);
         else if (_downloadTask is not null)
             dialog.ReportProgress(_isDownloadReady ? 1.0 : _lastUpdateProgress, _updateService.DownloadNotice);
-        if (_downloadTask is { IsCompleted: false } && _updateService.TransferStatus is { } transfer)
-            dialog.ShowTransferStatus(transfer);
+        if (_downloadTask is { IsCompleted: false } && _downloadError is null)
+        {
+            if (_updateService.TransferProgress is { } transfer) dialog.ReportTransfer(transfer);
+            else if (_updateService.TransferStatus is { } status) dialog.ShowTransferStatus(status);
+        }
         _openUpdateDialog = dialog;
         try
         {
@@ -1306,8 +1314,25 @@ public partial class SidePanelWindow : Window
     /// <summary>Raised when the user turns the in-game board overlay on or off.</summary>
     public event Action<bool>? BoardOverlayToggled;
 
-    public void InitBoardOverlay(bool enabled)
+    public event Action<bool>? EnemyRouteOverlayToggled;
+
+    public void InitBoardOverlay(bool enabled, bool showRoutes, DeployPoolState deployState)
     {
+        var deploy = TrackingView.DeployPage;
+        PlacementOverlayToggle.SetBinding(ToggleButton.IsCheckedProperty,
+            new Binding(nameof(ToggleButton.IsChecked)) { Source = deploy.InGameToggle, Mode = BindingMode.TwoWay });
+        PlacementOverlayToggle.SetBinding(IsEnabledProperty, new Binding(nameof(IsEnabled)) { Source = deploy.InGameToggle });
+        deploy.ShowInGameChanged += async value =>
+        {
+            deployState.ShowInGame = value;
+            await SavePreferenceAsync(() => _settingsManager.SaveDeployPoolAsync(deployState), deploy.InGameToggle);
+        };
+        EnemyRouteOverlayToggle.IsChecked = showRoutes;
+        deploy.EnemyRouteToggle.SetBinding(ToggleButton.IsCheckedProperty,
+            new Binding(nameof(ToggleButton.IsChecked)) { Source = EnemyRouteOverlayToggle, Mode = BindingMode.TwoWay });
+        deploy.EnemyRouteToggle.SetBinding(IsEnabledProperty, new Binding(nameof(IsEnabled)) { Source = EnemyRouteOverlayToggle });
+        EnemyRouteOverlayToggle.Checked += OnEnemyRoutesChanged;
+        EnemyRouteOverlayToggle.Unchecked += OnEnemyRoutesChanged;
         BoardOverlayToggle.IsChecked = enabled;
         BoardOverlayToggle.Checked += OnBoardOverlayChanged;
         BoardOverlayToggle.Unchecked += OnBoardOverlayChanged;
@@ -1316,8 +1341,15 @@ public partial class SidePanelWindow : Window
     /// <summary>Shows what the board recognizer currently sees under the overlay toggle.</summary>
     public void SetBoardStatus(string? mapName, bool shopOpen) =>
         BoardStatusText.Text = mapName is null
-            ? "站位页开启“游戏内显示”时，同时标出地面 / 特殊地面 / 高台和敌人路线"
+            ? "在游戏内标出地面、特殊地面和高台。"
             : $"当前地图：{mapName} · 商店{(shopOpen ? "展开" : "收起")}";
+
+    private async void OnEnemyRoutesChanged(object sender, RoutedEventArgs e)
+    {
+        bool enabled = EnemyRouteOverlayToggle.IsChecked == true;
+        EnemyRouteOverlayToggled?.Invoke(enabled);
+        await SavePreferenceAsync(() => _settingsManager.SaveShowEnemyRoutesAsync(enabled), EnemyRouteOverlayToggle);
+    }
 
     private async void OnBoardOverlayChanged(object sender, RoutedEventArgs e)
     {
@@ -1646,6 +1678,7 @@ public partial class SidePanelWindow : Window
         if (BanVm.BannedNames.Count == 0 && bannedCovenants.Count == 0 && !OperatorBrowseVm.HasRunInfo)
         {
             LineupVm.SetRunInfo(null, null);
+            SklandView.RefreshRunFit();
             return;
         }
         var byName = _allOperators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First());
@@ -1654,6 +1687,7 @@ public partial class SidePanelWindow : Window
         LineupVm.SetRunInfo(Unavailable, new HashSet<string>(bannedCovenants),
             [.. BanVm.BannedNames.Concat(byName.Keys.Where(Unavailable)).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal)],
             BanVm.MissingCovenants);
+        SklandView.RefreshRunFit();
     }
 
     /// <summary>Opens the 阵容 tab on 我的阵容 (with 本局推荐 in view) or on 规划.</summary>

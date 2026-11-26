@@ -35,7 +35,7 @@ public partial class EquipmentBrowseViewModel : ObservableObject
     {
         TierChips.Clear();
         foreach (var t in AvailableTiers.OfType<int>())
-            TierChips.Add(new FilterChip(FilterChipKind.Tier, t.ToString(), t is >= 1 and <= 6 ? RomanLabels[t] : t.ToString(), OnChipToggled));
+            TierChips.Add(new FilterChip(FilterChipKind.Tier, t.ToString(), t is >= 1 and <= 6 ? RomanLabels[t] : t.ToString(), OnChipToggled) { Count = _allEquipment.Count(e => e.Tier == t), CountUnit = "件" });
         CategoryChips.Clear();
         foreach (var c in AvailableCategories.Where(c => c.Length > 0))
             CategoryChips.Add(new FilterChip(FilterChipKind.Category, c, c, OnChipToggled)

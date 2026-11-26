@@ -31,32 +31,6 @@
     </UserControl.Resources>
 
     <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Margin="10,10,10,0">
-            <DockPanel>
-            <CheckBox x:Name="OnlyCurrentRunToggle" DockPanel.Dock="Right" Content="只看本局" FontSize="11"
-                      VerticalAlignment="Center" VerticalContentAlignment="Center"
-                      Foreground="{DynamicResource TextPrimaryBrush}" IsChecked="{Binding OnlyCurrentRun}"
-                      IsEnabled="{Binding HasRunInfo}" ToolTip="核心盟约按本局可用范围筛选；已出现但被禁的附加盟约仍可筛选" />
-            <ListBox x:Name="OperatorSourceList" HorizontalAlignment="Left" Style="{StaticResource SegmentedListBox}"
-                     SelectedValuePath="Tag" SelectedValue="{Binding SelectedOperatorSource}">
-                <ListBoxItem Content="默认干员" Tag="{x:Static viewModels:OperatorSourceFilter.Default}" />
-                <ListBoxItem Content="自选干员" Tag="{x:Static viewModels:OperatorSourceFilter.Custom}" />
-            </ListBox>
-            </DockPanel>
-            <Button x:Name="ManageCustomOperatorsButton" HorizontalAlignment="Left" Margin="0,8,0,0"
-                    Click="OnManageCustomOperators"
-                    ToolTip="从候选目录中选择最多 12 名干员，暂不区分五本、六本">
-                <Button.Style>
-                    <Style TargetType="Button" BasedOn="{StaticResource SmallActionButton}">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers><DataTrigger Binding="{Binding SelectedOperatorSource}" Value="{x:Static viewModels:OperatorSourceFilter.Custom}">
-                            <Setter Property="Visibility" Value="Visible" />
-                        </DataTrigger></Style.Triggers>
-                    </Style>
-                </Button.Style>
-                <TextBlock Text="{Binding CustomSelectionCount, StringFormat=管理自选 · {0}/12}" />
-            </Button>
-        </StackPanel>
         <!-- Search -->
         <Border DockPanel.Dock="Top" Margin="10,10,10,8" Height="32" Background="{DynamicResource InputBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="{DynamicResource RowCornerRadius}" Padding="9,0">
@@ -89,6 +63,39 @@
             </DockPanel>
         </Border>
 
+        <StackPanel DockPanel.Dock="Top" Margin="10,0,10,6">
+            <DockPanel>
+            <CheckBox x:Name="OnlyCurrentRunToggle" DockPanel.Dock="Right" Content="只看本局" FontSize="11"
+                      VerticalAlignment="Center" VerticalContentAlignment="Center"
+                      Foreground="{DynamicResource TextPrimaryBrush}" IsChecked="{Binding OnlyCurrentRun}"
+                      IsEnabled="{Binding HasRunInfo}" ToolTip="核心盟约按本局可用范围筛选；已出现但被禁的附加盟约仍可筛选" />
+            <ListBox x:Name="OperatorSourceList" HorizontalAlignment="Left" Style="{StaticResource SegmentedListBox}"
+                     SelectedValuePath="Tag" SelectedValue="{Binding SelectedOperatorSource}">
+                <ListBoxItem Content="默认干员" Tag="{x:Static viewModels:OperatorSourceFilter.Default}" />
+                <ListBoxItem Content="自选干员" Tag="{x:Static viewModels:OperatorSourceFilter.Custom}" />
+            </ListBox>
+            </DockPanel>
+            <WrapPanel>
+            <Button x:Name="ManageCustomOperatorsButton" HorizontalAlignment="Left" Margin="0,8,0,0"
+                    Click="OnManageCustomOperators"
+                    ToolTip="从候选目录中选择最多 12 名干员，Ⅴ阶和Ⅵ阶各最多 6 名">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource SmallActionButton}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers><DataTrigger Binding="{Binding SelectedOperatorSource}" Value="{x:Static viewModels:OperatorSourceFilter.Custom}">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger></Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <TextBlock Text="{Binding CustomSelectionCount, StringFormat=管理自选 · {0}/12}" />
+            </Button>
+            <Button Content="识别自选" x:Name="RecognizeCustomButton" Click="OnRecognizeCustom" Style="{StaticResource SmallActionButton}"
+                    Margin="6,8,0,0" Visibility="{Binding Visibility,ElementName=ManageCustomOperatorsButton}" />
+            <Button Content="开局建议" Click="OnCarryAdvice" Style="{StaticResource SmallActionButton}"
+                    Margin="6,8,0,0" Visibility="{Binding Visibility,ElementName=ManageCustomOperatorsButton}" />
+            </WrapPanel>
+
+        </StackPanel>
         <!-- 全部 / 本局可用 / 不可用 · 筛选 -->
         <DockPanel DockPanel.Dock="Top" Margin="10,0,10,0" LastChildFill="False">
             <ToggleButton x:Name="FilterToggle" DockPanel.Dock="Right" Style="{StaticResource FilterTogglePill}" Content="筛选" />
@@ -111,6 +118,18 @@
             </ListBox>
         </DockPanel>
 
+        <StackPanel DockPanel.Dock="Top" Margin="10,6,10,2">
+            <ItemsControl ItemsSource="{Binding TierChips}" Focusable="False" Margin="0,0,-4,0">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate><ToggleButton Style="{StaticResource TierCellToggle}" /></DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Margin="1,5,0,3" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                       Visibility="{Binding Visibility,ElementName=ManageCustomOperatorsButton}" TextWrapping="Wrap"><Run Text="{Binding CarrySummary, Mode=OneWay}"/><Run Text="{Binding CarryStatus, Mode=OneWay}"/></TextBlock>
+        </StackPanel>
         <!-- Collapsed: chosen conditions as removable tags -->
         <ItemsControl x:Name="FilterTagsControl" DockPanel.Dock="Top" Margin="10,8,10,0" Focusable="False"
                       ItemsSource="{Binding ActiveChips}" ItemTemplate="{StaticResource FilterTagTemplate}" ItemsPanel="{StaticResource ChipWrap}">
@@ -133,27 +152,6 @@
                 Visibility="{Binding IsChecked, ElementName=FilterToggle, Converter={StaticResource DetailsBoolToVis}}">
             <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="430">
                 <StackPanel>
-                    <StackPanel>
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Style.Triggers><DataTrigger Binding="{Binding SelectedOperatorSource}" Value="{x:Static viewModels:OperatorSourceFilter.Custom}">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                </DataTrigger></Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                    <TextBlock Text="等阶" Style="{StaticResource FilterSectionTitle}" Margin="0,0,0,7" />
-                    <ItemsControl ItemsSource="{Binding TierChips}" Focusable="False" Margin="0,0,-4,0">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate><ToggleButton Style="{StaticResource TierCellToggle}" /></DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    </StackPanel>
-
-                    <Border Height="1" Margin="0,12" Background="{DynamicResource LineBrush}" />
-
                     <DockPanel Margin="0,0,0,7">
                         <ToggleButton DockPanel.Dock="Right" Style="{StaticResource MatchModeToggle}" IsChecked="{Binding CoreCovenantMatchAll}" />
                         <TextBlock Text="核心盟约" Style="{StaticResource FilterSectionTitle}" />

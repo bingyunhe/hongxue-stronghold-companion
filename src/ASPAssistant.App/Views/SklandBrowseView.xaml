@@ -196,6 +196,11 @@
                     </Grid></Border>
                     <ListBox x:Name="Stages" AutomationProperties.Name="攻略阶段" Margin="0,0,0,7" Style="{StaticResource SegmentedListBox}"
                         ItemContainerStyle="{StaticResource SegmentedItem}" DisplayMemberPath="Name" ItemsPanel="{StaticResource Flow}" SelectionChanged="OnStage"/>
+                    <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,7">
+                        <StackPanel><TextBlock Text="本局适配" FontWeight="Bold" />
+                            <TextBlock x:Name="Fit" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </Border>
                     <Border Style="{StaticResource SettingsCard}"><StackPanel x:Name="StagePanel">
                     <TextBlock Text="阶段推荐干员" FontWeight="Bold"/><ItemsControl ItemsSource="{Binding Operators}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Portrait}"/>
                     <TextBlock Text="攻略达成的盟约" Style="{StaticResource SettingsCaption}"/><ItemsControl ItemsSource="{Binding Bonds}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Bond}"/>
@@ -203,7 +208,6 @@
                     <TextBlock Text="阶段推荐装备" Style="{StaticResource SettingsCaption}"/><ItemsControl ItemsSource="{Binding Equipment}" ItemsPanel="{StaticResource Flow}" ItemTemplate="{StaticResource Gear}"/>
                     <TextBlock x:Name="GearStatus" Foreground="{DynamicResource TextSecondaryBrush}"/>
                     <TextBlock Text="运营讲解" Style="{StaticResource SettingsCaption}"/><TextBlock Text="{Binding Notes}" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="Fit" Margin="0,8,0,2" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}"/>
                     </StackPanel></Border>
                 </StackPanel>
             </ScrollViewer>

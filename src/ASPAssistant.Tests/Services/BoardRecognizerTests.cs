@@ -220,6 +220,15 @@ public class BoardRecognizerTests
     }
 
     [Fact]
+    public async Task Palace_A3ThroughC3AreHighAndD3IsGround()
+    {
+        var palace = (await LoadAsync()).Find("palace")!;
+        for (int row = 0; row < 3; row++)
+            palace.At(new BoardCell(0, row)).Should().Be(BoardCellType.High);
+        palace.At(new BoardCell(0, 3)).Should().Be(BoardCellType.Ground);
+    }
+
+    [Fact]
     public void CanDeploy_FollowsHighGroundRule()
     {
         GarrisonMap.CanDeploy(BoardCellType.High, melee: true).Should().BeFalse();

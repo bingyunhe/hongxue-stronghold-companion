@@ -103,6 +103,9 @@ public class UpdateDownloadTests
             var service = new UpdateService { DownloadCacheDirectory = Path.Combine(Path.GetTempPath(), "test-download-cache") };
             var info = await service.CheckForUpdateAsync(timeout.Token);
             info.Should().NotBeNull();
+            info!.DownloadSizeText.Should().Be("下载开始后确认大小");
+            var transfer = new List<UpdateTransferProgress>();
+            service.TransferProgressChanged += transfer.Add;
             if (wrongHash)
             {
                 Func<Task> download = () => service.DownloadAndApplyUpdateAsync(info!, ct: timeout.Token);
@@ -124,6 +127,9 @@ public class UpdateDownloadTests
                 script.Should().Contain("$newExecutable = '" + executable + "'");
                 File.ReadAllBytes(service.PendingScriptPath!).Take(3).Should().Equal(new byte[] { 0xef, 0xbb, 0xbf });
             }
+            transfer.Should().NotBeEmpty();
+            transfer.Should().OnlyContain(sample => sample.TotalBytes == 0);
+            service.TransferProgress.Should().BeNull();
             await serving;
         }
         finally

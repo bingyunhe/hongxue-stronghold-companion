@@ -1,3 +1,6 @@
+using ASPAssistant.Core.Models;
+using ASPAssistant.Core.Services;
+
 namespace ASPAssistant.Core.ViewModels;
 
 public class BanViewModel
@@ -24,6 +27,16 @@ public class BanViewModel
     public event Action? BansChanged;
 
     public bool IsBanned(string name) => _bannedNames.Contains(name);
+
+    public string? UnavailableReason(Operator op, PlannerStrategy strategy)
+    {
+        if (IsBanned(op.Name)) return "干员被禁";
+        if (CovenantBanRules.HasMissingCovenant(op, MissingCovenants)) return "本局缺少盟约";
+        if (CovenantBanRules.IsExcluded(op, BannedCovenants)) return "盟约被禁";
+        if (op.RequiredStrategyId.Length > 0 && op.RequiredStrategyId != PlannerStrategies.StrategyId(strategy))
+            return "策略不符";
+        return null;
+    }
 
     /// <summary>
     /// Replaces the current ban list with the provided names.

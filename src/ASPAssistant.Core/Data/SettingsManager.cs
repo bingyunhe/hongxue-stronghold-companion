@@ -122,20 +122,44 @@ public class SettingsManager
     }
 
     public async Task<List<string>> LoadCustomOperatorSelectionAsync()
+        => (await LoadCustomRosterAsync()).Select(e => e.Name).ToList();
+
+    public async Task<List<CustomRosterEntry>> LoadCustomRosterAsync()
     {
         string json;
         try { json = await File.ReadAllTextAsync(Path.Combine(_settingsDir, "custom-operators.json")); }
         catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return []; }
-        var names = JsonSerializer.Deserialize<List<string>>(json)
-            ?? throw new JsonException("自选干员配置不能为空");
-        if (names.Count > 12 || names.Any(string.IsNullOrWhiteSpace) || names.Distinct(StringComparer.Ordinal).Count() != names.Count)
-            throw new JsonException("自选干员配置必须为不重复的最多 12 名干员");
-        return names;
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("自选干员配置需要数组");
+        var entries = doc.RootElement.EnumerateArray().Select(item => item.ValueKind switch
+        {
+            JsonValueKind.String => new CustomRosterEntry(item.GetString()!),
+            JsonValueKind.Object => item.Deserialize<CustomRosterEntry>(JsonOptions)!,
+            _ => throw new JsonException("无效的自选干员记录")
+        }).ToList();
+        ValidateRoster(entries);
+        return entries;
     }
 
-    public async Task SaveCustomOperatorSelectionAsync(IReadOnlyList<string> names)
+    private static void ValidateRoster(IReadOnlyList<CustomRosterEntry> entries)
     {
-        var json = JsonSerializer.Serialize(names, JsonOptions);
+        if (entries.Count > 12 || entries.Any(e => e == null || string.IsNullOrWhiteSpace(e.Name) || e.Tier is not (null or 5 or 6)
+            || e.Slot is < 0 or > 5) || entries.Select(e => e.Name).Distinct().Count() != entries.Count
+            || entries.Where(e => e.Tier.HasValue).GroupBy(e => e.Tier).Any(g => g.Count() > 6))
+            throw new JsonException("自选编队最多 12 名，Ⅴ阶和Ⅵ阶各最多 6 名，同名干员只能选一次。");
+    }
+
+    public Task SaveCustomOperatorSelectionAsync(IReadOnlyList<string> names)
+        => SaveCustomSelectionJsonAsync(JsonSerializer.Serialize(names, JsonOptions));
+
+    public Task SaveCustomRosterAsync(IReadOnlyList<CustomRosterEntry> entries)
+    {
+        ValidateRoster(entries);
+        return SaveCustomSelectionJsonAsync(JsonSerializer.Serialize(entries, JsonOptions));
+    }
+
+    private async Task SaveCustomSelectionJsonAsync(string json)
+    {
         await _customSelectionLock.WaitAsync();
         var path = Path.GetFullPath(Path.Combine(_settingsDir, "custom-operators.json"));
         var temporary = path + $".{Guid.NewGuid():N}.tmp";
@@ -393,14 +417,25 @@ public class SettingsManager
     public Task SaveAutomaticCurrentRunFiltersAsync(bool enabled) =>
         SavePreferenceAsync("automatic-current-run-filters.json", JsonSerializer.Serialize(enabled));
 
-    /// <summary>Draw deployable cells and enemy routes over the game board (on by default).</summary>
+    /// <summary>Draw deployable cells over the game board.</summary>
     public async Task<bool> LoadShowBoardOverlayAsync()
     {
         var path = Path.Combine(_settingsDir, "board-overlay.json");
-        if (!File.Exists(path)) return true;
+        if (!File.Exists(path)) return false;
         try { return JsonSerializer.Deserialize<bool>(await File.ReadAllTextAsync(path)); }
-        catch (JsonException) { return true; }
+        catch (JsonException) { return false; }
     }
+
+    public async Task<bool> LoadShowEnemyRoutesAsync()
+    {
+        var path = Path.Combine(_settingsDir, "enemy-route-overlay.json");
+        if (!File.Exists(path)) return false;
+        try { return JsonSerializer.Deserialize<bool>(await File.ReadAllTextAsync(path)); }
+        catch (JsonException) { return false; }
+    }
+
+    public Task SaveShowEnemyRoutesAsync(bool enabled) =>
+        SavePreferenceAsync("enemy-route-overlay.json", JsonSerializer.Serialize(enabled));
 
     public async Task SaveShowBoardOverlayAsync(bool enabled)
     {
@@ -453,6 +488,12 @@ public class SettingsManager
             || state.FieldCopies.Any(p => string.IsNullOrWhiteSpace(p.Key) || p.Value < 1 || p.Value > state.CountOf(p.Key))
             || state.ManualLimits.Any(p => string.IsNullOrWhiteSpace(p.Key) || p.Value is not {Count: >= 0 and <= 9}))
             throw new JsonException("干员拥有状态包含无效字段");
+        if (state.CarriedCustom is { } carried)
+        {
+            ValidateRoster(carried);
+            if (carried.Any(e => e.Tier == null) || carried.GroupBy(e => e.Tier).Any(g => g.Count() > 2))
+                throw new JsonException("本局自选干员必须指定等阶，每阶最多 2 名");
+        }
         return state;
     }
 

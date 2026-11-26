@@ -84,14 +84,15 @@ public partial class OverlayWindow : Window
     /// enemy routes; null hides it. Only outlines, a corner glyph and route lines through cell centres are drawn,
     /// so the colour samples BoardRecognizer reads from the captured screen stay untouched.
     /// </summary>
-    public void UpdateBoard(GarrisonMap? map, BoardProjection? projection, bool showCells = true)
+    public void UpdateBoard(GarrisonMap? map, BoardProjection? projection, bool showCells, bool showRoutes)
     {
         _board = map is null || projection is null ? null : (map, projection);
         _showCells = showCells;
+        _showRoutes = showRoutes;
         DrawBoard();
     }
 
-    private bool _showCells = true;
+    private bool _showCells, _showRoutes;
     private PlacementPlan? _placements;
 
     /// <summary>
@@ -232,7 +233,7 @@ public partial class OverlayWindow : Window
             _boardLayer.Children.Add(glyph);
         }
 
-        foreach (var route in _showCells ? map.Routes : Array.Empty<IReadOnlyList<BoardCell>>())
+        foreach (var route in _showRoutes ? map.Routes : Array.Empty<IReadOnlyList<BoardCell>>())
         {
             if (route.Count < 2) continue;
             var line = new Polyline

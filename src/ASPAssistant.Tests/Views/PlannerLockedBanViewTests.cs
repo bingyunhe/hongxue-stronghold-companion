@@ -84,14 +84,14 @@ internal static class PlannerLockedBanViewTests
         finally { host.Close(); }
     }
 
-    public static void VerifyManualSubstitution(bool night)
+    public static void VerifyManualSubstitution(GameShopTheme theme, bool night)
     {
         var previousContext = SynchronizationContext.Current;
         var ops = Enumerable.Range(1, 12).Select(i => new Operator
         {
-            Name = "候选干员" + i, Tier = i % 3 + 1, CoreCovenants = ["炎"]
+            Name = "候选干员" + i, Tier = i % 3 + 1, CoreCovenants = ["炎"], AdditionalCovenants = i % 2 == 0 ? ["精准"] : []
         }).ToArray();
-        CovenantInfo[] covenants = [new() { Name = "炎", BondType = "SEASON", ActivateCount = 3 }];
+        CovenantInfo[] covenants = [new() { Name = "炎", BondType = "SEASON", ActivateCount = 3 }, new() { Name = "精准", ActivateCount = 2 }];
         var vm = new LineupPlannerViewModel(new(ops, covenants), ops, new BanViewModel(), EquipmentTestData.Rules)
             { DebounceMilliseconds = 0, IsActive = true };
         var view = new LineupPlannerView { DataContext = vm };
@@ -101,8 +101,8 @@ internal static class PlannerLockedBanViewTests
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(host.Dispatcher));
             host.Show();
-            ThemeManager.Apply(GameShopTheme.Closure, night);
-            vm.AllCovenants.Single().ToggleLevel1Command.Execute(null);
+            ThemeManager.Apply(theme, night);
+            vm.AllCovenants.Single(c => c.Name == "炎").ToggleLevel1Command.Execute(null);
             vm.ShowResultPageCommand.Execute(null);
             var deadline = DateTime.UtcNow.AddSeconds(15);
             while (vm.PendingSearch?.IsCompleted == false && DateTime.UtcNow < deadline) Pump();
@@ -115,13 +115,19 @@ internal static class PlannerLockedBanViewTests
             expander.IsExpanded = true;
             expander.BringIntoView();
             Pump();
-            var text = (TextBlock)expander.Content;
+            var selector = Desc<ComboBox>(expander).Single();
+            selector.Items.Count.Should().BeGreaterThan(1);
+            selector.SelectedItem = card.SubstitutionOptions.Last(c => c.Swap.Changes.Count > 0);
+            Pump();
+            selector.SelectedItem.Should().Be(card.SelectedSubstitution);
+            Desc<TextBlock>(expander).Should().Contain(t => t.Text == card.SelectedSubstitution!.Changes);
+            var text = Desc<TextBlock>(expander).Single(t => t.Text == card.SelectedSubstitution!.Advice);
             text.Text.Should().Contain("决定是否换回");
             text.IsVisible.Should().BeTrue();
             text.ActualWidth.Should().BeGreaterThan(100).And.BeLessThan(host.Width);
             text.BringIntoView();
             Pump();
-            Save(view, GameShopTheme.Closure, night, 320, "manual-substitution");
+            Save(view, theme, night, 320, "manual-substitution");
             vm.SetAutoRunState(new(6, null, ops.Select(o => o.Name).ToHashSet()));
             Pump();
             card.HasSubstitutionAdvice.Should().BeFalse();

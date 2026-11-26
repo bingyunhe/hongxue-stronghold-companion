@@ -235,12 +235,7 @@
                 </Grid>
                 <TextBlock x:Name="TrackedCovenantTitle" Text="目标盟约 · 成型阵容干员合计" FontSize="10.5" Foreground="{DynamicResource TextSecondaryBrush}" Margin="2,0,5,4" />
                 <!-- Covenants the 成型阵容 operators bring -->
-                <Grid Margin="0,0,0,8">
-                    <ItemsControl x:Name="CovenantSizingChips" Visibility="Hidden" Focusable="False" IsHitTestVisible="False"
-                                  ItemTemplate="{Binding ItemTemplate, ElementName=TrackedCovenantChips}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                    </ItemsControl>
-                <ItemsControl x:Name="TrackedCovenantChips" Focusable="False" Visibility="Collapsed"
+                <ItemsControl x:Name="TrackedCovenantChips" Margin="0,0,0,8" Focusable="False" Visibility="Collapsed"
                               ToolTip="目标成型阵容干员带来的盟约人数，包含已完成干员与计划转职，不计过渡干员">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -265,7 +260,6 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                </Grid>
 
                 <!-- 成型阵容 -->
                 <StackPanel x:Name="FinalSection" Margin="0,0,0,8">
