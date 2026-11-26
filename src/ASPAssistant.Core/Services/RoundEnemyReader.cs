@@ -125,7 +125,19 @@ public sealed class RoundEnemyReader(IOcrEngine ocr, GarrisonRoundRouteStore? ro
                         min = Math.Min(min, value);
                         max = Math.Max(max, value);
                     }
-                    if (min < 67 || max - min > 24 || frame.GetPixel(scrollbar.Left - 2, y - 2).G > min - 15) continue;
+                    bool brightBorder = min >= 67 && max - min <= 24;
+                    // At the foot of the track the border can be dim over palace tiles.
+                    // Check that it extends to the panel gutter and stands above the row behind it.
+                    if (!brightBorder)
+                    {
+                        if (y - thumbBottom > 20 * scale || min < 32 || max - min > 12 ||
+                            Math.Abs(frame.GetPixel(edgeColumn, y).G - min) > 12) continue;
+                        int raised = 0;
+                        for (int n = 0; n < 9; n++)
+                            if (frame.GetPixel(names.Left + n * names.Width / 9, y - 2).G <= min - 20) raised++;
+                        if (raised < 8) continue;
+                    }
+                    if (frame.GetPixel(scrollbar.Left - 2, y - 2).G > min - 15) continue;
                     names.Height = y - names.Top;
                     borderFound = true;
                     break;

@@ -32,7 +32,6 @@ public partial class TrackingView : UserControl
     private INotifyCollectionChanged? _operators;
     private INotifyCollectionChanged? _equipment;
     private CovenantCalculator? _calculator;
-    private bool _covenantSizingDirty = true;
     private bool _updatingUpgradeSource;
     private bool _updatingStageControls;
     public static readonly DependencyProperty EquipmentRulesProperty = DependencyProperty.Register(
@@ -54,7 +53,6 @@ public partial class TrackingView : UserControl
     public void SetCovenantCalculator(CovenantCalculator calculator)
     {
         _calculator = calculator;
-        _covenantSizingDirty = true;
         SetValue(EquipmentRulesProperty, calculator.EquipmentRules);
         RefreshSummary();
     }
@@ -88,22 +86,22 @@ public partial class TrackingView : UserControl
         _equipment = _vm?.TrackedEquipment;
         if (_operators is not null) _operators.CollectionChanged += OnCollectionChanged;
         if (_equipment is not null) _equipment.CollectionChanged += OnCollectionChanged;
-        _covenantSizingDirty = true;
         RefreshSummary();
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (_vm?.StageTargetsUpdating == true) return;
-        _covenantSizingDirty = true;
         RefreshSummary();
     }
 
     /// <summary>Updates the empty state and the covenant tally of tracked operators.</summary>
     private void RefreshSummary()
     {
-        var currentOperators = _vm?.TrackedOperators.Where(e => e.IsStageActive).ToList() ?? [];
-        var operators = _vm?.DisplayOperators ?? [];
+        var db = OperatorDatabase;
+        bool AvailableThisRun(TrackingEntry entry) => db.GetValueOrDefault(entry.Name) is not { IsCustom: true, CarriedThisRun: false };
+        var currentOperators = _vm?.TrackedOperators.Where(e => e.IsStageActive && AvailableThisRun(e)).ToList() ?? [];
+        var operators = _vm?.DisplayOperators.Where(AvailableThisRun).ToList() ?? [];
         bool overview = _vm?.ShowAllStages == true;
         bool stages = _vm?.StageChoices.Count > 0;
         RefreshStageControls();
@@ -128,20 +126,9 @@ public partial class TrackingView : UserControl
         var tally = (_calculator?.Compute(lineup) ?? []).Where(s => s.Count > 0)
             .OrderByDescending(s => s.BondType == "SEASON").ThenByDescending(s => s.Count)
             .Select(s => new TrackedCovenantChip(s.Name, s.Count, s.BondType == "SEASON")).ToList();
-        if (_covenantSizingDirty)
-        {
-            var sizing = new Lineup { Slots = _vm?.TrackedOperators.SelectMany(e => e.Origins.Count > 0
-                ? e.Origins.Select(o => new LineupSlot { OperatorName = e.Name, Equipments = o.Equipments, IsElite = o.IsElite })
-                : [new LineupSlot { OperatorName = e.Name, Equipments = e.Equipments, IsElite = e.IsElite }]).ToList() ?? [] };
-            CovenantSizingChips.ItemsSource = (_calculator?.Compute(sizing) ?? []).Where(s => s.Count > 0)
-                .OrderByDescending(s => s.BondType == "SEASON").ThenByDescending(s => s.Count)
-                .Select(s => new TrackedCovenantChip(s.Name, s.Count, s.BondType == "SEASON")).ToList();
-            _covenantSizingDirty = false;
-        }
         TrackedCovenantChips.ItemsSource = tally;
         TrackedCovenantChips.Visibility = tally.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        var db = OperatorDatabase;
         var rules = EquipmentRules;
         var cells = operators.Where(e => !e.IsExpired && Match(e)).Select(e =>
         {

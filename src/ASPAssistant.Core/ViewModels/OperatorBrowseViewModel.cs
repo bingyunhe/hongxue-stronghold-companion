@@ -14,7 +14,7 @@ public enum AvailabilityFilter
     Unavailable
 }
 
-public enum OperatorSourceFilter { All, Default, Custom }
+public enum OperatorSourceFilter { All, Default, Custom, CustomCandidates }
 
 public partial class OperatorBrowseViewModel : ObservableObject
 {
@@ -25,9 +25,11 @@ public partial class OperatorBrowseViewModel : ObservableObject
     [ObservableProperty]
     private OperatorSourceFilter _selectedOperatorSource;
 
+    [ObservableProperty] private string _carryStatus = "";
+    public string CarrySummary => $"本局携带 {_allOperators.Count(o => o.CarriedThisRun == true)} 人　·　V 阶 {_allOperators.Count(o => o.CarriedThisRun == true && o.Tier == 5)}/2　 VI 阶 {_allOperators.Count(o => o.CarriedThisRun == true && o.Tier == 6)}/2";
     public int CustomSelectionCount => _allOperators.Count(o => o.IsCustom && o.IsSelectedCustom);
 
-    private bool MatchesSource(Operator op) => op.IsAvailableForSelection
+    private bool MatchesSource(Operator op) => SelectedOperatorSource == OperatorSourceFilter.CustomCandidates ? op.IsCustom : op.IsAvailableForSelection
         && (SelectedOperatorSource == OperatorSourceFilter.All || op.IsCustom == (SelectedOperatorSource == OperatorSourceFilter.Custom));
 
     partial void OnSelectedOperatorSourceChanged(OperatorSourceFilter value)
@@ -95,7 +97,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
     [ObservableProperty]
     private bool _onlyCurrentRun;
 
-    public bool HasRunInfo => HighlightedCovenants.Count > 0;
+    public bool HasRunInfo => HighlightedCovenants.Count > 0 ||
+        SelectedOperatorSource == OperatorSourceFilter.Custom && _allOperators.Any(o => o.CarriedThisRun.HasValue);
 
     [ObservableProperty]
     private string? _selectedTraitTypeFilter;
@@ -156,6 +159,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
         _allOperators = operators;
         operators = operators.Where(MatchesSource).ToList();
         OnPropertyChanged(nameof(CustomSelectionCount));
+        OnPropertyChanged(nameof(CarrySummary));
+        OnPropertyChanged(nameof(HasRunInfo));
 
         AvailableTiers = [null, .. operators.Select(o => (int?)o.Tier).Distinct().OrderBy(t => t)];
 
@@ -163,7 +168,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
             .SelectMany(o => o.CoreCovenants)
             .Where(c => !string.IsNullOrEmpty(c))
             .ToHashSet();
-        var coreChoices = pickerRun is null ? coreSet.Where(c => !OnlyCurrentRun || HighlightedCovenants.Contains(c))
+        var coreChoices = pickerRun is null ? coreSet.Where(c => !OnlyCurrentRun || HighlightedCovenants.Count == 0 || HighlightedCovenants.Contains(c))
             : pickerRun.CoreCovenants.Where(c => !c.IsBanned).Select(c => c.Name);
         var extraChoices = pickerRun is null ? operators.SelectMany(o => o.AdditionalCovenants)
             .Where(c => !string.IsNullOrEmpty(c) && !coreSet.Contains(c) && (!OnlyCurrentRun || !_missingCovenants.Contains(c)))
@@ -228,7 +233,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
             target.Clear();
             foreach (var chip in chips) target.Add(chip);
         }
-        Fill(TierChips, AvailableTiers.OfType<int>().Select(t =>
+        Fill(TierChips, (SelectedOperatorSource == OperatorSourceFilter.Custom ? Enumerable.Range(1, 6) : AvailableTiers.OfType<int>()).Select(t =>
             new FilterChip(FilterChipKind.Tier, t.ToString(), t is >= 1 and <= 6 ? RomanLabels[t] : t.ToString(), OnChipToggled)));
         Fill(CoreChips, AvailableCoreCovenants.Where(c => !string.IsNullOrEmpty(c))
             .Select(c => new FilterChip(FilterChipKind.CoreCovenant, c!, c!, OnChipToggled)));
@@ -248,6 +253,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private void RefreshChipCounts()
     {
         bool Usable(Operator o) => MatchesSource(o) && _isBannedCheck?.Invoke(o.Name) != true;
+        foreach (var chip in TierChips) chip.Count = _allOperators.Count(o => MatchesSource(o) && o.Tier == int.Parse(chip.Value) && !o.IsTierPending);
         foreach (var chip in CoreChips.Where(c => c != _missing.Core))
         {
             chip.Count = _allOperators.Count(o => o.CoreCovenants.Contains(chip.Value) && Usable(o));
@@ -411,6 +417,8 @@ public partial class OperatorBrowseViewModel : ObservableObject
     private void ApplyFilters()
     {
         var filtered = _allOperators.Where(MatchesSource);
+        if (OnlyCurrentRun && SelectedOperatorSource == OperatorSourceFilter.Custom)
+            filtered = filtered.Where(o => o.CarriedThisRun != false);
         if (OnlyCurrentRun && _missingCovenants.Count > 0)
             filtered = filtered.Where(o => !CovenantBanRules.HasMissingCovenant(o, _missingCovenants));
 
@@ -424,7 +432,7 @@ public partial class OperatorBrowseViewModel : ObservableObject
         if (SelectedTierFilters.Count > 0)
         {
             var tiers = SelectedTierFilters;
-            filtered = filtered.Where(o => tiers.Contains(o.Tier));
+            filtered = filtered.Where(o => !o.IsTierPending && tiers.Contains(o.Tier));
         }
 
         if (!string.IsNullOrEmpty(SelectedTraitTypeFilter))

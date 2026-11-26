@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -7,6 +8,8 @@ using System.Text;
 
 namespace ASPAssistant.Core.Services;
 
+public sealed record UpdateTransferProgress(long ReceivedBytes, long TotalBytes, double? BytesPerSecond);
+
 public partial class UpdateService
 {
     private const long ResumeThreshold = 32L * 1024 * 1024;
@@ -14,12 +17,15 @@ public partial class UpdateService
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HongxueCompanion", "UpdateCache");
 
     public string? TransferStatus { get; private set; }
+    public UpdateTransferProgress? TransferProgress { get; private set; }
     public bool HasSavedDownload { get; private set; }
     public event Action<string>? TransferStatusChanged;
+    public event Action<UpdateTransferProgress>? TransferProgressChanged;
 
     private void SetTransferStatus(string message)
     {
         TransferStatus = message;
+        TransferProgress = null;
         TransferStatusChanged?.Invoke(message);
     }
 
@@ -43,6 +49,7 @@ public partial class UpdateService
         {
             File.Move(part, zipPath, true);
             HasSavedDownload = false;
+            TransferStatus = null;
             return;
         }
         while (true)
@@ -76,7 +83,7 @@ public partial class UpdateService
                 HasSavedDownload = false;
                 SetTransferStatus("下载源未接受断点，正在重新下载");
             }
-            if (partial) SetTransferStatus($"继续下载，已保留 {offset / 1048576d:F1} MiB");
+            if (partial) SetTransferStatus($"继续下载，已保留 {offset / 1_000_000d:0.0} MB");
             bool persist = partial || Math.Max(size, total) >= ResumeThreshold;
             var path = persist ? part : zipPath;
             long received = offset;
@@ -87,6 +94,9 @@ public partial class UpdateService
                 await using var output = new FileStream(path, partial ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read);
                 var buffer = new byte[65536];
                 using var idleTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var sampledAt = Stopwatch.GetTimestamp();
+                long sampledBytes = offset;
+                ReportTransfer(received, total, null);
                 while (true)
                 {
                     idleTimeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -95,7 +105,14 @@ public partial class UpdateService
                     if (count == 0) break;
                     await output.WriteAsync(buffer.AsMemory(0, count), ct);
                     received += count;
-                    TransferStatus = null;
+                    var now = Stopwatch.GetTimestamp();
+                    var elapsed = Stopwatch.GetElapsedTime(sampledAt, now);
+                    if (elapsed >= TimeSpan.FromSeconds(1))
+                    {
+                        ReportTransfer(received, total, (received - sampledBytes) / elapsed.TotalSeconds);
+                        sampledAt = now;
+                        sampledBytes = received;
+                    }
                     if (total > 0)
                     {
                         int percent = (int)(Math.Min(1, (double)received / total) * 85);
@@ -108,6 +125,7 @@ public partial class UpdateService
             }
             finally
             {
+                TransferProgress = null;
                 // Chunked responses can cross the threshold before their final size is known.
                 if (!persist && total <= 0 && received >= ResumeThreshold)
                 {
@@ -120,5 +138,13 @@ public partial class UpdateService
             HasSavedDownload = false;
             return;
         }
+    }
+
+    private void ReportTransfer(long received, long total, double? bytesPerSecond)
+    {
+        TransferStatus = null;
+        var transfer = new UpdateTransferProgress(received, total, bytesPerSecond);
+        TransferProgress = transfer;
+        TransferProgressChanged?.Invoke(transfer);
     }
 }

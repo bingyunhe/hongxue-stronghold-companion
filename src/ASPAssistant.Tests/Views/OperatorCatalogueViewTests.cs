@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -152,15 +153,17 @@ internal static class OperatorCatalogueViewTests
             Save(deploy, GameShopTheme.Closure, night, "missing-pool");
 
             manage.Show();
+            manage.FilterToggle.IsChecked = true;
             Toggle(manage, "无附加盟约");
             Assert.Equal(32, manage.ChoicesPanel.Children.Cast<Border>().Count(c => c.IsVisible));
             var selected = manage.ChoicesPanel.Children.Cast<Border>().First(c => c.IsVisible);
-            ((CheckBox)selected.Child).IsChecked = true;
+            var selectedCheck = Desc<CheckBox>(selected).Single();
+            selectedCheck.IsChecked = true;
             Toggle(manage, "无核心盟约");
             Assert.True(manage.EmptyHint.IsVisible);
             Toggle(manage, "无附加盟约");
             Assert.Equal(43, manage.ChoicesPanel.Children.Cast<Border>().Count(c => c.IsVisible));
-            Assert.Equal(true, ((CheckBox)selected.Child).IsChecked);
+            Assert.Equal(true, selectedCheck.IsChecked);
             Save((FrameworkElement)manage.Content, GameShopTheme.Closure, night, "missing-custom");
         }
         finally { manage.Close(); host.Close(); }
@@ -238,6 +241,36 @@ internal static class OperatorCatalogueViewTests
         try
         {
             host.Show();
+            Layout();
+            var tierRow = Desc<ItemsControl>(view).Single(c => ReferenceEquals(c.ItemsSource, vm.TierChips));
+            var filters = (ToggleButton)view.FindName("FilterToggle");
+            Assert.True(tierRow.IsVisible);
+            Assert.False(filters.IsChecked);
+            var source = (ListBox)view.FindName("OperatorSourceList");
+            source.SelectedValue = OperatorSourceFilter.Custom;
+            Layout();
+            Assert.All(vm.TierChips, chip => Assert.Equal(0, chip.Count));
+            source.SelectedValue = OperatorSourceFilter.Default;
+            Layout();
+            Assert.Equal(6, tierRow.Items.Count);
+            foreach (var tier in new[] { 5, 6 })
+            {
+                var chip = vm.TierChips.Single(c => c.Value == tier.ToString());
+                var tile = Desc<ToggleButton>(tierRow).Single(b => ReferenceEquals(b.DataContext, chip));
+                tile.IsChecked = true;
+                Layout();
+                Assert.Equal(operators.Count(op => op.Tier == tier), vm.MatchedCount);
+                Assert.Equal(vm.MatchedCount, chip.Count);
+                Assert.All(vm.FilteredOperators, op => Assert.Equal(tier, op.Tier));
+                filters.IsChecked = true;
+                Layout();
+                Assert.True(tierRow.IsVisible);
+                Assert.Empty(Desc<ItemsControl>((Border)view.FindName("FilterContentPanel"))
+                    .Where(c => ReferenceEquals(c.ItemsSource, vm.TierChips)));
+                filters.IsChecked = false;
+                tile.IsChecked = false;
+                Layout();
+            }
             for (int columns = 1; columns <= 3; columns++)
             {
                 Layout();

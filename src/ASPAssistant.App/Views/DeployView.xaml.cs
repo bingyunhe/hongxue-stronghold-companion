@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using ToggleButton = System.Windows.Controls.Primitives.ToggleButton;
 using UniformGrid = System.Windows.Controls.Primitives.UniformGrid;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -365,6 +366,13 @@ public partial class DeployView : UserControl
     private Page _page = Page.Main;
     private bool _pickingMap;
 
+    public void RefreshCustomRoster()
+    {
+        if (!_ready) return;
+        RefreshAll();
+        ScheduleReplan();
+    }
+
     private void RefreshAll()
     {
         if (!_ready) return;
@@ -402,7 +410,7 @@ public partial class DeployView : UserControl
         MapName.Text = map?.Name ?? "未识别地图";
         bool manual = _state.ManualMap is not null;
         bool stale = !manual && _recognized is null && _lastSeen is not null;
-        MapSourceText.Text = manual ? "手动" : stale ? "上次识别" : "自动";
+        MapSourceText.Text = manual ? "手动" : stale ? "上次识别" : "自动识别地图";
         MapSourceDot.Fill = (Brush)FindResource(manual ? "TextSecondaryBrush" : stale ? "WarningBrush" : "SuccessBrush");
         MapThumb.Source = map is null ? null : Thumbnail(map.Id);
         var finals = _tracking?.TrackedOperators.Where(e => e.IsStageActive && e.Type == TrackingType.Operator && (!e.IsTransition || _tracking.StageChoices.Count > 0)).ToList() ?? [];
@@ -1443,35 +1451,17 @@ public partial class DeployView : UserControl
 
     private UIElement TierTile(int tier, int count, bool hasOwned)
     {
-        bool open = tier == _activeTier;
-        var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        var num = Text(Roman[tier], 14, open ? "OnAccentBrush" : tier >= 5 ? "EliteBrush" : tier == 4 ? "AccentBrush" : "TextPrimaryBrush", bold: true, center: true);
-        num.FontFamily = (FontFamily)FindResource("NumberFontFamily");
-        stack.Children.Add(num);
-        stack.Children.Add(Text($"{count} 人", 9, open ? "OnAccentBrush" : "TextSecondaryBrush", center: true));
-        var grid = new Grid();
-        grid.Children.Add(stack);
-        if (hasOwned)
-            grid.Children.Add(new Ellipse { Width = 5, Height = 5, Fill = (Brush)FindResource(open ? "OnAccentBrush" : "AccentBrush"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 5, 0) });
-        var tile = new Border
+        var chip = new FilterChip(FilterChipKind.Tier, tier.ToString(), Roman[tier], _ => { })
+            { Count = count, HasOwned = hasOwned, IsSelected = tier == _activeTier };
+        var tile = new ToggleButton { Style = (Style)FindResource("TierCellToggle"), DataContext = chip,
+            ToolTip = count == 0 ? "这一阶没有" : $"看 {tier} 阶" };
+        tile.Click += (_, _) =>
         {
-            Height = 38, Margin = new Thickness(0, 0, 4, 0), Cursor = count > 0 ? Cursors.Hand : Cursors.Arrow,
-            CornerRadius = (CornerRadius)FindResource("RowCornerRadius"), BorderThickness = new Thickness(1),
-            Background = (Brush)FindResource(open ? "AccentSolidBrush" : "CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource(open ? "AccentSolidBrush" : "BorderBrush"),
-            Opacity = count == 0 ? 0.45 : 1,
-            Child = grid,
-            ToolTip = count == 0 ? "这一阶没有" : $"看 {tier} 阶",
+            if (_activeTier == tier) { chip.IsSelected = true; return; }
+            _activeTier = _justOpenedTier = tier;
+            RefreshPool();
+            _justOpenedTier = null;
         };
-        if (count > 0)
-            tile.MouseLeftButtonUp += (_, _) =>
-            {
-                if (_activeTier == tier) return;
-                _activeTier = tier;
-                _justOpenedTier = tier;
-                RefreshPool();
-                _justOpenedTier = null;
-            };
         return tile;
     }
 

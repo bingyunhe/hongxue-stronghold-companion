@@ -20,7 +20,7 @@ public partial class LineupPlannerViewModel
         var baseline = BuildAutoRequest();
         var goals = HasGoals && !IsRepairing ? BuildRequest() : null;
         var cachedGoals = !_dirty && PendingSearch is { IsCompletedSuccessfully: true } ? _lastResult : null;
-        var allowed = _operators.Concat(_strategyOperators).Where(o => o.IsAvailableForSelection && !IsUnavailable(o))
+        var allowed = _operators.Concat(_strategyOperators).Where(o => o.IsAvailableForPlanning && !IsUnavailable(o))
             .DistinctBy(o => o.Name).ToDictionary(o => o.Name);
         var anchors = holdings.Keys.Where(n => allowed.TryGetValue(n, out var op) && op.RequiredStrategyId.Length == 0)
             .OrderByDescending(elites.Contains).ThenByDescending(n => allowed[n].Tier).ThenBy(n => n, StringComparer.Ordinal).Take(2).ToArray();

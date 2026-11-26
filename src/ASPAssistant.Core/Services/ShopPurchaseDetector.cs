@@ -11,6 +11,19 @@ public sealed class ShopPurchaseDetector
     private List<ShopItem> _cards = [];
     private ShopEconomy? _before;
     private int _width, _height, _stable, _emptyFrames;
+    private byte[]? _refreshFrame;
+
+    internal (byte[] Frame, ShopItem Card, double Pitch)? PriceToVerify(IReadOnlyList<ShopItem> current, ShopEconomy? hud)
+    {
+        if (_refreshFrame is null || _shopHiddenAt.HasValue || _afterEnemyPanel || _cards.Count < 3 ||
+            current.Count != _cards.Count - 1 || !SameRemainingCards(current) || hud is not { IsPreparation: true } || hud.Round != _before?.Round ||
+            hud.Mode != _before?.Mode || hud.Money is not int now || _lastFundsRead is not int previous || previous <= now) return null;
+        var missing = _cards.First(c => !current.Any(other => SameSlot(c, other)));
+        if (missing.Price > 0) return null;
+        var positions = _cards.Select(c => c.OcrRegion.X).Order().ToArray();
+        double pitch = positions.Zip(positions.Skip(1), (left, right) => right - left).Min();
+        return (_refreshFrame, missing, pitch);
+    }
     private string _pending = "";
     private int? _pendingMoney;
     private long? _shopHiddenAt;
@@ -21,6 +34,7 @@ public sealed class ShopPurchaseDetector
     private int? _fundsBeforeCardChange;
     private int _fundsChangeGrace;
     private string? _lastCandidateDiagnostic;
+    internal bool HasStableOffer => _stable >= 2 && _emptyFrames == 0 && _confirmedFunds.HasValue;
     public bool NeedsConfirmation => _emptyFrames == 1;
 
     public bool NeedsFundsRead(IReadOnlyList<ShopItem> cards, bool shopOpen)
@@ -49,6 +63,7 @@ public sealed class ShopPurchaseDetector
         if (_before is not null)
             AppLogger.Info("ShopPurchase", $"Baseline cleared: reason={reason}, stable={_stable}, money={_before.Money}, pending={_purchasePending}, cards=[{string.Join(", ", _cards.Select(c => c.Name))}]");
         _cards = [];
+        _refreshFrame = null;
         _before = null;
         _afterEnemyPanel = false;
         _shopHiddenAt = null;
@@ -95,6 +110,9 @@ public sealed class ShopPurchaseDetector
             if (cards.Count == 0) Reset("no-visible-offer-after-enemy-panel");
             _afterEnemyPanel = false;
         }
+        // A transient animation can obscure the mode label and multiple card names.
+        // Keep the last verified shelf until an identifiable scene is observed again.
+        if (economy.Mode is null && _before?.Mode is not null && economy.Round == _before.Round) return [];
         var (width, height) = ImageBytes.GetDimensions(image);
         bool sameScene = _before is not null && _before.Round == economy.Round && _before.Mode == economy.Mode
             && _width == width && _height == height;
@@ -132,11 +150,13 @@ public sealed class ShopPurchaseDetector
                 _fundsBeforeCardChange = null;
             }
         }
-        var beforeMoney = _fundsBeforeCardChange ?? _confirmedFunds;
+        bool firstPurchase = _refreshFrame is not null && _stable == 1 && missing.Count == 1 && cards.Count >= 2 &&
+            relevantMissing && freshFunds && missing[0].Price > 0 && _lastFundsRead - economy.Money == missing[0].Price;
+        var beforeMoney = firstPurchase ? _lastFundsRead : _fundsBeforeCardChange ?? _confirmedFunds;
         var empty = false;
         if (sameCards && _stable >= 2 && relevantMissing && freshFunds && _candidateFundsReads < CandidateFundsReadLimit)
             _candidateFundsReads++;
-        if (sameCards && _stable >= 2 && relevantMissing && beforeMoney > economy.Money)
+        if (sameCards && (_stable >= 2 || firstPurchase) && relevantMissing && beforeMoney > economy.Money)
         {
             using var stream = new MemoryStream(image);
             using var bitmap = new Bitmap(stream);
@@ -144,7 +164,7 @@ public sealed class ShopPurchaseDetector
         }
         if (missing.Count > 0)
         {
-            var reason = !relevantMissing ? "not-in-catalog" : _stable < 2 ? "baseline-not-stable"
+            var reason = !relevantMissing ? "not-in-catalog" : _stable < 2 && !firstPurchase ? "baseline-not-stable"
                 : !(beforeMoney > economy.Money) ? "funds-not-decreased" : !empty ? "slot-not-empty" : "awaiting-second-empty-frame";
             var diagnostic = $"Candidate: reason={reason}, stable={_stable}, money={beforeMoney}->{economy.Money}, round={economy.Round}, missing=[{string.Join(", ", missing.Select(c => $"{c.Name}@{c.OcrRegion.X:F3}"))}]";
             if (diagnostic != _lastCandidateDiagnostic)
@@ -168,6 +188,8 @@ public sealed class ShopPurchaseDetector
             AppLogger.Info("ShopPurchase", $"Confirmed [{string.Join(", ", purchased)}], money={beforeMoney}->{economy.Money}");
             ConfirmedOfferAt = _lastOffer;
             _lastOffer = capturedAt ?? DateTimeOffset.UtcNow;
+            _refreshFrame = null;
+            _stable = Math.Max(_stable, 2);
             _cards = cards.ToList();
             _before = economy;
             _confirmedFunds = _lastFundsRead = economy.Money;
@@ -193,6 +215,7 @@ public sealed class ShopPurchaseDetector
             AppLogger.Info("ShopPurchase", $"Baseline established: sameScene={sameScene}, round={economy.Round}, mode={economy.Mode}, size={width}x{height}, money={economy.Money}, previous=[{string.Join(", ", _cards.Select(c => c.Name))}], cards=[{string.Join(", ", cards.Select(c => $"{c.Name}@{c.OcrRegion.X:F3}"))}]");
         else if (_stable == 1 && missing.Count == 0)
             AppLogger.Info("ShopPurchase", $"Baseline stable: money={economy.Money}, cards={cards.Count}");
+        _refreshFrame = !sameCards && sameScene && freshFunds && economy.Money.HasValue && cards.Count >= 3 ? image : null;
         _stable = sameCards && missing.Count == 0 ? _stable + 1 : 1;
         if (freshFunds)
         {
@@ -225,8 +248,14 @@ public sealed class ShopPurchaseDetector
         return cyan >= 16;
     }
 
+    internal static bool SameNamedSlot(ShopItem a, ShopItem b) => a.Name == b.Name && SameSlot(a, b);
+
     private static bool SameSlot(ShopItem a, ShopItem b)
-        => Math.Abs(a.OcrRegion.X - b.OcrRegion.X) < .018 && Math.Abs(a.OcrRegion.Y - b.OcrRegion.Y) < .015;
+        => Math.Abs(a.OcrRegion.Y - b.OcrRegion.Y) < (a.Name == b.Name ? .035 : .015) &&
+            (Math.Abs(a.OcrRegion.X - b.OcrRegion.X) < .018 ||
+             a.Name == b.Name && Math.Abs(a.OcrRegion.X - b.OcrRegion.X) < .05 &&
+             Math.Min(a.OcrRegion.X + a.OcrRegion.Width, b.OcrRegion.X + b.OcrRegion.Width)
+                - Math.Max(a.OcrRegion.X, b.OcrRegion.X) > .5 * Math.Min(a.OcrRegion.Width, b.OcrRegion.Width));
 
     // Empty merchandise slots reveal the dark scene behind the shop. Check the card body and its bottom
     // edge as well as the name: losing OCR text on a frozen/dark card must never count as a purchase.

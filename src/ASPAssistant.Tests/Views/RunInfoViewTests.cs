@@ -106,6 +106,36 @@ internal static class RunInfoViewTests
                 Save(run, $"{theme}-{night}-{width}-collapsed");
             }
 
+            var types = new EnemyTypeDataService();
+            types.LoadAsync(Path.Combine(AppContext.BaseDirectory, "data")).GetAwaiter().GetResult();
+            var dot = types.LookupByTypeName("持续")!;
+            var fly = types.LookupByTypeName("飞行")!;
+            void RefreshTypes() => enemy.Update(new(boss.Name, ["特训敌人·持续", "特训敌人·飞行"], []), boss, [dot, fly]);
+            RefreshTypes(); Pump();
+            var bossSection = (Expander)enemyView.FindName("BossExpander");
+            Expander TypeSection(string name) => Descendants<Expander>(enemyView)
+                .Single(e => e.DataContext is EnemyTypeEntry t && t.TypeName == name);
+            var dotSection = TypeSection("持续");
+            var flySection = TypeSection("飞行");
+            Assert.True(bossSection.IsExpanded && dotSection.IsExpanded && flySection.IsExpanded);
+            void ClickHeader(Expander section)
+            {
+                var toggle = Descendants<ToggleButton>(section).First();
+                Assert.True(toggle.ActualWidth >= section.ActualWidth - 4);
+                var peer = new System.Windows.Automation.Peers.ToggleButtonAutomationPeer(toggle);
+                ((System.Windows.Automation.Provider.IToggleProvider)peer).Toggle();
+            }
+            ClickHeader(dotSection); ClickHeader(bossSection); Pump();
+            Assert.False(health.IsVisible);
+            Assert.False(((FrameworkElement)dotSection.Content).IsVisible);
+            Assert.True(((FrameworkElement)flySection.Content).IsVisible);
+            RefreshTypes(); Pump();
+            Assert.False(TypeSection("持续").IsExpanded);
+            Assert.True(TypeSection("飞行").IsExpanded);
+            TypeSection("飞行").IsExpanded = false;
+            TypeSection("持续").IsExpanded = true; Pump();
+            Save(enemyView, $"{theme}-{night}-folds");
+            bossSection.IsExpanded = true; Pump();
             var hpExpander = (Expander)health.FindName("OtherBossHpExpander");
             var singleHp = (StackPanel)health.FindName("SingleBossHpSection");
             var multiHp = (ItemsControl)health.FindName("MultiBossHpItems");

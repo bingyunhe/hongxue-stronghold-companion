@@ -138,6 +138,47 @@ public sealed class RoundEnemyTests
         }
     }
 
+    [Fact, Trait("Category", "LocalScreenshot")]
+    public async Task EleventhRoundReadsBountyAndSecondPageAfterSlowCapture()
+    {
+        var directory = Environment.GetEnvironmentVariable("ASPASSISTANT_ROUND11_ENEMY_PAGES")
+            ?? Path.Combine(AppContext.BaseDirectory, "TestData", "round11-enemy-pages");
+        var top = File.ReadAllBytes(Path.Combine(directory, "top.png"));
+        var bottom = File.ReadAllBytes(Path.Combine(directory, "bottom.png"));
+        using var ocr = new MaaOcrEngine(Path.Combine(AppContext.BaseDirectory, "data"));
+        var routes = await ASPAssistant.Core.Data.GarrisonRoundRouteStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory);
+        var reader = new RoundEnemyReader(ocr, routes, ASPAssistant.App.Views.CodexBounty.Load()
+            .Select(b => b.Title).ToHashSet(StringComparer.Ordinal));
+        using var connection = new GameConnectionService();
+        var live = top;
+        int scrolls = 0;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        using var scanner = new OcrScannerService(() =>
+        {
+            var remainingDelay = TimeSpan.FromSeconds(8.25) - watch.Elapsed;
+            if (scrolls == 0 && remainingDelay > TimeSpan.Zero) Thread.Sleep(remainingDelay);
+            return live;
+        }, new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
+        {
+            RoundEnemyReader = reader, EconomyReader = new(ocr),
+            RoundEnemyScroll = (_, _, _, _) => { scrolls++; live = bottom; return true; },
+            SendCapturedClick = (_, _, _, _) => ClickResult.Sent
+        };
+        var hud = new ShopEconomy(11, 0, 0, false, "规程等级13", true);
+        var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
+        tracker.Observe(hud); tracker.Observe(hud);
+        Assert.Null(scanner.RequestRoundEnemyRead());
+        watch.Restart();
+        await scanner.ObserveRoundEnemiesAsync(top, hud, true, connection, scanner.RunRevision, connection.CaptureRevision, Environment.TickCount64);
+        var result = scanner.CurrentRoundEnemies!;
+        File.WriteAllText(Path.Combine(TestOutput.Directory, "round11-enemy-result.txt"),
+            $"round={result.Round} complete={result.HasCompleteList} scrolls={scrolls} elapsed={watch.ElapsedMilliseconds}ms names={string.Join("、",result.Names)} bounty={string.Join("、",result.Bounties)} hint={result.Hint}");
+        Assert.Equal(1, scrolls);
+        Assert.True(result.HasCompleteList, result.Hint);
+        Assert.Equal(["假想敌：蚀裂"], result.Bounties);
+        Assert.Equal(["萨卡兹枯朽战士", "萨卡兹枯朽战士组长", "疯狂的逐腐兽"], result.Names);
+    }
+
     [Fact]
     public async Task FourthRoundCapturedBountyPages()
     {
@@ -172,7 +213,6 @@ public sealed class RoundEnemyTests
         var hud = new ShopEconomy(4, 0, 0, false, "规程等级13", true);
         using var connection = new GameConnectionService();
         int clicks = 0, verifiedFrames = 0;
-        RoundEnemyState? request = null;
         using var scanner = new OcrScannerService(() =>
         {
             if (ReferenceEquals(live, board)) verifiedFrames++;
@@ -182,7 +222,6 @@ public sealed class RoundEnemyTests
             RoundEnemyReader = reader, EconomyReader = new(ocr),
             RoundEnemyScroll = (_, _, _, _) =>
             {
-                Assert.True(request!.ExpireManual(DateTime.MaxValue));
                 live = bottom;
                 return true;
             },
@@ -193,7 +232,6 @@ public sealed class RoundEnemyTests
                 return ClickResult.Sent;
             }
         };
-        request = (RoundEnemyState)typeof(OcrScannerService).GetField("_roundEnemyState", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
         var economy = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
         economy.Observe(hud);
         economy.Observe(hud);
@@ -206,9 +244,7 @@ public sealed class RoundEnemyTests
         Assert.True(scanner.CurrentRoundEnemies!.IsPartial, $"opening frame: clicks={clicks}, state={scanner.CurrentRoundEnemies}");
         live = top;
         await Observe(top);
-        Assert.Same(bottom, live);
-        Assert.Equal(1, clicks);
-        await Observe(bottom);
+        Assert.Same(board, live);
         await Observe(board);
         Assert.True(scanner.CurrentRoundEnemies!.HasCompleteList);
         Assert.Equal(state.Info.Names, scanner.CurrentRoundEnemies.Names);
@@ -312,8 +348,9 @@ public sealed class RoundEnemyTests
         using var frame = new Bitmap(1920, 1080);
         DrawEnemyButton(frame, 255);
         var bytes = ImageBytes.Encode(frame);
+        long tick = Environment.TickCount64;
         Task Observe(ShopEconomy sample) =>
-            scanner.ObserveRoundEnemiesAsync(bytes, sample, sceneRecognized, connection, scanner.RunRevision, connection.CaptureRevision, Environment.TickCount64);
+            scanner.ObserveRoundEnemiesAsync(bytes, sample, sceneRecognized, connection, scanner.RunRevision, connection.CaptureRevision, tick);
 
         await Observe(hud with { Round = 1 });
         await Observe(hud with { IsPreparation = false });
@@ -322,6 +359,24 @@ public sealed class RoundEnemyTests
         await Observe(hud);
         Assert.Equal(automatic || sceneRecognized ? 1 : 0, clicks);
         Assert.Equal(0, ocr.Reads);
+        if (automatic || !sceneRecognized) return;
+
+        // A confirmed main screen allows retry. A late panel still belongs to this request.
+        tick += 9000;
+        await Observe(hud);
+        Assert.False(scanner.CurrentRoundEnemies!.IsReading);
+        Assert.Contains("打开后会继续识别", scanner.CurrentRoundEnemies.Hint);
+        await Observe(hud);
+        using var panel = new Bitmap(frame);
+        using (var graphics = Graphics.FromImage(panel))
+        {
+            graphics.FillRectangle(Brushes.White, 1192, 120, 60, 18);
+            graphics.FillRectangle(Brushes.White, 1293, 183, 69, 28);
+        }
+        var panelBytes = ImageBytes.Encode(panel);
+        await scanner.ObserveRoundEnemiesAsync(panelBytes, hud, true, connection, scanner.RunRevision, connection.CaptureRevision, ++tick);
+        Assert.Equal(["猎狗pro"], scanner.CurrentRoundEnemies!.Names);
+        Assert.Equal(1, clicks);
     }
 
     [Theory]
@@ -499,6 +554,7 @@ public sealed class RoundEnemyTests
             new GarrisonOcrStrategy(), new ShopReader(ocr, []), ocr, new(), [], getConnection: () => connection)
         {
             RoundEnemyReader = new(ocr), EconomyReader = new(ocr), AutomaticRoundEnemies = entry == "automatic",
+            ShowPlacementOverlay = lastScene != "changed-ink",
             RoundEnemyScroll = (_, _, _, _) => false,
             SendCapturedClick = (_, point, size, _) =>
             {
@@ -511,7 +567,14 @@ public sealed class RoundEnemyTests
         var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
         tracker.Observe(hud);
         tracker.Observe(hud);
-        if (entry.StartsWith("manual", StringComparison.Ordinal)) Assert.Null(scanner.RequestRoundEnemyRead());
+        bool requested = entry.StartsWith("manual", StringComparison.Ordinal);
+        if (requested) Assert.Null(scanner.RequestRoundEnemyRead());
+        Assert.Equal(requested && scanner.ShowPlacementOverlay, scanner.PlacementOverlayPaused);
+        if (requested && lastScene == "changed-ink")
+        {
+            scanner.ShowPlacementOverlay = true;
+            Assert.True(scanner.PlacementOverlayPaused);
+        }
         Task Board(bool recognized) => scanner.ObserveRoundEnemiesAsync(boardBytes, hud, recognized, connection,
             scanner.RunRevision, connection.CaptureRevision, Environment.TickCount64);
         if (entry is "manual-board" or "automatic")
@@ -543,6 +606,8 @@ public sealed class RoundEnemyTests
         bool shouldClose = entry != "passive" && lastScene is "open" or "partial" or "changed-ink" or "scroll-by-player";
         Assert.Equal(entry == "passive" ? 0 : (shouldClose ? 2 : 1) +
             (lastScene == "partial" ? 1 : lastScene == "scroll-by-player" ? 2 : 0), captures);
+        if (requested && shouldClose) Assert.False(scanner.PlacementOverlayPaused);
+        if (requested && lastScene == "no-button") Assert.True(scanner.PlacementOverlayPaused);
         if (shouldClose)
             Assert.Equal(RoundEnemyReader.Inspect(latest, true).Button, Assert.Single(clicks));
         else Assert.Empty(clicks);
@@ -729,20 +794,20 @@ public sealed class RoundEnemyTests
         Assert.True(state.TryAutoOpen());
         state.BeginConfirmation();
         state.PanelRead = true;
-        Assert.True(state.RequestManual(now));
+        Assert.True(state.RequestManual());
         Assert.False(state.PanelRead);
-        Assert.False(state.RequestManual(now));
+        Assert.False(state.RequestManual());
         Assert.False(state.CanOpen(automatic: false, sceneRecognized: true, now));
         state.EndConfirmation();
         Assert.True(state.CanOpen(automatic: false, sceneRecognized: true, now.AddSeconds(3)));
         Assert.True(state.TryManualOpen());
         Assert.False(state.CanOpen(automatic: false, sceneRecognized: true, now.AddSeconds(3)));
-        Assert.False(state.ExpireManual(now.AddSeconds(7)));
-        Assert.True(state.ExpireManual(now.AddSeconds(8)));
+        Assert.True(state.Info!.IsReading);
+        Assert.True(state.CancelManualOnCaptureLoss());
         Assert.False(state.Info!.IsReading);
-        Assert.True(state.RequestManual(now.AddSeconds(9)));
+        Assert.True(state.RequestManual());
         state.ApplyRead(new(["猎狗pro"], [], true, true, false, "敌人", 0));
-        Assert.False(state.RequestManual(now.AddSeconds(10)));
+        Assert.False(state.RequestManual());
         Assert.Equal("猎狗pro", Assert.Single(state.Info!.Names));
         Assert.True(state.Observe(3));
         Assert.Empty(state.Info!.Names);
@@ -855,7 +920,7 @@ public sealed class RoundEnemyTests
     }
 
     [Fact]
-    public async Task ManualButtonsExpireWhileCaptureIsBlockedAndIgnoreLateResults()
+    public async Task SlowCaptureLeavesEnemyRequestActiveWhileFieldRecognitionTimesOut()
     {
         var ocr = new OversizedNameOcr();
         var folder = Path.Combine(AppContext.BaseDirectory, "data");
@@ -880,18 +945,13 @@ public sealed class RoundEnemyTests
         var hud = new ShopEconomy(2, 4, 5, false, null, true);
         tracker.Observe(hud);
         tracker.Observe(hud);
-        var expired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        scanner.RoundEnemiesChanged += () => { if (scanner.CurrentRoundEnemies?.Hint?.Contains("超时") == true) expired.TrySetResult(); };
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         Assert.Null(scanner.RequestRoundEnemyRead());
         var field = scanner.ReadLiveFieldAsync();
         try
         {
             Assert.True(entered.Wait(2000));
-            await expired.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Contains("8 秒", await field.WaitAsync(TimeSpan.FromSeconds(1)));
-            Assert.InRange(clock.Elapsed.TotalSeconds, 7.8, 10);
-            Assert.False(scanner.CurrentRoundEnemies!.IsReading);
+            Assert.Contains("8 秒", await field.WaitAsync(TimeSpan.FromSeconds(12)));
+            Assert.True(scanner.CurrentRoundEnemies!.IsReading);
             Assert.Null(scanner.RequestRoundEnemyRead());
         }
         finally { release.Set(); }
@@ -925,20 +985,21 @@ public sealed class RoundEnemyTests
         var tracker = (ShopEconomyTracker)typeof(OcrScannerService).GetField("_economy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
         var hud = new ShopEconomy(2, 4, 5, false, null, true);
         tracker.Observe(hud); tracker.Observe(hud);
-        var expired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        scanner.RoundEnemiesChanged += () => { if (scanner.CurrentRoundEnemies?.Hint?.Contains("超时") == true) expired.TrySetResult(); };
         Assert.Null(scanner.RequestRoundEnemyRead());
         var old = scanner.ObserveRoundEnemiesAsync(image, hud, false, connection, scanner.RunRevision, connection.CaptureRevision,
             Environment.TickCount64, (panel, RoundEnemyReader.Inspect(panel, false)));
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            await expired.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var next = hud with { Round = 3 };
+            tracker.Observe(next);
+            tracker.Observe(next);
             Assert.Null(scanner.RequestRoundEnemyRead());
         }
         finally { release.TrySetResult(); }
         await old;
         Assert.True(scanner.CurrentRoundEnemies!.IsReading);
+        Assert.Equal(3, scanner.CurrentRoundEnemies.Round);
         Assert.Empty(scanner.CurrentRoundEnemies.Names);
         Assert.Equal(1, ocr.Reads);
         Assert.Equal(0, clicks);
@@ -994,7 +1055,7 @@ public sealed class RoundEnemyTests
         state.ApplyRead(new(["宿主士兵", "步兵"], ["磨砻"], true, false, false, "敌人", 0));
         Assert.True(state.Info!.IsPartial);
         Assert.Equal("敌人", state.CoveredPage!.LastSection);
-        Assert.True(state.RequestManual(DateTime.UtcNow));
+        Assert.True(state.RequestManual());
         state.ApplyRead(new(["源石虫"], [], false, true, false, "敌人", 0));
         Assert.True(state.Info!.IsPartial);
         Assert.Contains("源石虫", state.Info.Names);
@@ -1043,7 +1104,7 @@ public sealed class RoundEnemyTests
     [InlineData(true, false, true, "same-panel")]
     [InlineData(false, false, true, "player-closed")]
     [InlineData(false, false, true, "capture-lost")]
-    public async Task ScrollsOwnedPanelsOnlyAndRequiresAnOverlappingStableBottom(bool adb, bool passive, bool moves, string? expiry = null)
+    public async Task ScrollsOwnedPanelsOnlyAndRequiresAnOverlappingStableBottom(bool adb, bool passive, bool moves, string? interruption = null)
     {
         using var top = new Bitmap(1280, 720);
         using (var g = Graphics.FromImage(top))
@@ -1086,14 +1147,14 @@ public sealed class RoundEnemyTests
                 Assert.Equal(connection.CaptureRevision, revision);
                 Assert.True(RoundEnemyReader.Inspect(top, false).Names.Contains(point));
                 scrolls++;
-                if (expiry != null) Assert.True(state!.ExpireManual(DateTime.MaxValue));
                 if (moves) live = last;
-                return true;
+                // The player can move the panel before the injected scroll is acknowledged.
+                return interruption == null;
             },
             SendCapturedClick = (_, point, _, _) =>
             {
                 Assert.Equal(RoundEnemyReader.Inspect(board, true).Button, point);
-                if (expiry != null && opens == 0) opens++;
+                if (interruption != null && opens == 0) opens++;
                 else { closes++; live = boardBytes; }
                 return ClickResult.Sent;
             }
@@ -1105,22 +1166,22 @@ public sealed class RoundEnemyTests
         long captureTick = Environment.TickCount64;
         Task Observe(byte[] bytes) => scanner.ObserveRoundEnemiesAsync(bytes, hud, true, connection, scanner.RunRevision,
             connection.CaptureRevision, ++captureTick);
-        if (expiry != null)
+        if (interruption != null)
         {
             state = (RoundEnemyState)typeof(OcrScannerService).GetField("_roundEnemyState", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(scanner)!;
             await Observe(boardBytes);
             Assert.Equal(1, opens);
         }
         await Observe(first);
-        if (expiry != null)
+        if (interruption != null)
         {
             Assert.True(scanner.CurrentRoundEnemies!.IsPartial);
             Assert.Equal(0, closes);
-            if (expiry == "player-closed") await Observe(boardBytes);
-            if (expiry == "capture-lost") state!.PauseConfirmationClock(captureLost: true);
+            if (interruption == "player-closed") await Observe(boardBytes);
+            if (interruption == "capture-lost") Assert.True(state!.CancelManualOnCaptureLoss());
             await Observe(last);
             await Observe(last);
-            Assert.Equal(expiry == "same-panel" ? 1 : 0, closes);
+            Assert.Equal(interruption == "same-panel" ? 1 : 0, closes);
             Assert.Equal(closes, returnedFrames);
             Assert.True(scanner.CurrentRoundEnemies!.HasCompleteList);
             Assert.Equal(1, scrolls);

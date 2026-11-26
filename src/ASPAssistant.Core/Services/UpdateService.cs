@@ -22,9 +22,16 @@ public record UpdateInfo(
 {
     public UpdateDelta? Delta { get; init; }
     public long FullSize { get; init; }
-    public string DownloadSizeText => Delta is { } patch
-        ? $"增量 {patch.Size / 1048576d:F2} MiB（完整包 {FullSize / 1048576d:F2} MiB）"
-        : FullSize > 0 ? $"完整包 {FullSize / 1048576d:F2} MiB" : "";
+    public long MirrorSize { get; init; }
+    public bool MirrorIncremental { get; init; }
+    public string DownloadSizeText => (FromMirrorChyan, MirrorSize, Delta?.Size, FullSize) switch
+    {
+        (true, > 0, _, _) => $"预计下载 {MirrorSize / 1_000_000d:0.00} MB（{(MirrorIncremental ? "增量包" : "完整包")}）",
+        (true, _, _, > 0) => $"GitHub 完整包参考大小 {FullSize / 1_000_000d:0.00} MB",
+        (false, _, long size, _) => $"预计下载 {size / 1_000_000d:0.00} MB（增量包）",
+        (false, _, _, > 0) => $"预计下载 {FullSize / 1_000_000d:0.00} MB（完整包）",
+        _ => "下载开始后确认大小"
+    };
     public bool FromMirrorChyan { get; init; }
 }
 
@@ -86,7 +93,7 @@ public partial class UpdateService
     public static string ResolveFeedUrl(string? overrideUrl)
         => string.IsNullOrWhiteSpace(overrideUrl) ? DefaultFeedUrl : overrideUrl.Trim();
 
-    public async Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken ct = default)
+    public async Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken ct = default, bool hasMirrorCdk = true)
     {
         if (IsDevBuild) return null;
         var feedUrl = FeedUrl;
@@ -96,15 +103,32 @@ public partial class UpdateService
         var version = TryParseVersion(release?.VersionName);
         if (version is not null && version > CurrentVersion)
         {
+            var mirrorSize = hasMirrorCdk && release!.UpdateType is "incremental" or "full" ? release.FileSize.GetValueOrDefault() : 0;
+            long referenceSize = 0;
+            if (mirrorSize <= 0)
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                var reference = await CheckGitHubVersionAsync($"v{version}", timeout.Token);
+                ct.ThrowIfCancellationRequested();
+                if (reference?.Version == version.ToString()) referenceSize = reference.FullSize;
+            }
             LastError = null;
             return new UpdateInfo($"v{version}", version.ToString(), release!.ReleaseNote ?? "", "",
-                $"hongxue-stronghold-companion-v{version}-win-x64.zip", null) { FromMirrorChyan = true };
+                $"hongxue-stronghold-companion-v{version}-win-x64.zip", null)
+            {
+                FromMirrorChyan = true, MirrorSize = mirrorSize,
+                MirrorIncremental = release.UpdateType == "incremental", FullSize = referenceSize
+            };
         }
 
         var fallback = await CheckGitHubUpdateAsync(feedUrl, ct);
         if (version is not null) LastError = null;
         return fallback;
     }
+
+    private Task<UpdateInfo?> CheckGitHubVersionAsync(string tag, CancellationToken ct) =>
+        CheckGitHubUpdateAsync($"{GitHubReleasesUrl}/tags/{Uri.EscapeDataString(tag)}", ct);
 
     private async Task<UpdateInfo?> CheckGitHubUpdateAsync(string feedUrl, CancellationToken ct)
     {
@@ -170,6 +194,7 @@ public partial class UpdateService
         string? mirrorCdk = null)
     {
         TransferStatus = null;
+        TransferProgress = null;
         HasSavedDownload = false;
         try
         {
@@ -207,7 +232,7 @@ public partial class UpdateService
                 if (expectedHash is null)
                 {
                     SetTransferStatus($"{DownloadNotice}，正在检查 GitHub 备用下载");
-                    var fallback = await CheckGitHubUpdateAsync($"{GitHubReleasesUrl}/tags/{Uri.EscapeDataString(info.TagName)}", ct);
+                    var fallback = await CheckGitHubVersionAsync(info.TagName, ct);
                     ct.ThrowIfCancellationRequested();
                     if (fallback is null || fallback.Version != info.Version)
                         throw new InvalidOperationException($"{DownloadNotice}。GitHub Releases 暂无相同版本的下载包，请稍后重新检查更新。");

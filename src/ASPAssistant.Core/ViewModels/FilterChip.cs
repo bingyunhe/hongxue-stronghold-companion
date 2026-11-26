@@ -24,6 +24,9 @@ public sealed partial class FilterChip : ObservableObject
 {
     private readonly Action<FilterChip> _onToggled;
 
+    public string CountUnit { get; init; } = "人";
+    public bool HasOwned { get; init; }
+
     public FilterChip(FilterChipKind kind, string value, string label, Action<FilterChip> onToggled)
     {
         Kind = kind;

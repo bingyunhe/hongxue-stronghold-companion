@@ -37,6 +37,9 @@ public class JsonDataStore
         var wrapper = JsonSerializer.Deserialize<OperatorDataFile>(json, JsonOptions)
             ?? throw new JsonException("自选干员目录不能为空");
         await ApplyOperatorProfilesAsync(wrapper.Operators, "custom_operator_profiles.json");
+        var skills = JsonSerializer.Deserialize<Dictionary<string, List<CustomSkillOption>>>(
+            await File.ReadAllTextAsync(Path.Combine(_dataDirectory, "custom_skills.json")), JsonOptions)!;
+        foreach (var op in wrapper.Operators) op.SkillOptions = skills[op.Name];
         return wrapper.Operators;
     }
 

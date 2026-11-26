@@ -103,9 +103,22 @@ public partial class OcrScannerService
     public event Action? RoundEnemiesChanged;
     public RoundEnemyInfo? CurrentRoundEnemies { get { lock (_runLock) return _roundEnemyState.Info; } }
 
+    private volatile bool _placementOverlayPaused;
+    public bool PlacementOverlayPaused => ShowPlacementOverlay && _placementOverlayPaused;
+    public event Action? PlacementOverlayPauseChanged;
+
+    private void ResumePlacementOverlay(long version)
+    {
+        lock (_runLock)
+        {
+            if (!_placementOverlayPaused || version != _roundEnemyState.ManualVersion) return;
+            _placementOverlayPaused = false;
+        }
+        if (ShowPlacementOverlay) PlacementOverlayPauseChanged?.Invoke();
+    }
+
     public string? RequestRoundEnemyRead()
     {
-        long request;
         lock (_runLock)
         {
             if (_disposed || _pauseBanScreenDetection || _banScreenActive ||
@@ -114,40 +127,13 @@ public partial class OcrScannerService
             _roundEnemyState.Observe(round);
             if (_roundEnemyState.Info?.Round != round) return "正在确认当前回合，请稍后重试。";
             if (_roundEnemyState.Info.HasCompleteList) return $"第 {round} 回合的名单已识别。";
-            if (!_roundEnemyState.RequestManual(DateTime.UtcNow)) return null;
-            request = _roundEnemyState.ManualVersion;
+            if (!_roundEnemyState.RequestManual()) return null;
+            _placementOverlayPaused = true;
             _bufferedPanel = null;
         }
-        _ = ExpireAfterDeadlineAsync(request);
+        if (PlacementOverlayPaused) PlacementOverlayPauseChanged?.Invoke();
         RoundEnemiesChanged?.Invoke();
         return null;
-    }
-
-    private async Task ExpireAfterDeadlineAsync(long request)
-    {
-        await Task.Delay(ManualRecognitionLimit).ConfigureAwait(false);
-        lock (_runLock)
-        {
-            if (_disposed || request != _roundEnemyState.ManualVersion || !ExpireManualRead(DateTime.MaxValue)) return;
-        }
-        RoundEnemiesChanged?.Invoke();
-    }
-
-    private void ExpireRoundEnemyRead()
-    {
-        bool expired;
-        lock (_runLock) expired = ExpireManualRead(DateTime.UtcNow);
-        if (expired) RoundEnemiesChanged?.Invoke();
-    }
-
-    private bool ExpireManualRead(DateTime now)
-    {
-        if (!_roundEnemyState.ExpireManual(now)) return false;
-        var info = _roundEnemyState.Info!;
-        var samples = RecognitionDiagnostics.Samples;
-        var id = samples.Begin("小怪识别超时", info.Round, includeRecent: true);
-        samples.Step(id, $"8 秒截止 · 已读到 {string.Join("、", info.RouteNames)}");
-        return true;
     }
 
     // A player can open the enemy panel before the shop or the player's board has been recognised.
@@ -182,7 +168,6 @@ public partial class OcrScannerService
             manual = _roundEnemyState.Info.IsReading;
             manualRequest = manual || _roundEnemyState.ManualContinuation;
             version = _roundEnemyState.ManualVersion;
-            if (!RequestCurrent()) return;
             if (manual && frameTick < _roundEnemyState.ManualStartTick) return;
             if (_roundEnemyState.EmptyReadTick is long emptyTick)
             {
@@ -200,8 +185,7 @@ public partial class OcrScannerService
             mayOpen = connection is not null && (manual || !_roundEnemyState.Info.IsPartial) &&
                 _roundEnemyState.CanOpen(AutomaticRoundEnemies, sceneRecognized || !manual && verifiedHud, DateTime.UtcNow);
         }
-        bool RequestCurrent() => version == _roundEnemyState.ManualVersion &&
-            (!manualRequest || _roundEnemyState.WithinManualDeadline);
+        bool RequestCurrent() => !_disposed && version == _roundEnemyState.ManualVersion;
         if (newRound) RoundEnemiesChanged?.Invoke();
 
         using var stream = preview is null ? new MemoryStream(screenshot) : null;
@@ -252,7 +236,7 @@ public partial class OcrScannerService
                 if (!manual) LogRoundEnemyAutoSkip(round, "round-not-confirmed-on-frame");
                 return;
             }
-            bool exhausted = false;
+            bool stillClosed = false;
             lock (_runLock)
             {
                 if (!RequestCurrent() || revision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)
@@ -264,18 +248,24 @@ public partial class OcrScannerService
                     if (!_roundEnemyState.AwaitingPanel) return;
                     _roundEnemyState.EndConfirmation();
                     if (!manual && !AutomaticRoundEnemies) return;
-                    if (!manual && !_roundEnemyState.TryRepeatSentClick())
+                    if (manual && _roundEnemyState.OpenedPanel.HasValue)
+                    {
+                        _roundEnemyState.Fail("尚未看到敌人面板，打开后会继续识别，也可点击重试。");
+                        _roundEnemyState.ContinuePartial(true);
+                        stillClosed = true;
+                    }
+                    else if (!manual && !_roundEnemyState.TryRepeatSentClick())
                     {
                         _roundEnemyState.Fail("未确认敌人面板已打开，可点击「识别小怪」重试。");
-                        exhausted = true;
+                        stillClosed = true;
                     }
                 }
-                if (manual && !_roundEnemyState.TryManualOpen()) return;
+                if (manual && !stillClosed && !_roundEnemyState.TryManualOpen()) return;
                 if (!manual && !confirming && (!AutomaticRoundEnemies || !_roundEnemyState.TryAutoOpen())) return;
             }
-            if (exhausted)
+            if (stillClosed)
             {
-                AppLogger.Info("RoundEnemy", $"round={round} auto-panel=not-confirmed after-retry");
+                AppLogger.Info("RoundEnemy", $"round={round} panel-not-confirmed manual={manual}");
                 RoundEnemiesChanged?.Invoke();
                 return;
             }
@@ -286,8 +276,11 @@ public partial class OcrScannerService
             lock (_runLock)
             {
                 if (!RequestCurrent() || revision != _runRevision || _roundEnemyState.Info?.Round != round) return;
-                if (result == ClickResult.Sent && manual) _roundEnemyState.OpenedPanel = (connection, captureRevision);
-                if (result == ClickResult.Sent && !manual) _roundEnemyState.BeginConfirmation();
+                if (result == ClickResult.Sent)
+                {
+                    if (manual) _roundEnemyState.OpenedPanel = (connection, captureRevision);
+                    _roundEnemyState.BeginConfirmation();
+                }
                 if (result != ClickResult.Sent)
                 {
                     bool retry = !manual && !confirming && result is not (ClickResult.ReleaseUnconfirmed or ClickResult.AdbUnconfirmed)
@@ -441,11 +434,9 @@ public partial class OcrScannerService
                     if (complete) break;
                 }
             }
-            bool CurrentRequestOrReturn() => RequestCurrent() || ownedReturn && version == _roundEnemyState.ManualVersion &&
-                _roundEnemyState.OpenedPanel == (connection, captureRevision);
             bool CurrentPanelRead()
             {
-                lock (_runLock) return CurrentRequestOrReturn() && !_disposed && revision == _runRevision && !_pauseBanScreenDetection && !_banScreenActive
+                lock (_runLock) return RequestCurrent() && !_disposed && revision == _runRevision && !_pauseBanScreenDetection && !_banScreenActive
                     && IsCurrentCapture(connection, captureRevision) && _roundEnemyState.Info?.Round == round
                     && _economy.Current is { IsPreparation: true } current && current.Round == round
                     && (manual || AutomaticRoundEnemies || ownedReturn && _roundEnemyState.OpenedPanel == (connection, captureRevision));
@@ -487,7 +478,7 @@ public partial class OcrScannerService
             var closingHud = await economyReader.ReadPreparationAsync(latest, closeFrame.Width, closeFrame.Height);
             lock (_runLock)
             {
-                if (!CurrentRequestOrReturn() || ownedReturn && _roundEnemyState.OpenedPanel != (connection, captureRevision) || _disposed || revision != _runRevision || _pauseBanScreenDetection || _banScreenActive ||
+                if (!RequestCurrent() || ownedReturn && _roundEnemyState.OpenedPanel != (connection, captureRevision) || _disposed || revision != _runRevision || _pauseBanScreenDetection || _banScreenActive ||
                     !IsCurrentCapture(connection, captureRevision) || _roundEnemyState.Info?.Round != round ||
                     !closingHud.IsPreparation || closingHud.Round != round)
                 {
@@ -514,6 +505,7 @@ public partial class OcrScannerService
             AppLogger.Info("RoundEnemy", $"round={round} returned-to-board={boardVisible}");
             samples.Step(sampleId, summary + (boardVisible ? " · 已返回棋盘" : " · 未确认返回棋盘"), after);
             verifiedReturn = boardVisible;
+            if (boardVisible) ResumePlacementOverlay(version);
             if (boardVisible && !complete)
             {
                 lock (_runLock)
@@ -567,8 +559,6 @@ internal sealed class RoundEnemyState
     private long _closedMilliseconds;
     internal long ManualStartTick { get; private set; }
     internal long ManualVersion { get; private set; }
-    internal bool WithinManualDeadline => DateTime.UtcNow < _manualUntil;
-    private DateTime _manualUntil;
     private RoundEnemyReadResult? _connectedPage;
     private RoundEnemyReadResult? _coveredPage;
 
@@ -604,14 +594,13 @@ internal sealed class RoundEnemyState
     internal bool CanOpen(bool automatic, bool sceneRecognized, DateTime now) => !AwaitingPanel && sceneRecognized &&
         (Info?.IsReading == true ? !_manualOpenAttempted : automatic && !AutoAttempted && now >= _retryAfter);
 
-    internal bool RequestManual(DateTime now)
+    internal bool RequestManual()
     {
         if (Info is not { IsReading: false, HasCompleteList: false } info) return false;
         if (EmptyReadTick.HasValue) EndConfirmation();
         PanelRead = _manualOpenAttempted = false;
         ManualStartTick = Environment.TickCount64;
         ManualVersion++;
-        _manualUntil = now + OcrScannerService.ManualRecognitionLimit;
         Info = info with { IsReading = true, Hint = "正在识别小怪，请保持游戏窗口可见。" };
         return true;
     }
@@ -623,15 +612,14 @@ internal sealed class RoundEnemyState
         return true;
     }
 
-    internal bool ExpireManual(DateTime now)
+    internal bool CancelManualOnCaptureLoss()
     {
-        if (Info?.IsReading != true && !ManualContinuation || now < _manualUntil) return false;
+        if (Info?.IsReading != true && !ManualContinuation) return false;
         ManualVersion++;
-        if (Info?.IsPartial != true || !PanelRead) OpenedPanel = null;
-        AppLogger.Info("RoundEnemy", $"round={Info?.Round} manual-expired pending-panel-return={OpenedPanel.HasValue}");
+        OpenedPanel = null;
         AutoAttempted = true;
         EndConfirmation();
-        Fail("识别超时（8 秒），可重新识别。");
+        Fail("未取得游戏画面，恢复连接后可重新识别。");
         return true;
     }
 
@@ -692,7 +680,7 @@ internal sealed class RoundEnemyState
     {
         if (PanelRead) OpenedPanel = null;
         PanelRead = false;
-        if (!AwaitingPanel) CanClosePanel = ManualContinuation = false;
+        if (!AwaitingPanel && !OpenedPanel.HasValue) CanClosePanel = ManualContinuation = false;
     }
     internal void ApplyRead(RoundEnemyReadResult read)
     {
@@ -736,6 +724,6 @@ internal sealed class RoundEnemyState
         EndConfirmation();
         _repeatedSentClick = false;
         ManualVersion++;
-        _manualUntil = _retryAfter = default;
+        _retryAfter = default;
     }
 }

@@ -67,6 +67,7 @@ public class LineupStageRepairerTests
         var preview = repairer.Repair(source, final, new HashSet<string> { "禁用", "成型替补", "过渡", "同阶", "低阶" }, new HashSet<string>());
         preview.CanSave.Should().BeFalse();
         preview.Stages[0].Missing.Should().Be(1);
+        preview.Stages[0].CovenantComparison.Should().Contain("炎 2 → 1").And.Contain("I 档 → 未激活，距 I 档差 1 人");
         preview.Stages[0].WarningText.Should().Contain("缺 1 人");
         preview.Lineup.SklandGuide!.Stages[0].Slots.Select(s => s.OperatorName).Should().Equal("保留");
     }

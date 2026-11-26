@@ -84,7 +84,7 @@ public sealed class LineupPlanner
         if (bannedGoal is not null) return new PlannerResult { Error = $"核心盟约“{bannedGoal.Name}”本局已被 Ban。" };
         if (request.LockedOperators.Count > MaxLockedOperators) return new PlannerResult { Error = $"必带干员不能超过 {MaxLockedOperators} 人。" };
 
-        var candidates = _operators.Where(o => o.IsAvailableForSelection)
+        var candidates = _operators.Where(o => o.IsAvailableForPlanning)
             .Where(o => !request.BannedOperators.Contains(o.Name) && !CovenantBanRules.HasMissingCovenant(o, request.MissingCovenants))
             .Where(o => !request.ExcludeMixedBannedOperators || !IsExcludedByBans(o, request.BannedCovenants))
             .ToList();
@@ -95,6 +95,9 @@ public sealed class LineupPlanner
         if (missingLocked is not null)
             return new PlannerResult { Error = $"必带干员“{missingLocked}”本局不可用（被禁用），请解除锁定。", CandidateCount = candidates.Count };
 
+        var excess = request.LockedOperators.Select(n => candidates[indexByName[n]]).Where(o => o.IsCustom)
+            .GroupBy(o => o.Tier).FirstOrDefault(g => g.Count() > 2);
+        if (excess != null) return new PlannerResult { Error = $"自选{excess.Key}阶最多携带 2 人：{string.Join("、", excess.Select(o => o.Name))}" };
         var allowed = _covenants.Where(c => c.BondType != "SEASON" || !request.BannedCovenants.Contains(c.Name)).Select(c => c.Name)
             .Where(n => request.TransformAllowed.Contains(n) && !request.MissingCovenants.Contains(n) && !NoTransform.Contains(n))
             .ToList();
@@ -235,10 +238,15 @@ public sealed class LineupPlanner
                 {
                     if (names.Contains(_ops[i].Name)) continue;
                     team[slot] = i;
+                    if (_ops[i].IsCustom && team.Count(j => _ops[j].IsCustom && _ops[j].Tier == _ops[i].Tier) > 2) continue;
                     var (counts, _) = Count(team, transforms, final.MechCovenants);
                     if (_request.Goals.Any(g => counts[g.Name] < g.Count) || _hasSoloGoal && counts[SoloCovenant] != 1
                         || !HasHealer(team, counts)) continue;
-                    results.Add(new(missing.Name, _ops[i].Name, Score(counts).Score));
+                    results.Add(new(missing.Name, _ops[i].Name, Score(counts).Score)
+                    {
+                        Changes = [.. _covenants.Where(c => counts[c.Name] != final.Counts[c.Name])
+                            .Select(c => new CovenantCountChange(c, final.Counts[c.Name], counts[c.Name]))]
+                    });
                 }
                 team[slot] = original;
             }
@@ -353,6 +361,7 @@ public sealed class LineupPlanner
             for (var i = 0; i < _ops.Count; i++)
             {
                 if (_used[i]) continue;
+                if (_ops[i].IsCustom && _picked.Count(j => _ops[j].IsCustom && _ops[j].Tier == _ops[i].Tier) >= 2) continue;
                 if (_hasSoloGoal && _native[i].Contains(SoloCovenant) && counts[ SoloCovenant ] >= 1) continue;
                 if (pivot is not null && !Contributes(i, pivot, counts)
                     && (!_allowed.Contains(pivot.Name) || !missing.Any(g => Contributes(i, g, counts)))) continue;

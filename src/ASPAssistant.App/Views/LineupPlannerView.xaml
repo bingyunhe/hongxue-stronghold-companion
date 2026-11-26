@@ -513,8 +513,14 @@
                         <Expander Header="缺一名目标干员时的替补" Margin="0,0,0,8"
                                   Foreground="{DynamicResource TextPrimaryBrush}"
                                   Visibility="{Binding HasSubstitutionAdvice, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="{Binding SubstitutionAdvice}" TextWrapping="Wrap" FontSize="11" Margin="4,4,4,2"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" />
+                            <StackPanel Margin="4,4,4,2">
+                                <ComboBox ItemsSource="{Binding SubstitutionOptions}" SelectedItem="{Binding SelectedSubstitution, Mode=TwoWay}"
+                                          DisplayMemberPath="Label" AutomationProperties.Name="换下干员与替补干员" />
+                                <TextBlock Text="{Binding SelectedSubstitution.Changes}" TextWrapping="Wrap" FontSize="12" Margin="0,5,0,4"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="{Binding SelectedSubstitution.Advice}" TextWrapping="Wrap" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                            </StackPanel>
                         </Expander>
                         <StackPanel Visibility="{Binding RequiresStageRepair, Converter={StaticResource BoolToVis}}" Margin="0,0,0,8">
                             <DockPanel>
@@ -536,6 +542,15 @@
                                                     <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                                                     <TextBlock Text="{Binding BoundsText}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,2,0,0" />
                                                     <TextBlock Text="{Binding ChangeText}" FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                                                    <TextBlock Text="{Binding CovenantComparison}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimaryBrush}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Style.Triggers>
+                                                                    <Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
                                                     <TextBlock Text="{Binding MembersText}" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                                                     <TextBlock Text="{Binding WarningText}" FontSize="11" Foreground="{DynamicResource WarningTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
                                                                Visibility="{Binding HasWarning, Converter={StaticResource BoolToVis}}" />

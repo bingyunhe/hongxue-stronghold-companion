@@ -27,6 +27,7 @@ public sealed record ShopEconomy(int? Round, int? Money, int? UpgradeCost, bool 
 public sealed class ShopEconomyReader(IOcrEngine ocr)
 {
     private double _hudScale;
+    private (int Center, int Width, int Height, double Scale, byte[] Pixels, int Cost)? _upgradeBadge;
     // 1080p at UI size 90: 升级 text top is 101 px above the bottom edge; badges are 38 px tall, 273 px up.
     private const double ButtonFromBottom = 101;
     private const double BadgeFromBottom = 273;
@@ -55,7 +56,19 @@ public sealed class ShopEconomyReader(IOcrEngine ocr)
         if (button is not null && !maxed)
         {
             int center = button.Box.X + button.Box.W / 2;
-            cost = await ReadBadgeAsync(png, center - (int)(26 * k), height, k, (int)(52 * k));
+            // Only the upgrade price is reusable. Compare all five OCR crop areas;
+            // the balance is still read from this observation on every funds check.
+            var badge = BmpPixels.TryRead(png)?.RegionDigest(
+                center - (int)Math.Ceiling(32 * k), height - (int)Math.Ceiling((BadgeFromBottom + 4) * k),
+                center + (int)Math.Ceiling(38 * k), height - (int)Math.Floor((BadgeFromBottom - BadgeHeight - 4) * k));
+            if (badge != null && _upgradeBadge is { } last && last.Center == center && last.Scale == k
+                && last.Width == width && last.Height == height && badge.AsSpan().SequenceEqual(last.Pixels))
+                cost = last.Cost;
+            else
+            {
+                cost = await ReadBadgeAsync(png, center - (int)(26 * k), height, k, (int)(52 * k));
+                if (badge != null && cost is int price) _upgradeBadge = (center, width, height, k, badge, price);
+            }
         }
         // Skip the coin icon at the badge's left; it pulls the recogniser towards letters.
         var money = preparation ? await ReadMoneyAsync(png, width, height)
@@ -63,9 +76,94 @@ public sealed class ShopEconomyReader(IOcrEngine ocr)
         return new(round, money, cost, maxed, mode, preparation);
     }
 
+    // The gold funds badge can be located independently of the upgrade label, whose
+    // animated OCR box sometimes puts the funds crop below the top of the digit.
+    private static System.Drawing.Rectangle MoneyDigits(BmpPixels pixels)
+    {
+        double scale = Math.Min(pixels.Width / 1920d, pixels.Height / 1080d);
+        int left = pixels.Width - (int)(245 * scale), right = pixels.Width - (int)(25 * scale);
+        var edges = new List<(int X, int End, int Y)>();
+        for (int y = pixels.Height - (int)(315 * scale); y < pixels.Height - (int)(205 * scale); y++)
+        {
+            int start = left;
+            for (int x = left; x <= right; x++)
+            {
+                int color = pixels.Color(x, y);
+                int red = color >> 16, green = color >> 8 & 255, blue = color & 255;
+                if (red > 130 && green > 82 && red - blue > 68 && green - blue > 45) continue;
+                int span = x - start, end = x - 1;
+                if (span >= 65 * scale && span <= 140 * scale)
+                {
+                    foreach (var edge in edges)
+                    {
+                        int height = y - edge.Y;
+                        if (height >= 29 * scale && height <= 50 * scale &&
+                            Math.Abs(edge.X - start) < 8 * scale && Math.Abs(edge.End - end) < 8 * scale)
+                            return System.Drawing.Rectangle.FromLTRB(edge.X + (int)Math.Round(span * .42),
+                                edge.Y + (int)Math.Round(height * .07), edge.End + 1, y - (int)Math.Round(height * .04));
+                    }
+                    edges.Add((start, end, y));
+                }
+                start = x + 1;
+            }
+        }
+        return System.Drawing.Rectangle.Empty;
+    }
+
+    private (int Width, int Height, System.Drawing.Rectangle Rect) _sampleBadge;
+
+    internal byte[] SampleMoneyPixels(BmpPixels frame)
+    {
+        var rect = MoneyDigits(frame);
+        var last = _sampleBadge;
+        if (last.Width == frame.Width && last.Height == frame.Height && (rect.IsEmpty ||
+            Math.Abs(last.Rect.X - rect.X) <= 4 && Math.Abs(last.Rect.Y - rect.Y) <= 2))
+            rect = last.Rect;
+        if (rect.IsEmpty) return [];
+        _sampleBadge = (frame.Width, frame.Height, rect);
+        var sample = new byte[24 * 12];
+        for (int row = 0; row < 12; row++)
+            for (int col = 0; col < 24; col++)
+                sample[row * 24 + col] = (byte)frame.Gray(rect.X + (2 * col + 1) * rect.Width / 48,
+                    rect.Y + (2 * row + 1) * rect.Height / 24);
+        return sample;
+    }
+
+    private (int, int) _lastMoneySize;
+    private System.Drawing.Rectangle _lastMoneyDigits;
+
     /// <summary>Rechecks only funds while the same shop layout remains open.</summary>
     public async Task<int?> ReadMoneyAsync(byte[] png, int width, int height)
     {
+        if (BmpPixels.TryRead(png) is { } pixels)
+        {
+            var digits = MoneyDigits(pixels);
+            if (digits.IsEmpty && _lastMoneySize == (width, height)) digits = _lastMoneyDigits;
+            if (!digits.IsEmpty)
+            {
+                _lastMoneySize = (width, height);
+                _lastMoneyDigits = digits;
+                int left = digits.Right, right = digits.Left, top = digits.Bottom, bottom = digits.Top;
+                for (int row = digits.Top; row < digits.Bottom; row++)
+                    for (int col = digits.Left; col < digits.Right; col++)
+                    {
+                        int color = pixels.Color(col,row), red = color >> 16, green = (color >> 8) & 255, blue = color & 255;
+                        if (red < 145 || green < 95 || red-blue < 90 || green-blue < 55) continue;
+                        left = Math.Min(left,col); right = Math.Max(right,col);
+                        top = Math.Min(top,row); bottom = Math.Max(bottom,row);
+                    }
+                if (bottom-top >= digits.Height * .4)
+                {
+                    int pad = (bottom-top+1)/2;
+                    var ink = System.Drawing.Rectangle.Intersect(digits, System.Drawing.Rectangle.FromLTRB(left-pad,
+                        top-pad/3, right+pad+1, bottom+pad/3+1));
+                    if (Number(await ocr.RecognizeLineAsync(png, ink.X, ink.Y, ink.Width, ink.Height)) is int value)
+                        return value;
+                }
+                if (Number(await ocr.RecognizeLineAsync(png, digits.X, digits.Y, digits.Width, digits.Height)) is int balance)
+                    return balance;
+            }
+        }
         double scale = _hudScale;
         int x = width - (int)(120 * scale), w = (int)(48 * scale);
         // Leave room for the left stroke of 0 and the leading 1 of 15 at UI 90 in 16:10.

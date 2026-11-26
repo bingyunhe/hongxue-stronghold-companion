@@ -40,6 +40,26 @@ public class MirrorChyanUpdateTests
     }
 
     [Theory]
+    [InlineData(1360000L, true, "v99.1.0", "预计下载 1.36 MB（增量包）", 1)]
+    [InlineData(null, true, "v99.1.0", "GitHub 完整包参考大小 211.69 MB", 2)]
+    [InlineData(1360000L, false, "v99.1.0", "GitHub 完整包参考大小 211.69 MB", 2)]
+    [InlineData(null, true, "v99.2.0", "下载开始后确认大小", 2)]
+    public async Task ShowsKnownSizeOrSameVersionReferenceWithoutRequestingCdk(
+        long? mirrorSize, bool hasCdk, string githubTag, string expected, int requests)
+    {
+        var handler = new Feed(address => address.Host == "mirrorchyan.com"
+            ? Mirror("v99.1.0", type: "incremental", size: mirrorSize)
+            : GitHub(githubTag));
+        using var http = new HttpClient(handler);
+        var service = new UpdateService(http, new Version(1, 9, 4));
+        var info = await service.CheckForUpdateAsync(hasMirrorCdk: hasCdk);
+        info!.DownloadSizeText.Should().Be(expected);
+        handler.Requests.Should().HaveCount(requests);
+        handler.Requests[0].Query.Should().NotContain("cdk=");
+        if (requests == 2) handler.Requests[1].AbsolutePath.Should().EndWith("/tags/v99.1.0");
+    }
+
+    [Theory]
     [InlineData("mirror")]
     [InlineData("missing")]
     [InlineData("invalid")]
@@ -68,7 +88,7 @@ public class MirrorChyanUpdateTests
             "mirrorchyan.com" => Mirror("v99.1.0"),
             "cdn.test" when scenario == "expired-link" => new(HttpStatusCode.Forbidden),
             "cdn.test" => new() { Content = new ByteArrayContent(bytes) },
-            "api.github.com" when address.AbsolutePath.EndsWith("/tags/v99.1.0", StringComparison.Ordinal) => GitHub(),
+            "api.github.com" when address.AbsolutePath.EndsWith("/tags/v99.1.0", StringComparison.Ordinal) => GitHub(size: bytes.Length),
             "github.test" when address.AbsolutePath == "/checksum" => new() { Content = new StringContent($"{validHash}  {Asset}") },
             "github.test" => new() { Content = new ByteArrayContent(bytes) },
             _ => throw new InvalidOperationException("Unexpected test endpoint"),
@@ -232,19 +252,20 @@ public class MirrorChyanUpdateTests
         finally { Directory.Delete(directory, true); }
     }
 
-    private static HttpResponseMessage Mirror(string tag, string? address = null, string? hash = null, string type = "full") =>
-        new() { Content = JsonContent.Create(new { code = 0, data = new { version_name = tag, update_type = type, release_note = "测试", url = address, sha256 = hash } }) };
+    private static HttpResponseMessage Mirror(string tag, string? address = null, string? hash = null, string type = "full",
+        long? size = 211691279) =>
+        new() { Content = JsonContent.Create(new { code = 0, data = new { version_name = tag, update_type = type, release_note = "测试", url = address, sha256 = hash, filesize = address is null ? size : null } }) };
 
-    private static HttpResponseMessage GitHub() => new()
+    private static HttpResponseMessage GitHub(string tag = "v99.1.0", long size = 211691279) => new()
     {
         Content = JsonContent.Create(new
         {
-            tag_name = "v99.1.0",
+            tag_name = tag,
             body = "GitHub",
             assets = new[]
             {
-                new { name = Asset, browser_download_url = "https://github.test/package" },
-                new { name = "SHA256SUMS.txt", browser_download_url = "https://github.test/checksum" },
+                new { name = Asset, browser_download_url = "https://github.test/package", size },
+                new { name = "SHA256SUMS.txt", browser_download_url = "https://github.test/checksum", size = 500L },
             },
         })
     };

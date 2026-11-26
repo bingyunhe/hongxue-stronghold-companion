@@ -222,6 +222,7 @@ public sealed class BmpPixels
 
     public int Width { get; }
     public int Height { get; }
+    internal byte[] EncodedFrame => _data;
 
     public static BmpPixels? TryRead(byte[] data)
     {

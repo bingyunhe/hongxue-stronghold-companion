@@ -197,6 +197,20 @@
                 </DockPanel>
             </Border>
 
+            <Border x:Name="CarryAdviceBanner" DockPanel.Dock="Top" Visibility="Collapsed"
+                    Padding="10,5" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,3">
+                        <Button DockPanel.Dock="Right" Content="收起" Click="OnHideCarryAdvice" Style="{StaticResource SmallActionButton}" Margin="6,0,0,0"/>
+                        <Button DockPanel.Dock="Right" x:Name="CarryStrategyButton" Click="OnCarryStrategy" Style="{StaticResource SmallActionButton}"
+                                ToolTip="核对本局策略，与规划页同步" />
+                        <TextBlock Text="开局携带建议" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </DockPanel>
+                    <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="CarryAdviceText" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
             <!-- Tab content + visible resize grip overlay -->
             <Grid>
                 <TabControl x:Name="MainTabs" Style="{StaticResource DarkTabControl}" SelectionChanged="OnMainTabChanged">
@@ -548,14 +562,29 @@
                                                 <TextBlock Text="下次中途启动助手时，在整备阶段自动录入对局信息，成功后返回棋盘。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                             </StackPanel>
                                         </DockPanel>
-                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" Visibility="Collapsed" />
-                                        <DockPanel Visibility="Collapsed">
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
+                                            <CheckBox x:Name="PlacementOverlayToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}"
+                                                      AutomationProperties.Name="推荐站位" VerticalAlignment="Center" />
+                                            <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                                <TextBlock Text="推荐站位" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="在游戏内标出推荐格子、干员名字和朝向。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
                                             <CheckBox x:Name="BoardOverlayToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
                                                       AutomationProperties.Name="游戏内显示部署格" />
                                             <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
                                                 <TextBlock Text="游戏内显示部署格" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextPrimaryBrush}" />
-                                                <TextBlock x:Name="BoardStatusText" Text="站位页开启“游戏内显示”时，同时标出地面 / 特殊地面 / 高台和敌人路线" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                                <TextBlock x:Name="BoardStatusText" Text="在游戏内标出地面、特殊地面和高台。" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" />
                                             </StackPanel>
+                                        </DockPanel>
+                                        <Border Height="1" Margin="-10,10" Background="{DynamicResource LineBrush}" />
+                                        <DockPanel>
+                                            <CheckBox x:Name="EnemyRouteOverlayToggle" DockPanel.Dock="Right" Style="{StaticResource SwitchToggle}"
+                                                      AutomationProperties.Name="显示小怪路线" VerticalAlignment="Center" />
+                                            <TextBlock Text="显示小怪路线" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
                                         </DockPanel>
                                     </StackPanel>
                                 </Border>

@@ -53,21 +53,31 @@
                                         ToolTip="更多识别选项" AutomationProperties.Name="更多识别选项" />
                                 <Button x:Name="RecordHoldingButton" Content="补记持有" Margin="5,0" Style="{StaticResource SmallActionButton}" Click="OnRecordHolding" />
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,3,0,0">
-                                    <CheckBox x:Name="AutomaticFieldToggle" Style="{StaticResource SwitchToggle}" AutomationProperties.Name="自动识别阵容"
+                                    <CheckBox x:Name="AutomaticFieldToggle" Style="{StaticResource SwitchToggle}" AutomationProperties.Name="实时识别阵容"
                                               Click="OnAutomaticFieldClick" ToolTip="实时识别阵容" />
-                                    <Label Target="{Binding ElementName=AutomaticFieldToggle}" Content="自动" Padding="3,0,0,0"
+                                    <Label Target="{Binding ElementName=AutomaticFieldToggle}" Content="实时识别" Padding="3,0,0,0"
                                            VerticalAlignment="Center" FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}" />
                                 </StackPanel>
                 </WrapPanel>
             <DockPanel>
                 <Button DockPanel.Dock="Right" x:Name="RecomputeButton" Content="按最新持有重算" Tag="accent"
                         Style="{StaticResource SmallActionButton}" Click="OnRecompute" />
-                <CheckBox x:Name="InGameToggle" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
-                          Checked="OnInGameToggled" Unchecked="OnInGameToggled" />
-                <TextBlock Text="游戏内显示" FontSize="11" FontWeight="Bold" Margin="7,0,0,0" VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextPrimaryBrush}" />
-                <TextBlock x:Name="InGameHint" Text="格子 · 名字 · 朝向" FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                <WrapPanel x:Name="OverlayOptions" VerticalAlignment="Center">
+                    <DockPanel MaxWidth="{Binding ActualWidth, ElementName=OverlayOptions}" Margin="0,2,4,2">
+                        <CheckBox x:Name="InGameToggle" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                  AutomationProperties.Name="推荐站位" Checked="OnInGameToggled" Unchecked="OnInGameToggled" />
+                        <Label Target="{Binding ElementName=InGameToggle}" Content="推荐站位" Padding="4,0,0,0" FontSize="11" FontWeight="Bold"
+                               VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock x:Name="InGameHint" Text="格子 · 名字 · 朝向" FontSize="10" Margin="4,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,3,2">
+                        <CheckBox x:Name="EnemyRouteToggle" Style="{StaticResource SwitchToggle}" VerticalAlignment="Center"
+                                  AutomationProperties.Name="显示小怪路线" />
+                        <Label Target="{Binding ElementName=EnemyRouteToggle}" Content="显示小怪路线" Padding="4,0,0,0" FontSize="11"
+                               VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
+                    </StackPanel>
+                </WrapPanel>
             </DockPanel>
             </StackPanel>
         </Border>
@@ -87,12 +97,14 @@
                             <Button DockPanel.Dock="Right" Content="换地图" Height="28" Padding="7,0" Margin="6,0,0,0" ToolTip="换地图"
                                     Style="{StaticResource SmallActionButton}" Click="OnPickMap" VerticalAlignment="Center" />
                             <StackPanel VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="MapName" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"
+                                <WrapPanel x:Name="MapCaption">
+                                    <TextBlock x:Name="MapName" MaxWidth="{Binding ActualWidth, ElementName=MapCaption}" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
-                                    <Ellipse x:Name="MapSourceDot" Width="6" Height="6" Margin="6,0,3,0" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="MapSourceText" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
-                                </StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="MapSourceDot" Width="6" Height="6" Margin="6,0,3,0" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="MapSourceText" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </StackPanel>
+                                </WrapPanel>
                                 <TextBlock x:Name="MapSubline" FontSize="10.5" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
                                            Foreground="{DynamicResource TextSecondaryBrush}" />
                             </StackPanel>

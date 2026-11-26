@@ -47,6 +47,30 @@
         <Setter Property="Cursor" Value="Hand" />
     </Style>
 
+    <!-- Text-only footer action (清空本阶段 / 撤销修改) -->
+    <Style x:Key="EditorGhostButton" TargetType="Button" BasedOn="{StaticResource ClickableButtonBase}">
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bg" Background="Transparent" CornerRadius="{DynamicResource RowCornerRadius}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bg" Property="Background" Value="{DynamicResource NeutralHoverBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Card -->
     <Style x:Key="ItemCardBorder" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}" />
@@ -800,10 +824,10 @@
                 <Setter TargetName="numeral" Property="Foreground" Value="{DynamicResource DangerBrush}" />
                 <Setter TargetName="badge" Property="Background" Value="{DynamicResource DangerSoftBrush}" />
             </DataTrigger>
-            <DataTrigger Binding="{Binding IsCustom}" Value="True">
+            <DataTrigger Binding="{Binding IsTierPending}" Value="True">
                 <Setter TargetName="badge" Property="MinWidth" Value="31" />
-                <Setter TargetName="numeral" Property="Text" Value="Ⅴ/Ⅵ" />
-                <Setter TargetName="badge" Property="ToolTip" Value="自选干员共用五阶和六阶候选" />
+                <Setter TargetName="numeral" Property="Text" Value="待定" />
+                <Setter TargetName="badge" Property="ToolTip" Value="在管理自选中指定等阶" />
             </DataTrigger>
         </DataTemplate.Triggers>
     </DataTemplate>
@@ -835,8 +859,8 @@
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Text" Value="{Binding DataContext.Tier, RelativeSource={RelativeSource AncestorType=ToolTip}, Converter={StaticResource DetailsTierToRoman}}" />
-                                        <Style.Triggers><DataTrigger Binding="{Binding DataContext.IsCustom, RelativeSource={RelativeSource AncestorType=ToolTip}}" Value="True">
-                                            <Setter Property="Text" Value="自选" />
+                                        <Style.Triggers><DataTrigger Binding="{Binding DataContext.IsTierPending, RelativeSource={RelativeSource AncestorType=ToolTip}}" Value="True">
+                                            <Setter Property="Text" Value="等阶待定" />
                                         </DataTrigger></Style.Triggers>
                                     </Style>
                                 </TextBlock.Style>
@@ -877,6 +901,14 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <TextBlock Text="携带技能待确认" Margin="0,4,0,0" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers><MultiDataTrigger><MultiDataTrigger.Conditions>
+                            <Condition Binding="{Binding DataContext.IsCustom, RelativeSource={RelativeSource AncestorType=ToolTip}}" Value="True"/>
+                            <Condition Binding="{Binding HasSkill}" Value="False"/>
+                        </MultiDataTrigger.Conditions><Setter Property="Visibility" Value="Visible"/></MultiDataTrigger></Style.Triggers>
+                    </Style></TextBlock.Style>
+                </TextBlock>
                 <!-- Skill used in 卫戍协议 (default skill at this variant's skill level) -->
                 <Border Margin="0,4,0,0" Padding="0,6,0,0" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}"
                         Visibility="{Binding HasSkill, Converter={StaticResource DetailsBoolToVis}, FallbackValue=Collapsed}">
@@ -1101,30 +1133,49 @@
 
     <!-- Tier cell (Ⅰ…Ⅵ): equal width, number font -->
     <Style x:Key="TierCellToggle" TargetType="ToggleButton" BasedOn="{StaticResource ClickableToggleButtonBase}">
-        <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=TwoWay}" />
-        <Setter Property="Margin" Value="0,0,4,0" />
-        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=TwoWay}"/>
+        <Setter Property="Margin" Value="0,0,4,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
-                    <Border x:Name="bg" Height="30" CornerRadius="{DynamicResource RowCornerRadius}" BorderThickness="1"
-                            Background="{DynamicResource SectionBackgroundBrush}" BorderBrush="{DynamicResource LineBrush}">
-                        <TextBlock x:Name="label" Text="{Binding Label}" FontFamily="{DynamicResource NumberFontFamily}" FontWeight="Bold" FontSize="13"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <Border x:Name="bg" Height="38" CornerRadius="{DynamicResource RowCornerRadius}" BorderThickness="1"
+                            Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}">
+                        <Grid>
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock x:Name="label" Text="{Binding Label}" HorizontalAlignment="Center" FontWeight="Bold"
+                                           FontFamily="{DynamicResource NumberFontFamily}" FontSize="14" Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <TextBlock x:Name="count" HorizontalAlignment="Center" FontSize="9" Foreground="{DynamicResource TextSecondaryBrush}"><Run Text="{Binding Count, Mode=OneWay}"/><Run Text=" "/><Run Text="{Binding CountUnit, Mode=OneWay}"/></TextBlock>
+                            </StackPanel>
+                            <Ellipse x:Name="owned" Visibility="Collapsed" Width="5" Height="5" Margin="0,4,5,0" Fill="{DynamicResource AccentBrush}"
+                                     HorizontalAlignment="Right" VerticalAlignment="Top"/>
+                        </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
-                        </Trigger>
+                        <DataTrigger Binding="{Binding Value}" Value="4"><Setter TargetName="label" Property="Foreground" Value="{DynamicResource AccentBrush}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Value}" Value="5"><Setter TargetName="label" Property="Foreground" Value="{DynamicResource EliteBrush}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding Value}" Value="6"><Setter TargetName="label" Property="Foreground" Value="{DynamicResource EliteBrush}"/></DataTrigger>
+                        <DataTrigger Binding="{Binding HasOwned}" Value="True"><Setter TargetName="owned" Property="Visibility" Value="Visible"/></DataTrigger>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}"/></Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentSolidBrush}" />
-                            <Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
-                            <Setter TargetName="label" Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+                            <Setter TargetName="bg" Property="Background" Value="{DynamicResource AccentSolidBrush}"/>
+                            <Setter TargetName="bg" Property="BorderBrush" Value="{DynamicResource AccentSolidBrush}"/>
+                            <Setter TargetName="label" Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                            <Setter TargetName="count" Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+                            <Setter TargetName="owned" Property="Fill" Value="{DynamicResource OnAccentBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding Count}" Value="0"/><Condition Binding="{Binding IsSelected}" Value="False"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="IsEnabled" Value="False"/><Setter Property="Opacity" Value="0.45"/>
+            </MultiDataTrigger>
+        </Style.Triggers>
     </Style>
 
     <!-- 任一 / 全部: IsChecked = match all -->
@@ -1184,7 +1235,7 @@
                 <TextBlock controls:PanelToolTip.Covenant="{Binding CovenantName}" Text="{Binding TagText}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" />
                 <Button Width="18" Height="18" Margin="3,0,0,0" Tag="{StaticResource IconClose}" Style="{StaticResource RowIconButton}"
                         Foreground="{DynamicResource AccentBrush}" ToolTip="去掉这个条件"
-                        Command="{Binding DataContext.RemoveChipCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        Command="{Binding DataContext.RemoveChipCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                         CommandParameter="{Binding}" />
             </StackPanel>
         </Border>

@@ -1,4 +1,4 @@
-﻿// Modified for ASP Assistant Regulation on 2026-11-13; see NOTICE.
+// Modified for ASP Assistant Regulation on 2026-11-13; see NOTICE.
 using System.Threading.Channels;
 using System.Diagnostics;
 using System.Drawing;
@@ -15,6 +15,7 @@ public partial class OcrScannerService : IDisposable
     private readonly Func<GameConnectionService>? _getConnection;
     private readonly IOcrStrategy _ocrStrategy;
     private readonly ShopReader _shopReader;
+    private readonly ShopReader _shopCheckReader;
     private readonly IOcrEngine _ocrEngine;
     private readonly RegulationLevelReader _regulationReader;
     private readonly object _runLock = new();
@@ -26,6 +27,14 @@ public partial class OcrScannerService : IDisposable
     private readonly Timer _scanTimer;
     private readonly int _normalScanIntervalMs;
     private bool _purchaseShopOpen;
+    public Func<byte[]?>? CaptureShopFrame { get; init; }
+    private readonly Timer _shopFrameTimer = new(200);
+    private sealed record ShopFrame(byte[] Bytes, long Tick, long Revision, int Run, byte[] Money);
+    private readonly List<ShopFrame> _shopFrames = [];
+    private bool _capturingShop;
+    private long _lastShopTick;
+    private byte[] _lastShopMoney = [];
+    private (BmpPixels Pixels, IReadOnlyList<ShopItem> Cards, long Tick, long Connection, int Run, GameShopTheme Theme)? _namedShelf;
     private bool _disposed;
     private PurchaseRecognitionSpeed _purchaseSpeed = PurchaseRecognitionSpeed.Standard;
     public PurchaseRecognitionSpeed PurchaseSpeed
@@ -45,6 +54,9 @@ public partial class OcrScannerService : IDisposable
     private ShopEconomy? _purchaseEconomy;
     public (DateTimeOffset OfferedAt, int? Round) LastPurchase { get; private set; }
     public Func<IReadOnlySet<string>>? PurchaseTargets { get; init; }
+    public CustomRosterReader? CustomRosterReader { get; set; }
+    public event Action<CustomRosterReading, long, int>? CustomOpeningRead;
+    private (long Capture, int Run, int Key)? _lastCustomFrame;
     public event Action<IReadOnlyList<string>, long, int>? PurchasesDetected;
     public int RunRevision { get { lock (_runLock) return _runRevision; } }
     private bool _automaticPurchaseTracking;
@@ -175,6 +187,7 @@ public partial class OcrScannerService : IDisposable
         _lastCaptureRevision = _lastConnection?.CaptureRevision ?? 0;
         _ocrStrategy = ocrStrategy;
         _shopReader = shopReader;
+        _shopCheckReader = new(ocrEngine, shopNames);
         _ocrEngine = ocrEngine;
         _regulationReader = new RegulationLevelReader(ocrEngine);
         _informationDetector = new InformationScreenDetector(ocrEngine, ocrStrategy);
@@ -184,12 +197,13 @@ public partial class OcrScannerService : IDisposable
         _scanTimer = new Timer(intervalMs);
         _scanTimer.Elapsed += OnScanTick;
         _panelProbeTimer.Elapsed += (_, _) => ProbeBusyRound();
+        _shopFrameTimer.Elapsed += (_, _) => SampleOpenShop();
     }
 
     public void Start()
     {
         if (CaptureEnemyPanelFrame is not null) _panelProbeTimer.Start();
-        _scanTimer.Start();
+        lock (_runLock) { _scanTimer.Start(); UpdateScanInterval(); }
     }
 
     // Called under _runLock; changing an unchanged interval would restart the timer.
@@ -199,6 +213,84 @@ public partial class OcrScannerService : IDisposable
         var interval = _automaticPurchaseTracking && _purchaseShopOpen
             ? Math.Min(_normalScanIntervalMs, (int)_purchaseSpeed) : _normalScanIntervalMs;
         if (_scanTimer.Interval != interval) _scanTimer.Interval = interval;
+        _shopFrameTimer.Enabled = _scanTimer.Enabled && _automaticPurchaseTracking && _purchaseShopOpen
+            && CaptureShopFrame != null && _getConnection?.Invoke() is { IsAdb: true, Settings.Emulator: EmulatorKind.MuMu };
+        if (!_shopFrameTimer.Enabled)
+        {
+            _shopFrames.Clear();
+            _lastShopMoney = [];
+        }
+    }
+
+    internal void SampleOpenShop()
+    {
+        GameConnectionService? connection;
+        long revision, tick;
+        int run;
+        lock (_runLock)
+        {
+            if (_disposed || _capturingShop || _manualField != 0 || !_purchaseShopOpen || !_automaticPurchaseTracking ||
+                _pauseBanScreenDetection || _banScreenActive || CaptureShopFrame == null) return;
+            _capturingShop = true;
+            connection = _getConnection?.Invoke();
+            revision = connection?.CaptureRevision ?? 0;
+            run = _runRevision;
+            tick = Environment.TickCount64;
+        }
+        try
+        {
+            var bytes = CaptureShopFrame();
+            if (bytes == null) return;
+            var money = EconomyReader?.SampleMoneyPixels(BmpPixels.TryRead(ImageBytes.ToBmp(bytes))!);
+            lock (_runLock)
+            {
+                if (_disposed || !_purchaseShopOpen || _pauseBanScreenDetection || _manualField != 0 ||
+                    !_automaticPurchaseTracking || tick <= _lastShopTick || run != _runRevision || !IsCurrentCapture(connection, revision)) return;
+                // Keep the first two samples of each balance change and the latest
+                // shelf. The pixel comparison schedules OCR; it never confirms a debit.
+                if (money is not { Length: > 0 } && _shopFrames.Count > 0 && _shopFrames[^1].Money.Length == 0)
+                    _shopFrames.RemoveAt(_shopFrames.Count - 1);
+                else if (money is { Length: > 0 } && _shopFrames.Count >= 3 &&
+                    _shopFrames.TakeLast(3).All(f => f.Money.Length == money.Length &&
+                        LiveFieldState.Difference(f.Money, money) < 7))
+                    _shopFrames.RemoveAt(_shopFrames.Count - 1);
+                if (_shopFrames.Count == 12) _shopFrames.RemoveAt(0);
+                _shopFrames.Add(new(bytes, tick, revision, run, money ?? []));
+                if (_scanning == 0 && money is { Length: > 0 } && money.Length == _lastShopMoney.Length &&
+                    LiveFieldState.Difference(money, _lastShopMoney) >= 7)
+                    _ = ScanNowAsync();
+            }
+        }
+        finally { lock (_runLock) _capturingShop = false; }
+    }
+
+    private ShopFrame? TakeShopFrame(long revision, int run, long after, bool peek = false)
+    {
+        lock (_runLock)
+        {
+            long now = Environment.TickCount64;
+            while (_shopFrames.Count > 0)
+            {
+                var frame = _shopFrames[0];
+                if (frame.Tick > Math.Max(after, _lastShopTick) && now - frame.Tick <= 6500 &&
+                    _purchaseShopOpen && _automaticPurchaseTracking && frame.Revision == revision && frame.Run == run)
+                {
+                    if (!peek)
+                    {
+                        _shopFrames.RemoveAt(0);
+                        _lastShopTick = frame.Tick;
+                        if (_shopFrames.Count > 0 && _purchases.HasStableOffer && frame.Money.Length > 0 &&
+                            _lastShopMoney.Length == frame.Money.Length && LiveFieldState.Difference(frame.Money, _lastShopMoney) < 7)
+                            continue;
+                        _lastShopMoney = frame.Money;
+                    }
+                    return frame;
+                }
+                _shopFrames.RemoveAt(0);
+            }
+            _lastShopTick = now;
+            return null;
+        }
     }
 
     /// <summary>
@@ -243,6 +335,7 @@ public partial class OcrScannerService : IDisposable
         string? rawText = null;
         object? diagnosticItems = null;
         var shopOpenThisScan = false;
+        bool catchingUp = false;
         var elapsed = Stopwatch.StartNew();
         try
         {
@@ -266,7 +359,6 @@ public partial class OcrScannerService : IDisposable
                 _gameState.ShopItems = [];
                 GameStateUpdated?.Invoke(_gameState);
             }
-            ExpireRoundEnemyRead();
             int runRevision;
             BufferedPanel? pending;
             bool awaitingEnemyPanel;
@@ -275,15 +367,34 @@ public partial class OcrScannerService : IDisposable
                 runRevision = _runRevision;
                 pending = _bufferedPanel;
                 awaitingEnemyPanel = _roundEnemyState.AwaitingPanel;
+                if (pending != null || awaitingEnemyPanel || _roundEnemyState.Info?.IsReading == true || PlacementOverlayPaused)
+                {
+                    _shopFrames.Clear();
+                    _lastShopTick = Environment.TickCount64;
+                }
             }
             var stageStart = elapsed.ElapsedMilliseconds;
-            var frameTick = Environment.TickCount64;
-            var screenshot = _captureScreen();
+            var bufferedShop = TakeShopFrame(captureRevision, runRevision, 0);
+            var frameTick = bufferedShop?.Tick ?? Environment.TickCount64;
+            long queuedMs = bufferedShop == null ? 0 : Environment.TickCount64 - frameTick;
+            // Older observations are only evidence for purchases. Never drive a game click,
+            // board overlay or live shelf from a queued picture of a previous shelf.
+            catchingUp = bufferedShop != null && Environment.TickCount64 - frameTick > 350;
+            bool fastCapture;
+            lock (_runLock) fastCapture = _shopFrameTimer.Enabled;
+            var screenshot = bufferedShop?.Bytes ?? (fastCapture ? CaptureShopFrame?.Invoke() : null) ?? _captureScreen();
+            if (bufferedShop != null) capturedAt = DateTimeOffset.Now.AddMilliseconds(frameTick - Environment.TickCount64);
             var captureMs = elapsed.ElapsedMilliseconds - stageStart;
             if (!IsCurrentCapture(connection, captureRevision)) return;
             if (screenshot == null)
             {
-                lock (_runLock) _purchases.Reset("capture-unavailable");
+                bool cancelledEnemyRead;
+                lock (_runLock)
+                {
+                    _purchases.Reset("capture-unavailable");
+                    cancelledEnemyRead = frameTick >= _roundEnemyState.ManualStartTick && _roundEnemyState.CancelManualOnCaptureLoss();
+                }
+                if (cancelledEnemyRead) RoundEnemiesChanged?.Invoke();
                 _informationState.Suspend();
                 if (connection?.IsAdb == true)
                     PublishShopItems([]);
@@ -309,7 +420,7 @@ public partial class OcrScannerService : IDisposable
             samples.Observe(screenshot, CurrentEconomy?.Round, capturedAt);
             BmpPixels? scenePixels = null;
             BmpPixels? Pixels() => scenePixels ??= BmpPixels.TryRead(ImageBytes.ToBmp(screenshot));
-            if (LiveReader != null && !_pauseBanScreenDetection && _fieldOpeningRevision != runRevision && LiveRoster.Map == null &&
+            if (bufferedShop == null && LiveReader != null && !_pauseBanScreenDetection && _fieldOpeningRevision != runRevision && LiveRoster.Map == null &&
                 Pixels() is { } opening && OpeningWithoutCards(opening))
             {
                 _fieldOpeningRevision = runRevision;
@@ -325,10 +436,10 @@ public partial class OcrScannerService : IDisposable
             // Capture the end of a selected, previously named card's purchase animation.
             // Keep the original observation unless the card actually clears in the same viewport.
             ShopItem? selectedCard = null;
-            if (LiveReader != null && !_pauseBanScreenDetection && _liveState != null &&
+            if (!catchingUp && LiveReader != null && !_pauseBanScreenDetection && _liveState != null &&
                 Pixels() is { } buying)
                 lock (_runLock) selectedCard = _liveState?.ObservePurchaseButton(buying);
-            if (selectedCard != null)
+            if (selectedCard != null && bufferedShop == null)
             {
                 var purchaseSample = samples.Begin("购买 · " + selectedCard.Name, CurrentEconomy?.Round, includeRecent: true);
                 samples.Step(purchaseSample, $"点选 {selectedCard.Name}", screenshot);
@@ -350,18 +461,35 @@ public partial class OcrScannerService : IDisposable
 
             // Ban screen detection runs every tick unless explicitly paused
             // (e.g. when app-owned overlays cover the game window).
-            if (!_pauseBanScreenDetection)
+            if (!catchingUp && !_pauseBanScreenDetection)
                 await DetectBanScreenAsync(screenshot, imgWidth, imgHeight, connection, captureRevision);
 
             if (!IsCurrentCapture(connection, captureRevision)) return;
 
+            if (!catchingUp && !_pauseBanScreenDetection && !_banScreenActive && CustomRosterReader is { } customReader
+                && CurrentEconomy?.Round is null or <= 1 && Pixels() is { } customPixels && CustomRosterReader.MayBeOpening(customPixels))
+            {
+                var key = (captureRevision, runRevision, CustomRosterReader.OpeningKey(customPixels));
+                if (_lastCustomFrame != key)
+                {
+                    var reading = await customReader.ReadAsync(screenshot, customPixels, true);
+                    if (!IsCurrentCapture(connection, captureRevision) || RunRevision != runRevision) return;
+                    _lastCustomFrame = key;
+                    if (reading != null) CustomOpeningRead?.Invoke(reading, captureRevision, runRevision);
+                }
+            }
+
             if (pending is not null && !_pauseBanScreenDetection && !_banScreenActive)
                 await ReadBufferedEnemyPanelAsync(pending, screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision);
+            long manualVersion;
             bool confirmingEnemyPanel;
             lock (_runLock)
+            {
+                manualVersion = _roundEnemyState.ManualVersion;
                 confirmingEnemyPanel = !_pauseBanScreenDetection && !_banScreenActive &&
                     (_roundEnemyState.AwaitingPanel || _roundEnemyState.Info?.IsReading == true);
-            using var enemyStream = confirmingEnemyPanel ? new MemoryStream(screenshot) : null;
+            }
+            using var enemyStream = confirmingEnemyPanel || PlacementOverlayPaused ? new MemoryStream(screenshot) : null;
             using var enemyFrame = enemyStream is null ? null : new Bitmap(enemyStream);
             (Bitmap Frame, RoundEnemyReader.Layout Layout)? preview = null;
             if (enemyFrame is not null)
@@ -384,7 +512,7 @@ public partial class OcrScannerService : IDisposable
             }
             if (!IsCurrentCapture(connection, captureRevision)) return;
 
-            if (!_pauseBanScreenDetection)
+            if (!catchingUp && !_pauseBanScreenDetection)
                 await ReadRegulationLevelAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision);
             if (!IsCurrentCapture(connection, captureRevision)) return;
 
@@ -399,14 +527,34 @@ public partial class OcrScannerService : IDisposable
 
             // MuMu / ADB frames are PNG; the board reader samples raw BMP pixels.
             var pixels = BoardRecognizer == null ? null : Pixels();
-            var boardMatch = pixels == null ? null : BoardRecognizer!.Recognize(pixels);
-            bool checkStartup = StartupInformationEnabled && !_startupOpportunityConsumed && !_startupCancelled &&
+            var boardMatch = catchingUp || pixels == null ? null : BoardRecognizer!.Recognize(pixels);
+            bool checkStartup = !catchingUp && StartupInformationEnabled && !_startupOpportunityConsumed && !_startupCancelled &&
                 !confirmingEnemyPanel && !observedEnemyFrame;
             if (checkStartup && boardMatch != null &&
                 await TryStartupInformationAsync(screenshot, connection, runRevision, captureRevision)) return;
-            ReadGameTheme(screenshot);
+            if (!catchingUp) ReadGameTheme(screenshot);
             stageStart = elapsed.ElapsedMilliseconds;
-            var rawItems = await _shopReader.ReadAsync(screenshot, imgWidth, imgHeight, _shopNames);
+            var shopFrame = pixels?.EncodedFrame ?? screenshot;
+            // Reuse named offers only within the same sampled shop. Refresh the names
+            // on a different layout, scene, connection or expired baseline.
+            IReadOnlyList<ShopItem>? trackedShelf = null;
+            bool pendingPurchase;
+            lock (_runLock) pendingPurchase = _purchases.NeedsConfirmation;
+            if (!pendingPurchase && bufferedShop != null && pixels != null && _namedShelf is { } last &&
+                last.Connection == captureRevision && last.Run == runRevision && last.Theme == _shopReader.Theme &&
+                frameTick >= last.Tick && frameTick - last.Tick <= 4500)
+                trackedShelf = _shopReader.CompareOpenShelf(last.Pixels, pixels, last.Cards);
+            var rawItems = trackedShelf ?? await _shopReader.ReadAsync(shopFrame, imgWidth, imgHeight, _shopNames);
+            if (trackedShelf == null)
+            {
+                if (pixels != null && AutomaticPurchaseTracking &&
+                    connection is { IsAdb: true, Settings.Emulator: EmulatorKind.MuMu } &&
+                    _shopReader.CompareOpenShelf(pixels, pixels, rawItems) != null)
+                    _namedShelf = (pixels, rawItems, frameTick, captureRevision, runRevision, _shopReader.Theme);
+                else if (!_shopReader.IsShopOpen || _namedShelf is not { } previousShelf ||
+                    rawItems.Any(card => !previousShelf.Cards.Any(prior => ShopPurchaseDetector.SameNamedSlot(prior, card))))
+                    _namedShelf = null;
+            }
             var shopMs = elapsed.ElapsedMilliseconds - stageStart;
             if (!IsCurrentCapture(connection, captureRevision)) return;
             shopOpenThisScan = _shopReader.IsShopOpen;
@@ -416,7 +564,7 @@ public partial class OcrScannerService : IDisposable
             diagnosticItems = rawItems.Select(item => new { item.Name, item.Price,
                 Region = new { item.OcrRegion.X, item.OcrRegion.Y, item.OcrRegion.Width, item.OcrRegion.Height } }).ToArray();
             diagnosticStatus = _shopReader.IsShopOpen ? "商店读取完成；请对照画面检查漏识别或错字" : "未检测到展开的商店";
-            PublishShopItems(rawItems);
+            if (!catchingUp) PublishShopItems(rawItems);
             var forceFundsRead = false;
             var automaticPurchases = AutomaticPurchaseTracking;
             if (automaticPurchases && PurchaseTargets is not null)
@@ -425,9 +573,9 @@ public partial class OcrScannerService : IDisposable
             string? observedMode = null;
             stageStart = elapsed.ElapsedMilliseconds;
             if (rawItems.Count > 0 || _shopReader.IsShopOpen)
-                (economy, observedMode) = await ReadEconomyAsync(screenshot, imgWidth, imgHeight, connection, runRevision, captureRevision, forceFundsRead, rawItems);
+                (economy, observedMode) = await ReadEconomyAsync(shopFrame, imgWidth, imgHeight, connection, runRevision, captureRevision, forceFundsRead, rawItems, purchaseOnly: catchingUp);
             if (forceFundsRead)
-                AppLogger.Info("ShopPurchase", $"Funds read: capture={captureMs} ms, shopOcr={shopMs} ms, hud={elapsed.ElapsedMilliseconds - stageStart} ms");
+                AppLogger.Info("ShopPurchase", $"Funds read: queue={queuedMs} ms, capture={captureMs} ms, shopOcr={shopMs} ms, hud={elapsed.ElapsedMilliseconds - stageStart} ms");
             // Opening and closing the enemy panel hides the shop for several capture ticks.
             // Keep the last comparable offers and balance until the next gameplay frame.
             bool shopOccluded = observedEnemyFrame || awaitingEnemyPanel && !shopOpenThisScan;
@@ -442,14 +590,19 @@ public partial class OcrScannerService : IDisposable
             else if (automaticPurchases && PurchaseTargets is { } targets)
             {
                 var names = targets();
+                (byte[] Frame, ShopItem Card, double Pitch)? priceProbe;
+                lock (_runLock) priceProbe = _shopReader.IsShopOpen ? _purchases.PriceToVerify(rawItems, economy) : null;
+                int price = priceProbe is { } offer ? await _shopReader.ReadOfferPriceAsync(offer.Frame, offer.Card, offer.Pitch) : 0;
                 IReadOnlyList<string> purchased;
                 bool confirm;
                 ShopEconomy? purchaseEconomy;
                 lock (_runLock)
                 {
                     if (runRevision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)) return;
-                    if (economy is not null) _purchaseEconomy = economy;
-                    purchased = _purchases.Observe(screenshot, rawItems, _shopReader.IsShopOpen, _purchaseEconomy, names, freshFunds: economy is not null,
+                    if (priceProbe is { } checkedOffer) checkedOffer.Card.Price = price;
+                    if (economy is not null && (economy.Mode != null || _purchaseEconomy?.Mode == null || economy.Round != _purchaseEconomy.Round))
+                        _purchaseEconomy = economy;
+                    purchased = _purchases.Observe(screenshot, rawItems, _shopReader.IsShopOpen, economy ?? _purchaseEconomy, names, freshFunds: economy is not null,
                         capturedAt: DateTimeOffset.UtcNow.AddMilliseconds(frameTick - Environment.TickCount64));
                     confirm = economy is not null && _purchases.NeedsConfirmation && rawItems.Count > 0 && EconomyReader is not null;
                     purchaseEconomy = _purchaseEconomy;
@@ -463,20 +616,46 @@ public partial class OcrScannerService : IDisposable
                 if (confirm)
                 {
                     var confirmationTime = Stopwatch.StartNew();
-                    var confirmation = _captureScreen();
+                    var bufferedCheck = TakeShopFrame(captureRevision, runRevision, frameTick, peek: true);
+                    var confirmation = bufferedCheck?.Bytes ?? (fastCapture ? CaptureShopFrame?.Invoke() : null) ?? _captureScreen();
                     var recheckCaptureMs = confirmationTime.ElapsedMilliseconds;
                     long? recheckHudMs = null;
-                    if (confirmation is not null && IsCurrentCapture(connection, captureRevision)
-                        && await _shopReader.IsSameOpenShopAsync(screenshot, confirmation, rawItems))
+                    bool sameShop = false;
+                    if (confirmation != null && ImageBytes.GetDimensions(confirmation) == (imgWidth, imgHeight)
+                        && IsCurrentCapture(connection, captureRevision))
+                    {
+                        if (bufferedCheck == null)
+                            sameShop = await _shopReader.IsSameOpenShopAsync(screenshot, confirmation, rawItems);
+                        else
+                        {
+                            var bmp = ImageBytes.ToBmp(confirmation);
+                            var named = trackedShelf == null ? pixels : _namedShelf?.Pixels;
+                            sameShop = named != null && await _shopReader.VerifyNamedShelfAsync(named, BmpPixels.TryRead(bmp)!, rawItems);
+                            if (!sameShop)
+                            {
+                                _shopCheckReader.Theme = _shopReader.Theme;
+                                var verified = await _shopCheckReader.ReadAsync(bmp, imgWidth, imgHeight, _shopNames);
+                                sameShop = _shopCheckReader.IsShopOpen && verified.Count == rawItems.Count &&
+                                    verified.Zip(rawItems).All(pair => ShopPurchaseDetector.SameNamedSlot(pair.First, pair.Second));
+                            }
+                        }
+                    }
+                    if (sameShop && confirmation != null)
                     {
                         var hudStart = confirmationTime.ElapsedMilliseconds;
-                        var freshEconomy = await EconomyReader!.ReadPurchaseAsync(confirmation, imgWidth, imgHeight, purchaseEconomy!);
+                        var freshEconomy = await EconomyReader!.ReadPurchaseAsync(ImageBytes.ToBmp(confirmation), imgWidth, imgHeight, purchaseEconomy!);
                         recheckHudMs = confirmationTime.ElapsedMilliseconds - hudStart;
                         lock (_runLock)
                         {
                             if (runRevision != _runRevision || _pauseBanScreenDetection || !IsCurrentCapture(connection, captureRevision)) return;
                             _purchaseEconomy = freshEconomy;
-                            purchased = _purchases.Observe(confirmation, rawItems, true, freshEconomy, names);
+                            if (bufferedCheck != null)
+                            {
+                                _lastShopTick = bufferedCheck.Tick;
+                                _lastShopMoney = bufferedCheck.Money;
+                            }
+                            purchased = _purchases.Observe(confirmation, rawItems, true, freshEconomy, names,
+                                capturedAt: bufferedCheck == null ? null : DateTimeOffset.UtcNow.AddMilliseconds(bufferedCheck.Tick - Environment.TickCount64));
                         }
                     }
                     samples.Step(purchaseCheck!.Value, $"二次核对 · {(purchased.Count == 0 ? "未确认购买" : string.Join("、", purchased))}", confirmation);
@@ -495,9 +674,13 @@ public partial class OcrScannerService : IDisposable
                 }
             }
             if (!IsCurrentCapture(connection, captureRevision)) return;
+            if (catchingUp) return;
             if (!observedEnemyFrame)
                 ObserveBoard(boardMatch ?? (ShowPlacementOverlay && shopOpenThisScan && pixels is not null
                     ? BoardRecognizer?.RecognizePannedDesertOverlay(pixels) : null));
+            if (PlacementOverlayPaused && !confirmingEnemyPanel && !observedEnemyFrame &&
+                (boardMatch is not null || shopOpenThisScan) && preview is { } main && main.Layout.Title.IsEmpty && main.Layout.Button.HasValue)
+                ResumePlacementOverlay(manualVersion);
             bool readClosedHud = !observedEnemyFrame && RoundEnemyReader != null && boardMatch != null &&
                 !shopOpenThisScan && rawItems.Count == 0;
             if (readClosedHud)
@@ -570,6 +753,10 @@ public partial class OcrScannerService : IDisposable
                         Theme = _shopReader.Theme.ToString(), Items = diagnosticItems, RawText = rawText,
                         Economy = CurrentEconomy, TerminalLevel = _terminalTracker.Level, Error = diagnosticError });
             Interlocked.Exchange(ref _scanning, 0);
+            lock (_runLock)
+                if (!_disposed && _shopFrameTimer.Enabled && _shopFrames.Count > 0 &&
+                    Environment.TickCount64 - _shopFrames[0].Tick > 350)
+                    _ = ScanNowAsync();
         }
     }
 
@@ -644,24 +831,34 @@ public partial class OcrScannerService : IDisposable
         }
     }
 
-    private async Task<(ShopEconomy? Value, string? ObservedMode)> ReadEconomyAsync(byte[] screenshot, int width, int height, GameConnectionService? connection, int revision, long captureRevision, bool forceFundsRead, IReadOnlyList<ShopItem> cards, bool hudOnly = false)
+    private async Task<(ShopEconomy? Value, string? ObservedMode)> ReadEconomyAsync(byte[] screenshot, int width, int height, GameConnectionService? connection, int revision, long captureRevision, bool forceFundsRead, IReadOnlyList<ShopItem> cards, bool hudOnly = false, bool purchaseOnly = false)
     {
         if (EconomyReader is null) return default;
-        bool calibrationDue;
+        bool calibrationDue, verifyScene;
         ShopEconomy? previous;
         lock (_runLock)
         {
             calibrationDue = DateTime.UtcNow >= _nextEconomyRead;
-            if (revision != _runRevision || !forceFundsRead && !calibrationDue) return default;
-            previous = forceFundsRead && !calibrationDue && _purchases.CanReuseHudLayout(cards, width, height)
+            if (revision != _runRevision || !forceFundsRead && (!calibrationDue || purchaseOnly)) return default;
+            previous = forceFundsRead && (!calibrationDue || purchaseOnly) && _purchases.CanReuseHudLayout(cards, width, height)
                 ? _purchaseEconomy : null;
+            verifyScene = purchaseOnly && _purchases.NeedsConfirmation;
+            if (purchaseOnly && previous == null && _purchaseEconomy is { IsPreparation: true, Round: not null, Mode: not null })
+            {
+                previous = _purchaseEconomy;
+                verifyScene = true;
+            }
         }
-        var read = previous is not null
-            ? previous with { Money = await EconomyReader.ReadMoneyAsync(screenshot, width, height) }
+        // An older queued confirmation can cross a round boundary while showing similar offers.
+        // Re-read the round, phase and mode even if the previous lightweight card check failed.
+        var read = previous is not null && verifyScene
+            ? await EconomyReader.ReadPurchaseAsync(screenshot, width, height, previous)
+            : previous is not null ? previous with { Money = await EconomyReader.ReadMoneyAsync(screenshot, width, height) }
             : hudOnly ? await EconomyReader.ReadPreparationAsync(screenshot, width, height)
             : await EconomyReader.ReadAsync(screenshot, width, height);
         // A closed shop has no prices. Do not treat a false OCR round outside preparation as a new round.
         if (hudOnly && !read.IsPreparation) read = read with { Round = null, Mode = null };
+        if (purchaseOnly) return (read, null);
         var result = PublishEconomyReading(read, connection, revision, captureRevision, fullHud: previous is null);
         return (result, previous == null ? result?.Mode : null);
     }
@@ -689,6 +886,8 @@ public partial class OcrScannerService : IDisposable
         lock (_runLock)
         {
             _runRevision++;
+            _shopFrames.Clear();
+            _lastShopMoney = [];
             RecognitionDiagnostics.Samples.ClearRecent();
             _economy.Reset();
             _liveState?.Clear();
@@ -773,6 +972,8 @@ public partial class OcrScannerService : IDisposable
             _scanTimer.Stop();
             _scanTimer.Dispose();
             _panelProbeTimer.Dispose();
+            _shopFrameTimer.Dispose();
+            _shopFrames.Clear();
             _bufferedPanel = null;
         }
     }

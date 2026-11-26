@@ -11,7 +11,6 @@ if ([IO.Path]::GetDirectoryName($app) -ne $root) { throw '应用目录必须位�
 if (-not (Test-Path -LiteralPath (Join-Path $app 'HongxueCompanion.exe') -PathType Leaf)) { throw '主程序缺失' }
 if (Test-Path -LiteralPath (Join-Path $root 'HongxueCompanion.exe')) { throw '请使用新的打包目录' }
 & (Join-Path $PSScriptRoot 'Build-PortableLauncher.ps1') -OutputPath (Join-Path $root 'HongxueCompanion.exe') -Version $Version -Commit $Commit
-& (Join-Path $PSScriptRoot 'Build-PortableLauncher.ps1') -OutputPath (Join-Path $root 'ASPAssistant.App.exe') -Version $Version -Commit $Commit -LegacyUpdater
 if (Test-Path -LiteralPath (Join-Path $app 'licenses')) {
     Move-Item -LiteralPath (Join-Path $app 'licenses') -Destination (Join-Path $root 'licenses')
 }
@@ -25,8 +24,7 @@ foreach ($name in @('LICENSE','LICENSE.upstream','NOTICE')) {
 
 双击根目录 HongxueCompanion.exe 启动。app 文件夹包含主程序、运行依赖和游戏数据，请保留完整目录。
 个人配置继续保存在用户 AppData 的 HongxueCompanion 目录；实际路径可在“设置 → 关于 → 数据”查看。
-ASPAssistant.App.exe 为旧版自动更新和旧快捷方式保留的兼容入口；日常推荐使用 HongxueCompanion.exe。
-v1.4.0 及之后版本可直接自动更新；更早版本建议完整下载安装。
+v1.9.9 用户可在助手内检查更新。仍使用 ASPAssistant.App.exe 的用户请下载完整包，解压到新目录并使用 HongxueCompanion.exe 启动。
 更新前请完全退出助手（包括托盘）。准备导入配置后，请完全退出并手动重开；下次启动时应用导入，并保留导入前备份。
 许可与第三方归属见 licenses 文件夹。
 "@ | Set-Content -LiteralPath (Join-Path $root '使用说明.txt') -Encoding utf8BOM

@@ -97,6 +97,35 @@ public class ShopEconomyReaderTests(ShopReaderFixture fixture) : IClassFixture<S
 
 public class ShopEconomyNumberTests
 {
+    [Fact]
+    public async Task UnchangedUpgradePriceReusesVotesWhileBalanceAndChangedPriceAreReread()
+    {
+        var ocr = new Mock<IOcrEngine>();
+        ocr.Setup(e => e.RecognizeRegionAsync(It.IsAny<byte[]>(), 0, 0, 1152, 97))
+            .ReturnsAsync([new("回合1", (600, 20, 90, 30)), new("休息一下", (900, 20, 100, 30))]);
+        ocr.Setup(e => e.RecognizeRegionAsync(It.IsAny<byte[]>(), 0, 896, 1152, 184))
+            .ReturnsAsync([new("升级", (300, 979, 60, 32))]);
+        int votes = 0, money = 8, cost = 5;
+        ocr.Setup(e => e.RecognizeLineAsync(It.IsAny<byte[]>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<int>()))
+            .Returns((byte[] _, int x, int y, int w, int h) =>
+            {
+                if (x < 500) votes++;
+                return Task.FromResult<IReadOnlyList<OcrTextResult>>([new((x < 500 ? cost : money).ToString(), (x, y, w, h))]);
+            });
+        using var frame = new Bitmap(1920, 1080);
+        var reader = new ShopEconomyReader(ocr.Object);
+        Assert.Equal(5, (await reader.ReadAsync(ImageBytes.Encode(frame), 1920, 1080)).UpgradeCost);
+        money = 2;
+        var stable = await reader.ReadAsync(ImageBytes.Encode(frame), 1920, 1080);
+        Assert.Equal(2, stable.Money);
+        Assert.Equal(5, stable.UpgradeCost);
+        Assert.Equal(3, votes);
+        frame.SetPixel(330, 820, Color.White);
+        cost = 4;
+        Assert.Equal(4, (await reader.ReadAsync(ImageBytes.Encode(frame), 1920, 1080)).UpgradeCost);
+        Assert.Equal(6, votes);
+    }
+
     [Theory]
     [InlineData("🎆终极模拟", "终极模拟")]
     [InlineData("◆ 险境模拟", "险境模拟")]

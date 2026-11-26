@@ -87,7 +87,6 @@ public partial class OperatorCard : UserControl
     {
         bool compact = columns == 3;
         CardBorder.Height = columns switch { 1 => 53, 2 => 53, _ => 51 };
-        TierRail.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         TrackingPortrait.Width = TrackingPortrait.Height = columns switch { 1 => 34, 2 => 26, _ => 30 };
         TrackingPortrait.Margin = columns == 1 ? new Thickness(7, 0, 9, 0) : new Thickness(4, 0, 4, 0);
         Grid.SetRowSpan(TrackingPortrait, compact ? 2 : 1);
@@ -100,6 +99,9 @@ public partial class OperatorCard : UserControl
         ActionButtons.Margin = compact ? new Thickness(0, 0, 0, 2) : new Thickness(0, 0, 4, 0);
         TrackButton.Width = BanButton.Width = columns == 1 ? 28 : 22;
         TrackButton.Height = BanButton.Height = compact ? 20 : 28;
+        Grid.SetColumnSpan(ActionButtons, 1);
+        Grid.SetColumnSpan(Identity, 1);
+        if (DataContext is Operator layoutOp) UpdateCustomLayout(layoutOp, columns);
     }
 
     public OperatorCard()
@@ -137,10 +139,49 @@ public partial class OperatorCard : UserControl
         TierRail.SetResourceReference(Border.BackgroundProperty,
             op.Tier >= 5 ? "EliteBrush" : op.Tier == 4 ? "AccentSolidBrush" : "BorderBrush");
 
-
+        ApplyCatalogLayout(CatalogColumns);
         UpdateTrackButton();
         UpdateBanButton();
         UpdateBannedDisplay();
+    }
+
+    private void UpdateCustomLayout(Operator op, int columns)
+    {
+        var catalogue = FindAncestor<OperatorBrowseView>();
+        CatalogTierBadge.Visibility = catalogue != null ? Visibility.Visible : Visibility.Collapsed;
+        TierRail.Visibility = catalogue == null && columns != 3 ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetRowSpan(CatalogTierBadge, columns == 3 ? 2 : 1);
+        bool showCarry = op.IsCustom && catalogue?.DataContext is Core.ViewModels.OperatorBrowseViewModel
+            { SelectedOperatorSource: Core.ViewModels.OperatorSourceFilter.Custom };
+        CarryButton.Visibility = showCarry ? Visibility.Visible : Visibility.Collapsed;
+        if (showCarry && columns > 1)
+        {
+            Grid.SetRowSpan(CatalogTierBadge, 1);
+            Grid.SetRowSpan(TrackingPortrait, 1);
+            TrackingPortrait.Width = TrackingPortrait.Height = columns == 3 ? 19 : 24;
+            TrackingPortrait.Margin = new Thickness(1,0,3,0);
+            Grid.SetColumnSpan(Identity, 2);
+            Identity.VerticalAlignment = VerticalAlignment.Center;
+            CovenantChips.Visibility = Visibility.Collapsed;
+            Grid.SetRow(ActionButtons, 1);
+            Grid.SetColumn(ActionButtons, 0);
+            Grid.SetColumnSpan(ActionButtons, 4);
+            ActionButtons.HorizontalAlignment = HorizontalAlignment.Right;
+            ActionButtons.Margin = new Thickness(0,0,2,1);
+            TrackButton.Height = BanButton.Height = 18;
+            CarryButton.Content = op.CarriedThisRun == true ? "✓" : "携";
+            CarryButton.Padding = new Thickness(3,0,3,0);
+        }
+        else
+        {
+            CarryButton.SetBinding(ContentControl.ContentProperty, new System.Windows.Data.Binding(nameof(Operator.CarryLabel)));
+            CarryButton.ClearValue(Control.PaddingProperty);
+        }
+    }
+
+    private void OnCarryClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is Operator op) FindAncestor<OperatorBrowseView>()?.ToggleCarry(op, CarryButton);
     }
 
     private T? FindAncestor<T>() where T : DependencyObject

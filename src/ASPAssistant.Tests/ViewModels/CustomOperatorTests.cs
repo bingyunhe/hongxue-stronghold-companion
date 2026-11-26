@@ -70,6 +70,52 @@ public class CustomOperatorTests
     }
 
     [Fact]
+    public async Task LegacyRosterGetsAnExplicitTierAndBothSkillsSurviveRestart()
+    {
+        var settings = new SettingsManager(Directory.CreateTempSubdirectory("custom-roster-").FullName);
+        var store = new JsonDataStore(Path.Combine(AppContext.BaseDirectory, "data"));
+        var op = (await store.LoadCustomOperatorsAsync()).Single(o => o.Name == "丰川祥子");
+        await settings.SaveCustomOperatorSelectionAsync([op.Name]);
+        op.SetRosterEntry((await settings.LoadCustomRosterAsync()).Single());
+        op.IsTierPending.Should().BeTrue();
+        op.IsAvailableForPlanning.Should().BeFalse();
+        var skill = op.SkillOptions.Single(s => s.Id == "skchr_oblvns_3");
+        var configured = new CustomRosterEntry(op.Name, 6, skill.Id, 1);
+        await settings.SaveCustomRosterAsync([configured]);
+        op.SetRosterEntry((await settings.LoadCustomRosterAsync()).Single());
+        op.Normal.Skill!.Description.Should().NotBeNullOrWhiteSpace();
+        op.Elite.Skill!.Description.Should().Be(skill.Elite.Description);
+        op.IsAvailableForPlanning.Should().BeTrue();
+        op.SetRunEntry(false);
+        op.IsAvailableForPlanning.Should().BeFalse();
+        var carried = configured with { Tier = 5 };
+        await settings.SaveDeployPoolAsync(new DeployPoolState { CarriedCustom = [carried] });
+        op.SetRunEntry(true, (await settings.LoadDeployPoolAsync()).CarriedCustom!.Single());
+        op.Tier.Should().Be(5);
+        op.SetRunEntry(null);
+        op.Tier.Should().Be(6);
+        Action duplicate = () => settings.SaveCustomRosterAsync([configured, carried]).GetAwaiter().GetResult();
+        duplicate.Should().Throw<JsonException>();
+        (await settings.LoadCustomRosterAsync()).Should().Equal(configured);
+    }
+
+    [Fact]
+    public void ManualPlanningEnforcesTwoPerTierForLocksAndSearch()
+    {
+        var ops = Enumerable.Range(0,6).Select(i => new Operator {Name = $"自选{i}", IsCustom = true, CoreCovenants = ["炎"]}).ToList();
+        foreach (var (op,i) in ops.Select((o,i) => (o,i))) op.SetRosterEntry(new(op.Name, i < 3 ? 5 : 6));
+        var planner = new LineupPlanner(ops, [new() { Name = "炎", BondType = "SEASON", ActivateCount = 1 }]);
+        PlannerRequest Request(params int[] locks) => new() { Goals = [new("炎", 4, 1, false, true)], PeopleOptions = [4], TransformOptions = [0],
+            LockedOperators = locks.Select(i => ops[i].Name).ToHashSet() };
+        planner.Plan(Request(0,1,2)).Error.Should().Contain("最多携带 2 人");
+        var results = planner.Plan(Request(0,3)).AllLineups.ToList();
+        results.Should().NotBeEmpty();
+        foreach (var team in results) team.Operators.Count(o => ops.Take(3).Any(candidate => candidate.Name == o.Name)).Should().Be(2);
+        foreach (var op in ops) op.SetRunEntry(false);
+        planner.Plan(Request()).AllLineups.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task TwelveSelectionsRoundTripIndependentlyAndRetainABackup()
     {
         var directory = Path.Combine(Path.GetTempPath(), "aspa-custom-" + Guid.NewGuid().ToString("N"));

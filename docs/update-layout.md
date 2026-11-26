@@ -2,6 +2,8 @@
 
 v1.9.3 过渡版保留根目录 `ASPAssistant.App.exe` 和现有依赖位置，使 v1.9.2 及兼容的旧更新器仍可安装它。它能读取后续发布包中的可选 `update-layout.json`。
 
+v1.10.0 发布包的根目录入口为 `HongxueCompanion.exe`。v1.9.9 用户可在助手内检查更新。仍依赖旧入口 `ASPAssistant.App.exe` 的用户请下载完整包，解压到新目录后使用新入口。
+
 清单位于安装包根目录，与 LICENSE、NOTICE 同层。ZIP 可以包含一个顶层文件夹，也可以直接包含包文件。版本 1 示例：
 
 ```json

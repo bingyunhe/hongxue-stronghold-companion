@@ -33,17 +33,31 @@ internal static class RoundRoutesViewTests
             overlay.Width = 1600; overlay.Height = 900;
             overlay.Show(); overlay.UpdateLayout();
             overlay.Measure(new Size(1600,900)); overlay.Arrange(new Rect(0,0,1600,900));
-            overlay.UpdateBoard(match.Map,camera,true);
-            overlay.UpdatePlacements(new PlacementPlan { Map = match.Map, ActiveCovenants = [], Checks = [], Bench = [],
-                Placed = [new("摆渡人",new(2,0),Facing.Right,PlacementRole.Damage,false,[],"摆渡人")] });
+            overlay.UpdateBoard(match.Map,camera,true,true);
+            var plan = new PlacementPlan { Map = match.Map, ActiveCovenants = [], Checks = [], Bench = [],
+                Placed = [new("摆渡人",new(2,0),Facing.Right,PlacementRole.Damage,false,[],"摆渡人")] };
+            overlay.UpdatePlacements(plan);
             var layer = (Canvas)canvas.Children[0];
             int gridAndPlan = layer.Children.Count;
-            overlay.UpdateBoard(match.Map,camera,false);
+            overlay.UpdateBoard(match.Map,camera,false,true);
+            Assert.NotEmpty(layer.Children.OfType<Polyline>());
+            Assert.DoesNotContain(layer.Children.OfType<TextBlock>(), t => t.Text is "地" or "高" or "特");
+            Assert.Single(layer.Children.OfType<Border>());
+            overlay.UpdatePlacements(null);
+            Assert.NotEmpty(layer.Children.OfType<Polyline>());
+            Assert.Empty(layer.Children.OfType<Border>());
+            overlay.UpdateBoard(match.Map,camera,false,false);
+            Assert.Empty(layer.Children);
+            overlay.UpdatePlacements(plan);
+            overlay.UpdateBoard(match.Map,camera,true,false);
+            Assert.Empty(layer.Children.OfType<Polyline>());
+            Assert.Contains(layer.Children.OfType<TextBlock>(), t => t.Text is "地" or "高" or "特");
+            overlay.UpdateBoard(match.Map,camera,false,false);
             int onlyPlan = layer.Children.Count;
             Assert.True(gridAndPlan > onlyPlan && onlyPlan >= 3);
-            overlay.UpdateBoard(null,null,false);
+            overlay.UpdateBoard(null,null,false,false);
             Assert.Empty(layer.Children);
-            overlay.UpdateBoard(match.Map,camera,true);
+            overlay.UpdateBoard(match.Map,camera,true,true);
             Assert.Equal(gridAndPlan,layer.Children.Count);
             canvas.Measure(new Size(1600,900)); canvas.Arrange(new Rect(0,0,1600,900)); canvas.UpdateLayout();
             var transparent = new RenderTargetBitmap(1600,900,96,96,PixelFormats.Pbgra32);
@@ -60,6 +74,41 @@ internal static class RoundRoutesViewTests
             using var output = File.Create(Path.Combine(TestOutput.Directory,$"desert-overlay-{night}.png")); png.Save(output);
         }
         finally { overlay.Close(); }
+    }
+
+    internal static void VerifyPalaceOverlay()
+    {
+        var maps = GarrisonBoardStore.LoadAsync(GarrisonRoundRoutesTests.DataDirectory).GetAwaiter().GetResult()!;
+        var map = maps.Find("palace")!;
+        var window = new ASPAssistant.App.Windows.OverlayWindow { Width = 1280, Height = 720,
+            Left = -20000, Top = -20000, Opacity = 0, Topmost = false, ShowActivated = false };
+        try
+        {
+            window.Show();
+            var canvas = (Canvas)window.FindName("OverlayCanvas");
+            var projection = maps.Cameras[BoardCamera.Expanded];
+            window.UpdateBoard(map, projection, false, false);
+            window.UpdatePlacements(new PlacementPlan { Map = map, ActiveCovenants = [], Checks = [], Bench = [],
+                Placed = [new("承曦格雷伊",new(1,1),Facing.Right,PlacementRole.Damage,false,[],"承曦格雷伊"),
+                          new("波登可",new(1,2),Facing.Right,PlacementRole.Support,false,[],"波登可")] });
+            var layer = (Canvas)canvas.Children[0];
+            Assert.Equal(6, layer.Children.Count);
+            Assert.Equal(2, layer.Children.OfType<Border>().Count());
+            if (Environment.GetEnvironmentVariable("ASPASSISTANT_PALACE_OVERLAY_FRAME") is not { } file) return;
+            canvas.Measure(new Size(1280,720)); canvas.Arrange(new Rect(0,0,1280,720)); canvas.UpdateLayout();
+            var visual = new DrawingVisual();
+            using (var context = visual.RenderOpen())
+            {
+                context.DrawImage(new BitmapImage(new Uri(file)), new Rect(0,0,1280,720));
+                context.DrawRectangle(new VisualBrush(canvas) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0,0,1280,720) },
+                    null, new Rect(0,0,1280,720));
+            }
+            var result = new RenderTargetBitmap(1280,720,96,96,PixelFormats.Pbgra32);
+            result.Render(visual);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(result));
+            using var output = File.Create(Path.Combine(TestOutput.Directory,"palace-plan-only.png")); png.Save(output);
+        }
+        finally { window.Close(); }
     }
 
     internal static void VerifyLiveRecommendations(bool night)
@@ -132,6 +181,7 @@ internal static class RoundRoutesViewTests
             modes.SelectedIndex = 0;
             deploy.ShowLiveRoster(new(null, null, []));
             deploy.SetRecognizedBoard(new(maps!.Find("desert_crates")!, BoardCamera.Expanded, 1, 1));
+            Assert.Equal("自动识别地图", ((TextBlock)deploy.FindName("MapSourceText")).Text);
             modes.SelectedIndex = 3;
             AwaitPlan(5);
             Assert.DoesNotContain("杰克", manual.Owned);
@@ -443,6 +493,7 @@ internal static class RoundRoutesViewTests
         Assert.Contains(canvas.Children.OfType<Border>(), tile => tile.ToolTip?.ToString() == "B6 · 占用待确认");
         Assert.Equal("上次识别：第 1 回合 17:02", ((TextBlock)deploy.FindName("LastFieldRead")).Text);
         var automaticField = (CheckBox)deploy.FindName("AutomaticFieldToggle");
+        Assert.Equal("实时识别阵容", System.Windows.Automation.AutomationProperties.GetName(automaticField));
         Assert.False(automaticField.IsChecked);
         Assert.False(((ListBox)deploy.FindName("FieldCountList")).IsEnabled);
         var bench = (System.Windows.Controls.Primitives.UniformGrid)deploy.FindName("BenchRow");
@@ -515,6 +566,10 @@ internal static class RoundRoutesViewTests
                 host.Width = 294 * scale;
                 host.Height = 520 * scale;
                 host.UpdateLayout();
+                var caption = (WrapPanel)deploy.FindName("MapCaption");
+                var sourceText = (TextBlock)deploy.FindName("MapSourceText");
+                if (caption.IsVisible)
+                    Assert.InRange(sourceText.TranslatePoint(new Point(sourceText.ActualWidth, 0), caption).X, 0, caption.ActualWidth + 1);
                 var image = new RenderTargetBitmap((int)surface.ActualWidth, (int)surface.ActualHeight, 96, 96, PixelFormats.Pbgra32);
                 image.Render(surface);
                 var encoder = new PngBitmapEncoder();

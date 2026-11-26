@@ -75,8 +75,6 @@ internal static class ExperimentalPurchaseViewTests
                         while (!speedControls.IsEnabled) Pump();
                     }
                     selector.SelectedIndex.Should().Be(2, "disabling keeps the chosen speed");
-                    var card = (Border)((StackPanel)((DockPanel)toggle.Parent).Parent).Parent;
-                    card.BringIntoView(); Pump();
                     toggle.ActualWidth.Should().BeApproximately(peer.ActualWidth, .5);
                     toggle.ActualHeight.Should().BeApproximately(peer.ActualHeight, .5);
                     var row = (DockPanel)VisualTreeHelper.GetParent(toggle);
@@ -85,7 +83,7 @@ internal static class ExperimentalPurchaseViewTests
                         var bounds = text.TransformToAncestor(row).TransformBounds(new Rect(text.RenderSize));
                         bounds.Right.Should().BeLessThanOrEqualTo(row.ActualWidth + .5);
                     }
-                    Save(card, theme, night, width, enabled);
+                    Save(row, speedControls, theme, night, width, enabled);
                 }
             }
             events.Should().Equal(true, false, true, false, true, false);
@@ -112,20 +110,30 @@ internal static class ExperimentalPurchaseViewTests
             foreach (var nested in Desc<T>(child)) yield return nested;
         }
     }
-    private static void Save(FrameworkElement view, GameShopTheme theme, bool night, int width, bool enabled)
+    private static void Save(DockPanel row, StackPanel speedControls, GameShopTheme theme, bool night, int width, bool enabled)
     {
         var dir = Path.Combine(TestOutput.Directory, "experimental-purchases"); Directory.CreateDirectory(dir);
+        var card = (Border)((StackPanel)row.Parent).Parent;
+        var controls = row.TransformToAncestor(card).TransformBounds(new Rect(row.RenderSize));
+        controls.Union(speedControls.TransformToAncestor(card).TransformBounds(new Rect(speedControls.RenderSize)));
+        card.BringIntoView(new Rect(0, controls.Top, card.ActualWidth, controls.Height));
         var frame = new DispatcherFrame();
         var timer = new DispatcherTimer(DispatcherPriority.ApplicationIdle) { Interval = TimeSpan.FromMilliseconds(240) };
         timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
         timer.Start(); Dispatcher.PushFrame(frame);
-        var root = (FrameworkElement)Window.GetWindow(view)!.Content;
+        var root = (FrameworkElement)Window.GetWindow(card)!.Content;
         root.UpdateLayout();
         var full = new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth), (int)Math.Ceiling(root.ActualHeight), 96, 96, PixelFormats.Pbgra32);
         full.Render(root);
-        var bounds = view.TransformToAncestor(root).TransformBounds(new Rect(view.RenderSize));
-        var bitmap = new CroppedBitmap(full, new Int32Rect((int)Math.Floor(bounds.Left), (int)Math.Floor(bounds.Top),
-            (int)Math.Ceiling(bounds.Right) - (int)Math.Floor(bounds.Left), (int)Math.Ceiling(bounds.Bottom) - (int)Math.Floor(bounds.Top)));
+        var transform = card.TransformToAncestor(root);
+        var shownControls = transform.TransformBounds(controls);
+        shownControls.Top.Should().BeGreaterThanOrEqualTo(0);
+        shownControls.Bottom.Should().BeLessThanOrEqualTo(root.ActualHeight);
+        var bounds = transform.TransformBounds(new Rect(0, controls.Top, card.ActualWidth, controls.Height));
+        bounds.Intersect(new Rect(0, 0, full.PixelWidth, full.PixelHeight));
+        var crop = new Int32Rect((int)Math.Floor(bounds.Left), (int)Math.Floor(bounds.Top),
+            (int)Math.Ceiling(bounds.Right) - (int)Math.Floor(bounds.Left), (int)Math.Ceiling(bounds.Bottom) - (int)Math.Floor(bounds.Top));
+        var bitmap = new CroppedBitmap(full, crop);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var file = File.Create(Path.Combine(dir, $"{theme}-{night}-{width}-{enabled}.png")); encoder.Save(file);
     }

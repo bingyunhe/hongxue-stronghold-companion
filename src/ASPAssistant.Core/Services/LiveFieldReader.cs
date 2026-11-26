@@ -33,8 +33,9 @@ public sealed partial class LiveFieldReader
     private readonly Lazy<FieldSpriteLibrary> _sprites;
     private readonly Lazy<FieldShapeLibrary> _shapes;
     private readonly Lazy<Dictionary<string,byte[][]>> _purchasePoses;
-    private sealed record BoardAppearance(string Name, int Tier, int[][] Samples);
+    private sealed record BoardAppearance(string Name, int Tier, int[][] Samples, bool Bench = false);
     private readonly BoardAppearance[] _boardAppearances;
+    private readonly BoardAppearance[] _benchAppearances;
     private sealed record CityFieldReference(Dictionary<string, int[]> Empty, BoardAppearance[] Looks, BoardAppearance[] TopRowLooks)
     {
         public Dictionary<string, byte[]> ReviewHeads { get; init; } = [];
@@ -45,7 +46,9 @@ public sealed partial class LiveFieldReader
     {
         _maps = maps;
         using var boardFile = File.OpenRead(Path.Combine(directory, "template", "field-board-appearances.json"));
-        _boardAppearances = System.Text.Json.JsonSerializer.Deserialize<BoardAppearance[]>(boardFile)!;
+        var appearances = System.Text.Json.JsonSerializer.Deserialize<BoardAppearance[]>(boardFile)!;
+        _boardAppearances = appearances.Where(a => !a.Bench).ToArray();
+        _benchAppearances = appearances.Where(a => a.Bench).ToArray();
         using var cityFile = File.OpenRead(Path.Combine(directory, "template", "city-expanded-field.json"));
         _cityField = System.Text.Json.JsonSerializer.Deserialize<CityFieldReference>(cityFile)!;
         _reviewHeads = _cityField.ReviewHeads.Select(entry =>
@@ -208,6 +211,8 @@ public sealed partial class LiveFieldReader
             if (badge != null && (badge.X + 90 * scale >= frame.Width || badge.Y + 151 * scale >= frame.Height ||
                 slot.Bench && HasSummonCount(frame, badge, scale))) { Trace("超出取样边界或整备区召唤物"); return; }
             var foot = new Point((int)((badge?.X ?? x) + 35 * scale), (int)((badge?.Y ?? y) + (slot.Bench ? 132 : 112) * scale));
+            if (identify && slot.Bench)
+                boardLook = MatchBoardAppearance(_benchAppearances, frame, foot.X, foot.Y, tile, badge!.Tier, out boardError);
             if (!slot.Bench && badge is { Score: >= .76 })
             {
                 double dx=(foot.X-cx)/tile+.085,dy=(foot.Y-cy)/tile+.11;
@@ -215,7 +220,7 @@ public sealed partial class LiveFieldReader
             }
             var tier = boardLook?.Tier ?? badge?.Tier ?? 0; // Occupied without a readable tier badge.
             bool obscured = boardLook == null && badge != null && (!HasUnitEvidence(frame, badge, frame.Width, frame.Height, !slot.Bench)
-                || tier == 4 && badge!.Score < .73);
+                || !slot.Bench && tier == 4 && badge!.Score < .73);
             if (obscured && !anchored && tier != 1 && (slot.Bench || tier != 4))
             {
                 if (!TryBenchShape()) Trace(city ? SlotReading.Uncertain : "身体特征不足");
@@ -302,7 +307,10 @@ public sealed partial class LiveFieldReader
                 bool sparseAndDense = name==best.Key && scores[best.Key]<=28 && margin>=3;
                 if (agrees || distinctive || sparseAndDense) independent=best.Key;
             }
-            marks.Add(mark with { StandaloneName=independent });
+            // With an IV badge recovered from its ink, a few pixels of anchor shift can
+            // change the sparse colour winner. Let the bench silhouette identify it.
+            marks.Add(slot.Bench && tier == 4 && badge!.Score < .73
+                ? mark with { SpriteName = null } : mark with { StandaloneName = independent });
 
             bool TryBenchShape()
             {
@@ -531,7 +539,13 @@ public sealed partial class LiveFieldReader
                         coarseMatch = true;
                         break;
                     }
-                    if (!coarseMatch)
+                    int benchColorTier = 0;
+                    if (!board && expanded && !coarseMatch)
+                    {
+                        benchColorTier = BenchNumeralTier(px, x, y, actualSize);
+                        if (benchColorTier == 0) continue;
+                    }
+                    else if (!coarseMatch)
                     {
                         // Narrow coloured numerals can fall between coarse samples.
                         if (!board || !expanded || lower) continue;
@@ -544,14 +558,18 @@ public sealed partial class LiveFieldReader
                             Sample(px, xx, yy, actualSize, 20, lower ? 10 : 0, fine); Normalize(fine);
                             foreach (var t in templates)
                             {
-                                if (!coarseMatch && t.Tier is not (3 or 4)) continue;
+                                if (!coarseMatch && (board ? t.Tier is not (3 or 4) : t.Tier != benchColorTier)) continue;
                                 double score = Dot(lower ? t.LowerFine : t.Fine, fine);
                                 if (best is not null && score <= best.Score) continue;
                                 if (score < .73)
                                 {
                                     // 一阶细竖线的外框会被邻格小人挡住一角；两侧亮边均清晰时允许轻微缺损。
-                                    if (!board || lower) continue;
-                                    if (t.Tier == 4)
+                                    if (!board)
+                                    {
+                                        if (!expanded || t.Tier != 4 || score < .71 || BenchNumeralTier(px, xx, yy, actualSize) != 4) continue;
+                                    }
+                                    else if (lower) continue;
+                                    else if (t.Tier == 4)
                                     {
                                         if (score < .69) continue;
                                         int rim = px.Color(xx + outer, yy + mid);
@@ -569,6 +587,21 @@ public sealed partial class LiveFieldReader
                 }
         }
         return best;
+    }
+
+    // On a textured bench the IV and VI outlines blend into the floor.
+    // Require the same ink on the numeral and one side of its frame.
+    private static int BenchNumeralTier(BmpPixels pixels, int x, int y, int size)
+    {
+        int Ink(int offset)
+        {
+            int rgb = pixels.Color(x + offset, y + size / 2);
+            int r = rgb >> 16, g = (rgb >> 8) & 255, b = rgb & 255;
+            if (b - r > 60 && g - r > 45 && b > g) return 4;
+            return r - g > 65 && g - b > 55 ? 6 : 0;
+        }
+        int digit = Ink(size / 2);
+        return digit != 0 && (Ink(1) == digit || Ink(2) == digit || Ink(size - 2) == digit || Ink(size - 3) == digit) ? digit : 0;
     }
 
     // 整备区召唤物的数量标签：角标右侧为暗色胶囊，内部有亮色 X 与数字。

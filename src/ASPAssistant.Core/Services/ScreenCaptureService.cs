@@ -67,6 +67,8 @@ public class ScreenCaptureService
         return CaptureDesktopScreen(connection);
     }
 
+    public byte[]? CaptureShopFrame() => Connection.CaptureMuMuShopFrame(MaxCaptureWidth);
+
     private byte[]? CaptureDesktopScreen(GameConnectionService connection)
     {
         var hwnd = connection.FindGameWindow();

@@ -29,6 +29,7 @@ internal static class ProjectSharingViewTests
         var strategies = store.LoadStrategiesAsync().GetAwaiter().GetResult();
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         var directory = Path.Combine(Path.GetTempPath(), "project-sharing-" + Guid.NewGuid().ToString("N"));
+        var preferences = new SettingsManager(directory);
         var calculator = new CovenantCalculator(operators, [], new Dictionary<string, string>());
         using var handler = new GuideShareHandler();
         using var http = new HttpClient(handler);
@@ -37,13 +38,81 @@ internal static class ProjectSharingViewTests
             new TrackingViewModel(), new GameStateViewModel(), new BanViewModel(), new EnemyViewModel(),
             new LineupViewModel(new LineupStore(Path.Combine(directory, "lineups"), calculator.EquipmentRules), calculator),
             share, operators, [], strategies,
-            new SettingsManager(directory), theme, new SidePanelPositionSettings { FreeMovement = true },
+            preferences, theme, new SidePanelPositionSettings { FreeMovement = true },
             appearance: new SidebarAppearance { Theme = theme, Night = new() { [theme] = night } })
             { Opacity = 0, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000, Height = 650 };
         panel.Show();
         ThemeManager.Apply(theme, night);
         try
         {
+            var deploy = panel.TrackingView.DeployPage;
+            var pool = new DeployPoolState { ShowInGame = true };
+            var maps = Task.Run(() => GarrisonBoardStore.LoadAsync(Path.Combine(AppContext.BaseDirectory, "data"))).GetAwaiter().GetResult()!;
+            deploy.Initialize(operators.GroupBy(o => o.Name).ToDictionary(g => g.Key, g => g.First()), [], maps,
+                panel.TrackingVm, preferences, pool, pool.ShowInGame);
+            panel.InitBoardOverlay(false, false, pool);
+            deploy.SetRecognizedBoard(new(maps.Find("palace")!, BoardCamera.Expanded, 1, 1));
+            var placementSwitch = panel.PlacementOverlayToggle;
+            var routeSwitch = panel.EnemyRouteOverlayToggle;
+            int placementChanges = 0, routeChanges = 0;
+            deploy.ShowInGameChanged += _ => placementChanges++;
+            panel.EnemyRouteOverlayToggled += _ => routeChanges++;
+            placementSwitch.IsChecked.Should().BeTrue();
+            deploy.EnemyRouteToggle.IsChecked.Should().BeFalse();
+
+            var mainTabs = (TabControl)panel.FindName("MainTabs");
+            mainTabs.SelectedItem = mainTabs.Items.OfType<TabItem>().Single(t => t.Content == panel.TrackingView);
+            panel.TrackingView.TrackingPageList.SelectedIndex = 2;
+            Pump();
+            WaitUntil(() => panel.TrackingView.Opacity >= .99999 && deploy.Opacity >= .99999);
+            // Capture the completed page; offscreen WPF windows can retain an earlier compositor frame.
+            foreach (var page in new FrameworkElement[] { panel.TrackingView, deploy })
+            {
+                page.BeginAnimation(UIElement.OpacityProperty, null);
+                page.Opacity = 1;
+                if (page.RenderTransform is TranslateTransform offset)
+                {
+                    offset.BeginAnimation(TranslateTransform.XProperty, null);
+                    offset.BeginAnimation(TranslateTransform.YProperty, null);
+                    offset.X = offset.Y = 0;
+                }
+            }
+            foreach (int width in new[] { 280, 400 })
+            {
+                panel.Width = width;
+                panel.UpdateLayout();
+                WaitUntil(() => deploy.OverlayOptions.IsVisible && deploy.EnemyRouteToggle.ActualWidth > 0);
+                var end = deploy.EnemyRouteToggle.TranslatePoint(new Point(deploy.EnemyRouteToggle.ActualWidth,0), deploy);
+                end.X.Should().BeLessThanOrEqualTo(deploy.RecomputeButton.TranslatePoint(new Point(), deploy).X);
+                Save((FrameworkElement)panel.Content, $"overlay-switches-{theme}-{night}-{width}");
+                var rowOffset = deploy.EnemyRouteToggle.TranslatePoint(new Point(), deploy).Y -
+                    deploy.InGameToggle.TranslatePoint(new Point(), deploy).Y;
+                if (width == 280) rowOffset.Should().BeGreaterThan(10);
+                else Math.Abs(rowOffset).Should().BeLessThan(2);
+            }
+
+            // Alternate between the settings copy and the deployment copy, including both mixed states.
+            placementSwitch.SetCurrentValue(CheckBox.IsCheckedProperty, false);
+            WaitUntil(() => deploy.InGameToggle.IsEnabled);
+            deploy.InGameToggle.IsChecked.Should().BeFalse();
+            deploy.EnemyRouteToggle.SetCurrentValue(CheckBox.IsCheckedProperty, true);
+            WaitUntil(() => routeSwitch.IsEnabled);
+            routeSwitch.IsChecked.Should().BeTrue();
+            var reloaded = new SettingsManager(directory);
+            Task.Run(reloaded.LoadDeployPoolAsync).GetAwaiter().GetResult().ShowInGame.Should().BeFalse();
+            Task.Run(reloaded.LoadShowEnemyRoutesAsync).GetAwaiter().GetResult().Should().BeTrue();
+            deploy.InGameToggle.SetCurrentValue(CheckBox.IsCheckedProperty, true);
+            WaitUntil(() => deploy.InGameToggle.IsEnabled);
+            placementSwitch.IsChecked.Should().BeTrue();
+            routeSwitch.SetCurrentValue(CheckBox.IsCheckedProperty, false);
+            WaitUntil(() => routeSwitch.IsEnabled);
+            deploy.EnemyRouteToggle.IsChecked.Should().BeFalse();
+            placementChanges.Should().Be(2);
+            routeChanges.Should().Be(2);
+            Task.Run(reloaded.LoadDeployPoolAsync).GetAwaiter().GetResult().ShowInGame.Should().BeTrue();
+            Task.Run(reloaded.LoadShowEnemyRoutesAsync).GetAwaiter().GetResult().Should().BeFalse();
+            mainTabs.SelectedIndex = 0;
+
             ((Button)panel.FindName("SettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var settings = (Border)panel.FindName("SettingsPanel");
             settings.Visibility.Should().Be(Visibility.Visible);
@@ -62,7 +131,7 @@ internal static class ProjectSharingViewTests
                 .Select(name => (FrameworkElement)panel.FindName(name)).ToArray();
             var pageControls = new[]
             {
-                new[] { "GameThemeSelector", "GameConnectionButton", "MultiLineupTrackingToggle", "AutomaticPurchaseTrackingToggle", "BoardOverlayToggle" },
+                new[] { "GameThemeSelector", "GameConnectionButton", "MultiLineupTrackingToggle", "AutomaticPurchaseTrackingToggle", "PlacementOverlayToggle", "BoardOverlayToggle", "EnemyRouteOverlayToggle" },
                 new[] { "DayNightSelector", "FollowModeThemeToggle", "UiThemeSelector", "UiScaleTargetSelector", "UiScaleValueBox", "UiScaleSlider", "ResetUiScaleButton", "FreeSidePanelMovementToggle", "ResetSidePanelPositionButton" },
                 new[] { "AssistantHotkeyBox", "RecognitionHotkeyBox" },
                 new[] { "CheckUpdateButton", "ProjectAddressText" },
@@ -122,7 +191,7 @@ internal static class ProjectSharingViewTests
                         var control = (FrameworkElement)panel.FindName(name);
                         if (!control.IsVisible)
                         {
-                            name.Should().BeOneOf("BoardOverlayToggle", "UiThemeSelector");
+                            name.Should().Be("UiThemeSelector");
                             continue;
                         }
                         control.ActualWidth.Should().BeGreaterThan(0, $"{name} remains usable in its category");
@@ -157,6 +226,12 @@ internal static class ProjectSharingViewTests
                         var bounds = item.TransformToAncestor(categories).TransformBounds(new Rect(item.RenderSize));
                         bounds.Left.Should().BeGreaterThanOrEqualTo(0);
                         bounds.Right.Should().BeLessThanOrEqualTo(categories.ActualWidth + 1);
+                    }
+                    if (page == 0)
+                    {
+                        routeSwitch.BringIntoView();
+                        Pump();
+                        Save((FrameworkElement)panel.Content, $"settings-overlay-switches-{theme}-{night}-{width}");
                     }
                     scroll.ScrollToTop();
                     Pump();

@@ -42,7 +42,7 @@ public sealed class AutoPlanner
 
     public AutoPlanResult Plan(AutoPlanRequest request, CancellationToken cancellationToken = default)
     {
-        var pool = _operators.Where(o => o.IsAvailableForSelection)
+        var pool = _operators.Where(o => o.IsAvailableForPlanning)
             .Where(o => !request.BannedOperators.Contains(o.Name) && !CovenantBanRules.HasMissingCovenant(o, request.MissingCovenants))
             .Where(o => !request.ExcludeMixedBannedOperators || !_planner.IsExcludedByBans(o, request.BannedCovenants))
             .ToList();
@@ -103,9 +103,26 @@ public sealed class AutoPlanner
         }
         if (final is null || goal is null) return (null, null, limited);
 
-        var holders = pool.Where(o => Holds(o, name)).ToList();
-        var stackers = pool.Select(o => (Op: o, Layers: LayersOn(o, name))).Where(x => x.Layers > 0)
-            .OrderBy(x => x.Op.Tier).ThenByDescending(x => x.Layers).ThenBy(x => x.Op.Name, StringComparer.Ordinal)
+        var finalCustom = final.Operators.Select(o => _byName.GetValueOrDefault(o.Name)).OfType<Operator>()
+            .Where(o => o.IsCustom).ToHashSet();
+        IEnumerable<Operator> WithinCarryLimit(IEnumerable<Operator> ordered)
+        {
+            var places = new[] { 2 - finalCustom.Count(o => o.Tier == 5), 2 - finalCustom.Count(o => o.Tier == 6) };
+            foreach (var op in ordered)
+            {
+                if (op.IsCustom && !finalCustom.Contains(op))
+                {
+                    if (places[op.Tier - 5] == 0) continue;
+                    places[op.Tier - 5]--;
+                }
+                yield return op;
+            }
+        }
+        var holders = WithinCarryLimit(pool.Where(o => Holds(o, name)).OrderBy(o => o.Tier)).ToList();
+        var stacking = pool.Select(o => (Op: o, Layers: LayersOn(o, name))).Where(x => x.Layers > 0)
+            .OrderBy(x => x.Op.Tier).ThenByDescending(x => x.Layers).ThenBy(x => x.Op.Name, StringComparer.Ordinal).ToList();
+        var availableStackers = WithinCarryLimit(stacking.Select(x => x.Op)).ToHashSet();
+        var stackers = stacking.Where(x => availableStackers.Contains(x.Op))
             .Select(x => new AutoPlanStacker(x.Op.Name, x.Op.Tier, x.Op.IconPath, x.Layers)).ToList();
         IEnumerable<AutoPlanStacker> Best(int maxTier) => stackers.Where(s => s.Tier <= maxTier)
             .OrderByDescending(s => s.LayersPerRound).ThenBy(s => s.Tier).Take(FieldedStackers);

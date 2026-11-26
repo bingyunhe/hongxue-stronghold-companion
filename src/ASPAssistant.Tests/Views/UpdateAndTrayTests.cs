@@ -210,9 +210,9 @@ internal static class UpdateAndTrayTests
                 dialog.Show();
                 Pump();
                 var hint = (TextBlock)dialog.FindName("DownloadHintText");
-                hint.Text.Should().Be(info.DownloadSizeText);
+                hint.Text.Should().Be("预计下载 7.19 MB（增量包）");
                 Save((FrameworkElement)dialog.Content, $"Delta-size-{night}");
-                dialog.ReportFailure("本机文件与旧版不一致。重试将下载完整包 199.46 MiB");
+                dialog.ReportFailure("本机文件与旧版不一致。重试将下载完整包（209.14 MB）");
                 dialog.UpdateLayout();
                 Save((FrameworkElement)dialog.Content, $"Delta-fallback-{night}");
                 dialog.ReportProgress(0.8);

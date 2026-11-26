@@ -37,7 +37,11 @@ public partial class ThemeAndHighlightTests
         var panel = new SidePanelWindow(browse, new(), tracking, new(), new(), new(),
             new LineupViewModel(new LineupStore(dir, calc.EquipmentRules), calc), new(calc.EquipmentRules, dir),
             operators, [], data.LoadStrategiesAsync().GetAwaiter().GetResult(), settings, GameShopTheme.Closure, initial, covenants: bonds)
-        { Width = 390, Height = 690, Top = 20, Left = 20, Opacity = 0, ShowActivated = false, ShowInTaskbar = false };
+        {
+            Width = 390, Height = 690, Top = 20, Left = 20, Opacity = 0, ShowActivated = false, ShowInTaskbar = false,
+            // Hover is raised explicitly below. The desktop cursor must not replace the shared tooltip.
+            IsHitTestVisible = false
+        };
         var dirShots = Directory.CreateDirectory(Path.Combine(TestOutput.Directory, "tooltip-settings")).FullName;
         void Pump() => panel.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         void WaitForRender()
@@ -56,6 +60,8 @@ public partial class ThemeAndHighlightTests
         }
         void Hover(FrameworkElement owner, Window window, bool right = true)
         {
+            owner.BringIntoView();
+            Pump();
             ToolTipService.GetInitialShowDelay(owner).Should().Be(250);
             ToolTipService.GetBetweenShowDelay(owner).Should().Be(800);
             Opening(owner).Handled.Should().BeFalse();
@@ -63,7 +69,8 @@ public partial class ThemeAndHighlightTests
             tip.Content.Should().BeSameAs(panel.PlannerVm.CovenantDetails.Single(c => c.Name == "精准"));
             tip.PlacementTarget = owner;
             tip.IsOpen = true; WaitForRender();
-            Descendants<TextBlock>(tip).Should().Contain(t => t.Text == "精准");
+            var visibleText = Descendants<TextBlock>(tip).Where(t => t.IsVisible).Select(t => t.Text).ToArray();
+            visibleText.Should().Contain("精准");
             var gap = right ? tip.PointToScreen(new Point()).X - window.PointToScreen(new Point(window.ActualWidth, 0)).X
                 : window.PointToScreen(new Point()).X - tip.PointToScreen(new Point(tip.ActualWidth, 0)).X;
             gap.Should().BeApproximately(8 * VisualTreeHelper.GetDpi(window).DpiScaleX, 2);
@@ -79,6 +86,7 @@ public partial class ThemeAndHighlightTests
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(panel.Dispatcher));
         try
         {
+            panel.Height = Math.Min(560, SystemParameters.WorkArea.Height);
             panel.Show(); Pump(); ThemeManager.Apply(GameShopTheme.Closure, night);
             panel.HoverEnabledToggle.IsChecked.Should().BeTrue();
             panel.HoverSide.SelectedIndex.Should().Be(0);
@@ -102,7 +110,7 @@ public partial class ThemeAndHighlightTests
             panel.HoverSide.SelectedIndex = 1; Saved();
             var work = SystemParameters.WorkArea;
             var picker = new OperatorPickerWindow(operators, "", new HashSet<string>()) { Owner = panel, Width = 580, Height = 520,
-                Opacity = 0, ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual,
+                Opacity = 0, ShowActivated = false, ShowInTaskbar = false, IsHitTestVisible = false, WindowStartupLocation = WindowStartupLocation.Manual,
                 Left = Math.Max(work.Left + 8, work.Right - 580 - 420), Top = work.Top + 60 };
             picker.Show(); Pump();
             var other = Descendants<ToggleButton>(picker).First(b => PanelToolTip.GetCovenant(b) == "精准");
