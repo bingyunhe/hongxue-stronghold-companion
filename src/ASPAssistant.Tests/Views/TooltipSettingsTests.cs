@@ -56,14 +56,23 @@ public partial class ThemeAndHighlightTests
         }
         void Hover(FrameworkElement owner, Window window, bool right = true)
         {
+            owner.BringIntoView();
+            Pump();
             ToolTipService.GetInitialShowDelay(owner).Should().Be(250);
             ToolTipService.GetBetweenShowDelay(owner).Should().Be(800);
             Opening(owner).Handled.Should().BeFalse();
             var tip = (ToolTip)owner.ToolTip;
             tip.Content.Should().BeSameAs(panel.PlannerVm.CovenantDetails.Single(c => c.Name == "精准"));
             tip.PlacementTarget = owner;
-            tip.IsOpen = true; WaitForRender();
-            Descendants<TextBlock>(tip).Should().Contain(t => t.Text == "精准");
+            tip.IsOpen = true;
+            var render = System.Diagnostics.Stopwatch.StartNew();
+            string[] visibleText;
+            do
+            {
+                WaitForRender();
+                visibleText = Descendants<TextBlock>(tip).Where(t => t.IsVisible).Select(t => t.Text).ToArray();
+            } while (!visibleText.Contains("精准") && render.Elapsed.TotalSeconds < 3);
+            visibleText.Should().Contain("精准");
             var gap = right ? tip.PointToScreen(new Point()).X - window.PointToScreen(new Point(window.ActualWidth, 0)).X
                 : window.PointToScreen(new Point()).X - tip.PointToScreen(new Point(tip.ActualWidth, 0)).X;
             gap.Should().BeApproximately(8 * VisualTreeHelper.GetDpi(window).DpiScaleX, 2);
@@ -79,6 +88,7 @@ public partial class ThemeAndHighlightTests
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(panel.Dispatcher));
         try
         {
+            panel.Height = Math.Min(560, SystemParameters.WorkArea.Height);
             panel.Show(); Pump(); ThemeManager.Apply(GameShopTheme.Closure, night);
             panel.HoverEnabledToggle.IsChecked.Should().BeTrue();
             panel.HoverSide.SelectedIndex.Should().Be(0);
